@@ -1,0 +1,26 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  bash:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Bash syntax
+        run: find . -type f \( -name '*.sh' -o -name '*.bash' -o -name mihomoctl \) -print0 | xargs -0 -n1 bash -n
+      - name: ShellCheck
+        run: shellcheck -x src/common.bash src/mihomoctl src/shell.bash install.sh uninstall.sh completions/mihomoctl.bash tests/*.sh
+      - name: Tests
+        run: bash tests/test.sh
+      - name: Secret scan
+        run: bash tests/secret-scan.sh
+      - name: Whitespace
+        run: git diff --check

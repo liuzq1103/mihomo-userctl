@@ -1,0 +1,212 @@
+#!/usr/bin/env bash
+set -u
+
+_muc_lib_dir=${MIHOMO_USERCTL_LIB_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mihomo-userctl}
+_muc_common="$_muc_lib_dir/common.bash"
+_muc_common_mode=$(stat -c '%a' -- "$_muc_common" 2>/dev/null || true)
+_muc_lib_mode=$(stat -c '%a' -- "$_muc_lib_dir" 2>/dev/null || true)
+if [[ ! -r $_muc_common || ! -O $_muc_common || ! -O $_muc_lib_dir ]]; then
+  printf 'mihomoctl: unsafe or missing runtime module: %s\n' "$_muc_common" >&2
+  exit 2
+fi
+if [[ ! $_muc_common_mode =~ ^[0-7]{3,4}$ || ! $_muc_lib_mode =~ ^[0-7]{3,4}$ ]]; then
+  printf 'mihomoctl: could not validate runtime module permissions\n' >&2
+  exit 2
+fi
+if (( (8#$_muc_common_mode & 022) != 0 || (8#$_muc_lib_mode & 022) != 0 )); then
+  printf 'mihomoctl: runtime modules must not be writable by group or others\n' >&2
+  exit 2
+fi
+# shellcheck source=common.bash
+source "$_muc_common"
+unset _muc_common_mode _muc_lib_mode
+
+usage() {
+  cat <<'EOF'
+Usage: mihomoctl COMMAND [OPTIONS]
+
+Commands:
+  start                 Start the user service and wait until authenticated proxying works
+  stop                  Stop the user service and wait for its loopback port to be released
+  restart               Restart the user service and wait until it is ready
+  status                Print a stable one-line service/listener status
+  ready                 Test service, listener, credentials, and an authenticated HTTP request
+  doctor                Run safe configuration and runtime diagnostics
+  logs [--lines N] [--follow]
+                        Read the user-service journal
+  version               Print mihomo-userctl and detected Mihomo versions
+  help                  Show this help
+EOF
+}
+
+load_config_or_exit() {
+  _muc_load_config || exit 2
+}
+
+cmd_start() {
+  local rc
+  load_config_or_exit
+  systemctl --user start "$MIHOMO_SERVICE" || exit 1
+  if _muc_wait_ready; then
+    printf 'service=up ready=up endpoint=127.0.0.1:%s shell=unchanged\n' "$MIHOMO_PORT"
+  else
+    rc=$?
+    printf 'mihomoctl: service started but authenticated readiness failed within %ss\n' "$MIHOMO_READY_TIMEOUT" >&2
+    (( rc == 2 )) && exit 2
+    exit 1
+  fi
+}
+
+cmd_stop() {
+  load_config_or_exit
+  systemctl --user stop "$MIHOMO_SERVICE" || exit 1
+  if _muc_wait_stopped; then
+    printf 'service=down listener=down endpoint=127.0.0.1:%s shell=unchanged\n' "$MIHOMO_PORT"
+  else
+    printf 'mihomoctl: service stopped but 127.0.0.1:%s remains occupied; no process was killed\n' "$MIHOMO_PORT" >&2
+    exit 1
+  fi
+}
+
+cmd_restart() {
+  local rc
+  load_config_or_exit
+  systemctl --user restart "$MIHOMO_SERVICE" || exit 1
+  if _muc_wait_ready; then
+    printf 'service=up ready=up endpoint=127.0.0.1:%s shell=unchanged\n' "$MIHOMO_PORT"
+  else
+    rc=$?
+    printf 'mihomoctl: service restarted but authenticated readiness failed within %ss\n' "$MIHOMO_READY_TIMEOUT" >&2
+    (( rc == 2 )) && exit 2
+    exit 1
+  fi
+}
+
+cmd_status() {
+  local service=down listener=down enabled
+  load_config_or_exit
+  _muc_service_active && service=up
+  _muc_listening && listener=up
+  enabled=$(_muc_service_enabled_state)
+  [[ -n $enabled ]] || enabled=unknown
+  printf 'service=%s enabled=%s listener=%s endpoint=127.0.0.1:%s\n' \
+    "$service" "$enabled" "$listener" "$MIHOMO_PORT"
+  [[ $service == up && $listener == up ]]
+}
+
+cmd_ready() {
+  local rc
+  load_config_or_exit
+  if _muc_probe; then
+    printf 'ready=up endpoint=127.0.0.1:%s\n' "$MIHOMO_PORT"
+  else
+    rc=$?
+    printf 'ready=down endpoint=127.0.0.1:%s\n' "$MIHOMO_PORT" >&2
+    (( rc == 2 )) && exit 2
+    exit 1
+  fi
+}
+
+doctor_line() {
+  printf '%-12s %s\n' "$1" "$2"
+}
+
+cmd_doctor() {
+  local failed=0 command enabled service=down listener=down
+  for command in bash systemctl ss curl journalctl stat awk grep id; do
+    if command -v "$command" >/dev/null 2>&1; then
+      doctor_line "$command" ok
+    else
+      doctor_line "$command" missing
+      failed=1
+    fi
+  done
+  if ! _muc_load_config; then
+    doctor_line config invalid
+    exit 2
+  fi
+  doctor_line config ok
+  if _muc_load_credentials; then
+    doctor_line credentials ok
+  else
+    doctor_line credentials invalid
+    exit 2
+  fi
+  unset MIHOMO_HTTP_PROXY MIHOMO_HTTPS_PROXY MIHOMO_ALL_PROXY
+  enabled=$(_muc_service_enabled_state)
+  [[ -n $enabled ]] || enabled=unknown
+  doctor_line enabled "$enabled"
+  [[ $enabled == disabled ]] || failed=1
+  _muc_service_active && service=up
+  _muc_listening && listener=up
+  doctor_line service "$service"
+  doctor_line listener "$listener"
+  doctor_line endpoint "127.0.0.1:$MIHOMO_PORT"
+  if [[ $service == up ]]; then
+    if _muc_probe; then
+      doctor_line readiness ok
+    else
+      doctor_line readiness failed
+      failed=1
+    fi
+  else
+    doctor_line readiness skipped-service-down
+  fi
+  doctor_line secrets redacted
+  (( failed == 0 ))
+}
+
+cmd_logs() {
+  local lines=50 follow=0
+  load_config_or_exit
+  while (( $# )); do
+    case $1 in
+      --lines)
+        if (( $# < 2 )) || [[ ! $2 =~ ^[0-9]+$ ]] || (( $2 < 1 || $2 > 10000 )); then
+          _muc_err "--lines requires a number between 1 and 10000"
+          exit 2
+        fi
+        lines=$2
+        shift 2
+        ;;
+      --follow|-f)
+        follow=1
+        shift
+        ;;
+      *)
+        _muc_err "unknown logs option: $1"
+        exit 2
+        ;;
+    esac
+  done
+  if (( follow )); then
+    journalctl --user -u "$MIHOMO_SERVICE" --no-pager -n "$lines" -f
+  else
+    journalctl --user -u "$MIHOMO_SERVICE" --no-pager -n "$lines"
+  fi
+}
+
+cmd_version() {
+  local core=unavailable
+  if command -v mihomo >/dev/null 2>&1; then
+    core=$(mihomo -v 2>/dev/null | head -n 1 || true)
+    [[ -n $core ]] || core=unknown
+  fi
+  printf 'mihomo-userctl %s\n' "$MIHOMO_USERCTL_VERSION"
+  printf 'mihomo %s\n' "$core"
+}
+
+command_name=${1:-help}
+(( $# == 0 )) || shift
+case $command_name in
+  start) (( $# == 0 )) || { usage >&2; exit 2; }; cmd_start ;;
+  stop) (( $# == 0 )) || { usage >&2; exit 2; }; cmd_stop ;;
+  restart) (( $# == 0 )) || { usage >&2; exit 2; }; cmd_restart ;;
+  status) (( $# == 0 )) || { usage >&2; exit 2; }; cmd_status ;;
+  ready) (( $# == 0 )) || { usage >&2; exit 2; }; cmd_ready ;;
+  doctor) (( $# == 0 )) || { usage >&2; exit 2; }; cmd_doctor ;;
+  logs|log) cmd_logs "$@" ;;
+  version|--version|-V) (( $# == 0 )) || { usage >&2; exit 2; }; cmd_version ;;
+  help|--help|-h) usage ;;
+  *) _muc_err "unknown command: $command_name"; usage >&2; exit 2 ;;
+esac
