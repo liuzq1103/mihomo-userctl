@@ -118,15 +118,19 @@ mkdir -p "$INSTALL_HOME/.config/mihomo"
 chmod 700 "$INSTALL_HOME/.config/mihomo"
 cp "$XDG_CONFIG_HOME/mihomo/client.env" "$INSTALL_HOME/.config/mihomo/client.env"
 chmod 600 "$INSTALL_HOME/.config/mihomo/client.env"
-cat > "$INSTALL_HOME/.bashrc" <<'EOF'
+{
+cat <<'EOF'
 before=yes
-# Server shells are direct by default. The liuzq user-level Mihomo service is opt-in.
+EOF
+printf '# Server shells are direct by default. The %s user-level Mihomo service is opt-in.\n' "$(id -un)"
+cat <<'EOF'
 old proxy block
 if [ -n "${CODEX_REMOTE_PAYLOAD:-}" ]; then
   proxy_on || exit 1
 fi
 after=yes
 EOF
+} > "$INSTALL_HOME/.bashrc"
 printf 'active\n' > "$TEST_ROOT/service-state"
 assert 'installer safely replaces the recognized legacy block' env HOME="$INSTALL_HOME" XDG_CONFIG_HOME="$INSTALL_HOME/.config" XDG_DATA_HOME="$INSTALL_HOME/.local/share" PATH="$PATH" bash "$ROOT/install.sh" --port 17890 --bashrc "$INSTALL_HOME/.bashrc"
 assert 'loader markers and unrelated bashrc lines are preserved' bash -c 'grep -Fqx "before=yes" "$1" && grep -Fqx "after=yes" "$1" && [[ $(grep -c "mihomo-userctl managed loader" "$1") == 2 ]] && ! grep -Fq "old proxy block" "$1"' _ "$INSTALL_HOME/.bashrc"

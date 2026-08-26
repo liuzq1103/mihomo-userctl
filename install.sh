@@ -4,7 +4,6 @@ set -euo pipefail
 VERSION=0.1.0
 BEGIN_MARKER='# >>> mihomo-userctl managed loader >>>'
 END_MARKER='# <<< mihomo-userctl managed loader <<<'
-LEGACY_MARKER='# Server shells are direct by default. The liuzq user-level Mihomo service is opt-in.'
 
 die() { printf 'install.sh: %s\n' "$*" >&2; exit 2; }
 note() { printf '%s\n' "$*"; }
@@ -37,6 +36,8 @@ for command in bash systemctl curl ss journalctl stat awk grep id mktemp cp chmo
   command -v "$command" >/dev/null 2>&1 || die "missing command: $command"
 done
 systemctl --user show-environment >/dev/null 2>&1 || die 'the systemd user manager is unavailable'
+current_user=$(id -un) || die 'cannot determine the current user'
+LEGACY_MARKER="# Server shells are direct by default. The ${current_user} user-level Mihomo service is opt-in."
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 config_home=${XDG_CONFIG_HOME:-$HOME/.config}

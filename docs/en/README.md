@@ -1,0 +1,15 @@
+# English documentation
+
+If starting on a new server, read these in order:
+
+1. [Install Mihomo and configure the full stack](setup.md)
+2. [Install and use mihomo-userctl](../../README.md)
+3. [Architecture and data flow](architecture.md)
+4. [Security model](security.md)
+
+Other references:
+
+- [Copyable Codex installation prompt](codex-install-prompt.md)
+- [Migration from a large `.bashrc`](migration.md)
+- [Troubleshooting](troubleshooting.md)
+- [Mihoro inspiration and deliberate differences](mihoro-inspiration.md)

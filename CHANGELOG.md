@@ -2,6 +2,22 @@
 
 All notable changes follow a simplified Keep a Changelog format.
 
+## [Unreleased]
+
+### Changed
+
+- Corrected the project origin: preventing server downloads from consuming a
+  metered desktop proxy is the primary motivation; `.bashrc` modularization is
+  a later maintainability improvement.
+- Split every maintained guide into matching `docs/en` and `docs/zh-CN` trees.
+- Expanded setup to begin with a pinned, checksum-verified Mihomo installation.
+- Added copyable Codex installation prompts without replacing deterministic
+  installers or safety checks.
+
+### Added
+
+- CI coverage for bilingual topic completeness and relative Markdown links.
+
 ## [0.1.0] - 2026-08-26
 
 ### Added

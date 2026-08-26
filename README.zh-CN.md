@@ -6,7 +6,18 @@
 
 > 本项目是独立、非官方项目，与 MetaCubeX、Mihomo 和 Mihoro 均无隶属关系。
 
-[English](README.md)
+[English](README.md) · [文档语言导航](docs/README.md)
+
+## 为什么会有这个项目
+
+项目的起因不是“.bashrc 太长”，而是一次真实且昂贵的流量误用：科研服务器
+通过 SSH 反向转发借用了 Windows PC 上按流量付费的 Clash；服务器 Shell 又
+自动继承了代理变量。结果，大型 `axel`、S3 和科研数据下载在 PC 上表现为
+`ssh.exe` 流量，不仅消耗付费代理额度和 PC 下载带宽，还要再占用 PC 上传带宽
+把数据送回服务器。
+
+把约 200 行代理实现从 `.bashrc` 拆到独立模块，是后来为了方便审计、维护和
+复用所做的工程改进，并不是项目最初要解决的问题。
 
 ## 核心原则
 
@@ -29,6 +40,45 @@ with_proxy command / proxy_on / Codex 专用启动环境
 - `proxy_off` 不停止服务；
 - 普通新 Shell 总是先清空代理变量。
 
+## 项目边界
+
+本仓库只包含服务器端用户级控制器和 Shell 集成。PC 端 Clash/FlClash Merge、
+规则脚本和 server-policy 生成器属于另一个独立项目，不应放入本仓库，也不能
+把两个项目的安装或维护步骤混在一起。
+
+## 适用范围
+
+最典型的场景是：多人共享 Linux 服务器中的某一个普通用户，希望只让自己的
+Codex Remote、VS Code Remote、Git 或少量指定命令使用个人代理订阅，同时不改
+其他用户环境，并让自己运行的 `axel`、S3 和大型科研数据继续服务器直连。
+
+单用户服务器如果也希望“默认直连、按需代理”，同样适用。以下需求不适合：
+
+- 给整台服务器部署透明代理或单位统一网关；
+- 仅靠本工具实现 Linux UID 之间的严格端口隔离；严格隔离还需管理员防火墙；
+- 没有 Bash 或可用 systemd 用户管理器的环境；
+- 管理 PC 端 Clash/FlClash Merge、TUN、系统代理或路由；
+- 要求无人值守自动启动、自动升级 Mihomo 或自动管理订阅生命周期。
+
+本工具的操作范围只有安装者自己的 Home 文件和 `systemctl --user` 服务。其他
+账户、归属不明的监听和无关 SSH 会话都不在范围内。
+
+## 如何实现
+
+1. Mihomo 以当前 Linux 用户身份运行，只创建一个带认证的
+   `127.0.0.1:<每用户端口>` Mixed Listener。
+2. `mihomoctl` 把配置当数据校验，只控制指定用户服务；检查监听、执行认证
+   readiness，并只读取该用户 unit 的 journal。
+3. `shell.bash` 加载时先清空大小写八个代理变量。`proxy_on` 只有在权限、端点、
+   服务、监听和认证都通过后才导出变量；`with_proxy` 在子 Shell 中完成同样
+   操作，不污染父 Shell。
+4. `.bashrc` 只保留短 managed loader，在 source 前检查模块所有者和权限。
+   普通 Shell 加载失败时保持直连；明确配置的 Codex 兼容路径则 fail closed。
+5. 程序进入 Mihomo 后，由用户自己的规则决定 `DIRECT` 或代理节点；控制器不
+   改写规则、订阅或节点。
+
+更完整的数据流和信任边界见[架构文档](docs/zh-CN/architecture.md)。
+
 ## 适用条件
 
 - Linux、Bash 5 或更高版本；
@@ -38,12 +88,23 @@ with_proxy command / proxy_on / Codex 专用启动环境
 - 系统具备 `curl`、`ss`、`journalctl`、`stat`、`awk`、`grep`。
 
 v0.1 不下载或更新 Mihomo、不接管订阅、不安装面板、不启用 TUN。尚未安装
-Mihomo 的用户应先阅读[从零配置教程](docs/mihomo-setup.zh-CN.md)。
+Mihomo 的用户应从[安装 Mihomo 开始的完整教程](docs/zh-CN/setup.md)阅读。
 
 本项目也不生成 PC 端 Clash/FlClash Merge、路由规则或服务器策略 YAML。规则
 生成器应保留在独立仓库；`mihomo-userctl` 只负责服务器用户现有服务与 Shell。
 
 ## 安装
+
+### 最省脑：复制 Prompt 交给 Codex
+
+全新服务器可把[完整安装 Prompt](docs/zh-CN/codex-install-prompt.md)复制到新的
+Codex 任务。Codex 先审计系统、架构、端口和权限，遇到归属不明或需要管理员
+权限的步骤会停下；实际写入仍调用仓库中可测试、可重复、可回滚的脚本。
+
+Prompt 是编排入口，不是安装程序本身。这样既容易使用，也避免把不可审计的
+`curl | bash` 当成“一键安装”。
+
+### 已有 Mihomo：直接安装控制层
 
 ```bash
 ./install.sh --dry-run --port 17890
@@ -133,7 +194,7 @@ mihomoctl logs --follow
 - `stop` 只停止指定用户服务，端口不释放时只报告，绝不杀进程；
 - 不处理其他用户的配置、进程、服务或端口。
 
-完整说明见[安全模型](docs/security.zh-CN.md)。
+完整说明见[安全模型](docs/zh-CN/security.md)。
 
 ## Codex Remote
 
@@ -161,12 +222,13 @@ SSH 不设置该变量，仍然默认直连。
 
 ## 进一步阅读
 
-- [架构与数据流](docs/architecture.zh-CN.md)
-- [从零配置 Mihomo](docs/mihomo-setup.zh-CN.md)
-- [从大型 `.bashrc` 迁移](docs/migration.zh-CN.md)
-- [安全模型](docs/security.zh-CN.md)
-- [停电、端口、凭据等排错](docs/troubleshooting.zh-CN.md)
-- [借鉴 Mihoro 的范围](docs/mihoro-inspiration.md)
+- [从安装 Mihomo 开始配置完整环境](docs/zh-CN/setup.md)
+- [可直接复制的 Codex 安装 Prompt](docs/zh-CN/codex-install-prompt.md)
+- [架构与数据流](docs/zh-CN/architecture.md)
+- [从大型 `.bashrc` 迁移](docs/zh-CN/migration.md)
+- [安全模型](docs/zh-CN/security.md)
+- [停电、端口、凭据等排错](docs/zh-CN/troubleshooting.md)
+- [借鉴 Mihoro 的范围](docs/zh-CN/mihoro-inspiration.md)
 
 ## 许可证
 

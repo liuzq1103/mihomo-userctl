@@ -21,6 +21,8 @@ jobs:
         run: shellcheck -x src/common.bash src/mihomoctl src/shell.bash install.sh uninstall.sh completions/mihomoctl.bash tests/*.sh
       - name: Tests
         run: bash tests/test.sh
+      - name: Documentation structure and links
+        run: bash tests/docs-test.sh
       - name: Secret scan
         run: bash tests/secret-scan.sh
       - name: Whitespace
