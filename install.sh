@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION=0.1.0
+VERSION=0.1.1
 BEGIN_MARKER='# >>> mihomo-userctl managed loader >>>'
 END_MARKER='# <<< mihomo-userctl managed loader <<<'
 
@@ -11,20 +11,27 @@ note() { printf '%s\n' "$*"; }
 usage() {
   cat <<'EOF'
 Usage: ./install.sh [--port PORT] [--bashrc PATH] [--dry-run]
+       ./install.sh --suggest-port
 
 The first installation requires --port. Existing installations may omit it;
 an explicitly requested port must match the existing configuration.
+
+--suggest-port prints one currently unused candidate from 20000-29999 and
+changes nothing. It is not a reservation; confirm it before installation.
 EOF
 }
 
 port=
 bashrc=${HOME}/.bashrc
 dry_run=0
+suggest_only=0
+bashrc_set=0
 while (( $# )); do
   case $1 in
     --port) [[ $# -ge 2 ]] || die '--port requires a value'; port=$2; shift 2 ;;
-    --bashrc) [[ $# -ge 2 ]] || die '--bashrc requires a path'; bashrc=$2; shift 2 ;;
+    --bashrc) [[ $# -ge 2 ]] || die '--bashrc requires a path'; bashrc=$2; bashrc_set=1; shift 2 ;;
     --dry-run) dry_run=1; shift ;;
+    --suggest-port) suggest_only=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
@@ -32,12 +39,30 @@ done
 
 [[ $(uname -s) == Linux ]] || die 'Linux is required'
 [[ -n ${BASH_VERSION:-} ]] || die 'run this installer with Bash'
+if ((suggest_only)); then
+  [[ -z $port && $dry_run -eq 0 && $bashrc_set -eq 0 ]] ||
+    die '--suggest-port cannot be combined with installation options'
+  for command in ss id; do
+    command -v "$command" >/dev/null 2>&1 || die "missing command: $command"
+  done
+  uid=$(id -u) || die 'cannot determine the current UID'
+  start=$((20000 + uid % 10000))
+  for ((offset=0; offset<10000; offset++)); do
+    candidate=$((20000 + (start - 20000 + offset) % 10000))
+    if ! listeners=$(ss -H -ltn "sport = :$candidate" 2>/dev/null); then
+      die 'ss failed while checking candidate ports'
+    fi
+    if [[ -z $listeners ]]; then
+      printf '%s\n' "$candidate"
+      exit 0
+    fi
+  done
+  die 'no unused candidate was found in 20000-29999'
+fi
 for command in bash systemctl curl ss journalctl stat awk grep id mktemp cp chmod mv mkdir date; do
   command -v "$command" >/dev/null 2>&1 || die "missing command: $command"
 done
 systemctl --user show-environment >/dev/null 2>&1 || die 'the systemd user manager is unavailable'
-current_user=$(id -un) || die 'cannot determine the current user'
-LEGACY_MARKER="# Server shells are direct by default. The ${current_user} user-level Mihomo service is opt-in."
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 config_home=${XDG_CONFIG_HOME:-$HOME/.config}
@@ -65,25 +90,16 @@ fi
 [[ -z $existing_port || $existing_port == "$port" ]] || die "requested port conflicts with existing config ($existing_port)"
 
 managed_count=0
-legacy_count=0
 if [[ -f $bashrc ]]; then
   managed_count=$(grep -Fxc "$BEGIN_MARKER" "$bashrc" || true)
-  legacy_count=$(grep -Fxc "$LEGACY_MARKER" "$bashrc" || true)
 fi
 (( managed_count <= 1 )) || die 'multiple managed loader blocks found in .bashrc'
-(( legacy_count <= 1 )) || die 'multiple legacy proxy blocks found in .bashrc'
-if (( managed_count == 0 && legacy_count == 1 )); then
-  grep -Fq 'if [ -n "${CODEX_REMOTE_PAYLOAD:-}" ]; then' "$bashrc" ||
-    die 'legacy block end marker was not found; refusing an ambiguous rewrite'
-fi
 
 if (( dry_run )); then
   note "would install mihomo-userctl $VERSION to $bin_file and $lib_dir"
   [[ -f $config_file ]] || note "would create $config_file with port $port"
   if (( managed_count == 1 )); then
     note "would refresh the managed loader in $bashrc"
-  elif (( legacy_count == 1 )); then
-    note "would replace the recognized legacy proxy block in $bashrc"
   else
     note "would append the managed loader to $bashrc"
   fi
@@ -142,19 +158,6 @@ if (( managed_count == 1 )); then
     !skipping { print }
     END { if (skipping) exit 3 }
   ' "$bashrc" > "$bashrc_tmp" || { cp -p -- "$backup" "$bashrc"; die 'failed to refresh .bashrc loader'; }
-elif (( legacy_count == 1 )); then
-  awk -v legacy="$LEGACY_MARKER" -v loader="$loader_file" '
-    $0 == legacy { skipping=1; codex=0; next }
-    skipping && index($0, "CODEX_REMOTE_PAYLOAD") { codex=1; next }
-    skipping && codex && $0 == "fi" {
-      while ((getline line < loader) > 0) print line
-      close(loader)
-      skipping=0
-      next
-    }
-    !skipping { print }
-    END { if (skipping) exit 3 }
-  ' "$bashrc" > "$bashrc_tmp" || { cp -p -- "$backup" "$bashrc"; die 'failed to migrate legacy .bashrc block'; }
 else
   cp -- "$bashrc" "$bashrc_tmp"
   printf '\n' >> "$bashrc_tmp"

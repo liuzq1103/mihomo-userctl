@@ -1,17 +1,15 @@
 # Architecture and data flow
 
-## The original network failure
+## Problem model
 
 ```text
-server process
-  -> inherited proxy variables
-  -> SSH reverse forward
-  -> Windows ssh.exe
-  -> metered desktop Clash proxy
+ordinary user on a shared server
+  -> normal downloads remain on the server direct connection
+  -> selected tools explicitly enter the user's local proxy
 ```
 
-The new boundary moves the proxy endpoint onto the server user account. It
-does not transparently capture traffic:
+The boundary keeps the proxy endpoint inside the server user account and does
+not transparently capture traffic:
 
 ```text
 ordinary process -> server direct network

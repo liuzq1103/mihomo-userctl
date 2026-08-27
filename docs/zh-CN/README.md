@@ -10,6 +10,5 @@
 其他资料：
 
 - [可直接复制的 Codex 安装 Prompt](codex-install-prompt.md)
-- [从大型 `.bashrc` 迁移](migration.md)
 - [故障排查](troubleshooting.md)
 - [借鉴 Mihoro 的范围和明确差异](mihoro-inspiration.md)

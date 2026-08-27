@@ -13,16 +13,15 @@ authenticated, loopback-only Mihomo listener.
 
 [简体中文](README.zh-CN.md) · [Documentation languages](docs/README.md)
 
-## Why this exists
+## Problem solved
 
-This project began with a costly failure mode, not with a long `.bashrc`.
-A shared research server inherited proxy variables pointing to an SSH reverse
-forward into a Windows PC's metered Clash proxy. Large `axel`, S3, and research
-dataset downloads then appeared on the PC as `ssh.exe` traffic. They consumed
-paid proxy quota and PC download bandwidth, then used the PC upload path again
-to reach the server.
+On a multi-user server, one ordinary user may need a personal proxy for Codex
+Remote, VS Code Remote, Git, or a few selected commands. That must not silently
+proxy the user's large downloads, affect another account, or require a server
+administrator. Global proxy exports and transparent proxying are too broad for
+this use case.
 
-The intended model is the opposite:
+`mihomo-userctl` makes the boundary explicit:
 
 ```text
 normal shell / axel / S3 / large dataset
@@ -34,10 +33,7 @@ with_proxy / proxy_on / selected remote tooling
   -> routing policy decides DIRECT or a proxy node
 ```
 
-Moving service management, credential parsing, readiness checks, and Shell
-functions out of `.bashrc` came later. It makes the policy auditable and
-maintainable, but is not the original reason for the project. The resulting
-layout is:
+The implementation is kept outside `.bashrc` so it can be tested and audited:
 
 ```text
 ~/.local/bin/mihomoctl
@@ -102,7 +98,7 @@ See [architecture and data flow](docs/en/architecture.md) for the trust boundary
 - an authenticated Mixed listener bound only to `127.0.0.1`
 - `curl`, `ss`, `journalctl`, `stat`, `awk`, `grep`
 
-This v0.1 release does not download Mihomo, subscriptions, geodata, or a web
+The v0.1 series does not download Mihomo, subscriptions, geodata, or a web
 dashboard. Start with the [complete Mihomo setup tutorial](docs/en/setup.md) if the
 Mihomo service is not installed yet.
 
@@ -114,23 +110,39 @@ project only controls the server user's existing service and shell environment.
 
 ### Lowest-effort guided setup
 
-For a fresh server, copy the [Codex installation prompt](docs/en/codex-install-prompt.md)
-into a new Codex task. Codex audits the machine, stops at permission or ownership
-ambiguities, and uses the repository's deterministic scripts for changes. The
-prompt is an orchestration layer, not executable installation code.
+For a fresh server, switch a supported Codex client to Plan mode and copy the
+[Codex installation prompt](docs/en/codex-install-prompt.md) into a new task.
+It asks Codex to collect non-secret custom choices through interactive popups,
+audit the machine, stop at permission or ownership ambiguities, and use the
+repository's deterministic scripts. Secrets never belong in a popup or chat.
 
 ### Auditable command-line setup
 
-If Mihomo and its user service already exist, review the installer and run:
+There is no default port. Before configuring Mihomo, ask the installer for a
+currently unused candidate and review it:
 
 ```bash
-./install.sh --dry-run --port 17890
-./install.sh --port 17890 --bashrc "$HOME/.bashrc"
+PROXY_PORT=$(./install.sh --suggest-port)
+printf 'candidate=%s\n' "$PROXY_PORT"
+ss -lnt "sport = :$PROXY_PORT"
 ```
 
-The first install requires an explicit port. Re-running the installer is
-idempotent. An update preserves `client.env` and refuses a conflicting port.
-It never enables or starts the user service.
+The helper searches `20000-29999`, starting from a UID-derived position. It
+does not reserve the result. Users on the same server share one loopback
+namespace, so each user must select a different port, coordinate locally, and
+recheck immediately before binding. Listener authentication prevents casual
+use; it does not make duplicate port bindings possible.
+
+After the same port is configured in Mihomo and `client.env`, install the
+control layer explicitly:
+
+```bash
+./install.sh --dry-run --port "$PROXY_PORT"
+./install.sh --port "$PROXY_PORT" --bashrc "$HOME/.bashrc"
+```
+
+Re-running is idempotent. An update preserves `client.env` and refuses a
+conflicting port. It never enables or starts the user service.
 
 ## Daily use
 
@@ -200,7 +212,7 @@ and `2` usage, configuration, permission, or dependency failure.
 
 ```ini
 MIHOMO_SERVICE=mihomo
-MIHOMO_PORT=17890
+MIHOMO_PORT=PORT_SELECTED_BY_USER
 MIHOMO_READY_URL=https://example.com/
 MIHOMO_READY_TIMEOUT=30
 MIHOMO_STOP_TIMEOUT=5
@@ -235,7 +247,6 @@ is documented in [the Mihoro inspiration note](docs/en/mihoro-inspiration.md).
 - [Install Mihomo and configure the complete stack](docs/en/setup.md)
 - [Copyable Codex installation prompt](docs/en/codex-install-prompt.md)
 - [Architecture and data flow](docs/en/architecture.md)
-- [Migration](docs/en/migration.md)
 - [Security model](docs/en/security.md)
 - [Troubleshooting](docs/en/troubleshooting.md)
 

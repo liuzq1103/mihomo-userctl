@@ -10,6 +10,5 @@ If starting on a new server, read these in order:
 Other references:
 
 - [Copyable Codex installation prompt](codex-install-prompt.md)
-- [Migration from a large `.bashrc`](migration.md)
 - [Troubleshooting](troubleshooting.md)
 - [Mihoro inspiration and deliberate differences](mihoro-inspiration.md)

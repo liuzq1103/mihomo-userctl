@@ -8,16 +8,15 @@
 
 [English](README.md) · [文档语言导航](docs/README.md)
 
-## 为什么会有这个项目
+## 解决什么问题
 
-项目的起因不是“.bashrc 太长”，而是一次真实且昂贵的流量误用：科研服务器
-通过 SSH 反向转发借用了 Windows PC 上按流量付费的 Clash；服务器 Shell 又
-自动继承了代理变量。结果，大型 `axel`、S3 和科研数据下载在 PC 上表现为
-`ssh.exe` 流量，不仅消耗付费代理额度和 PC 下载带宽，还要再占用 PC 上传带宽
-把数据送回服务器。
+多人共享服务器中的某一个普通用户，可能只希望让自己的 Codex Remote、
+VS Code Remote、Git 或少量命令使用个人代理；同时不能让自己的大型下载悄悄
+进入代理，不能影响其他账户，也不应依赖管理员权限。全局导出代理变量或透明
+代理对这个场景都过于宽泛。
 
-把约 200 行代理实现从 `.bashrc` 拆到独立模块，是后来为了方便审计、维护和
-复用所做的工程改进，并不是项目最初要解决的问题。
+`mihomo-userctl` 把“用户服务是否运行”和“当前 Shell 是否使用代理”明确拆开，
+并把可测试、可审计的实现放在 `.bashrc` 之外。
 
 ## 核心原则
 
@@ -97,23 +96,36 @@ Mihomo 的用户应从[安装 Mihomo 开始的完整教程](docs/zh-CN/setup.md)
 
 ### 最省脑：复制 Prompt 交给 Codex
 
-全新服务器可把[完整安装 Prompt](docs/zh-CN/codex-install-prompt.md)复制到新的
-Codex 任务。Codex 先审计系统、架构、端口和权限，遇到归属不明或需要管理员
-权限的步骤会停下；实际写入仍调用仓库中可测试、可重复、可回滚的脚本。
+全新服务器建议先把受支持的 Codex 客户端切换到 Plan 模式，再把
+[完整安装 Prompt](docs/zh-CN/codex-install-prompt.md)复制到新任务。Prompt 要求
+Codex 用交互弹窗收集非秘密自定义项，先审计系统、架构、端口和权限，遇到归属
+不明或需要管理员权限的步骤立即停止；秘密不得进入弹窗或聊天。
 
 Prompt 是编排入口，不是安装程序本身。这样既容易使用，也避免把不可审计的
 `curl | bash` 当成“一键安装”。
 
-### 已有 Mihomo：直接安装控制层
+### 可审计的命令行安装
+
+项目没有默认端口。配置 Mihomo 前，先取得一个当时未监听的候选端口并人工
+确认：
 
 ```bash
-./install.sh --dry-run --port 17890
-./install.sh --port 17890 --bashrc "$HOME/.bashrc"
+PROXY_PORT=$(./install.sh --suggest-port)
+printf '候选端口=%s\n' "$PROXY_PORT"
+ss -lnt "sport = :$PROXY_PORT"
 ```
 
-首次安装必须明确指定端口。每个服务器用户应选择自己的端口；例如一个用户
-可以使用 `17890`，另一个用户使用 `17891`。端口不同只能减少误用，不能替代
-Linux UID 防火墙隔离。
+建议器从 `20000–29999` 中、以当前 UID 推导的位置为起点寻找空闲候选值，但
+不会预留端口。同一台服务器的用户共享回环网络命名空间，因此必须使用不同
+端口，并在绑定前再次检查、与同机用户协调。认证只能减少误用，不能让两个
+进程同时绑定相同地址和端口。
+
+将同一个端口写入 Mihomo 和 `client.env` 后，再显式安装：
+
+```bash
+./install.sh --dry-run --port "$PROXY_PORT"
+./install.sh --port "$PROXY_PORT" --bashrc "$HOME/.bashrc"
+```
 
 安装器会：
 
@@ -122,7 +134,7 @@ Linux UID 防火墙隔离。
 3. 创建权限 `600` 的非秘密配置；
 4. 保留已有 `client.env`；
 5. 备份 `.bashrc`；
-6. 精确替换已识别的旧代理函数块或更新 managed loader；
+6. 追加或精确更新本项目自己的 managed loader；
 7. 执行不泄露秘密的 `mihomoctl doctor`；
 8. 不启动、不 enable 服务。
 
@@ -132,7 +144,7 @@ Linux UID 防火墙隔离。
 
 ```bash
 proxy_status
-# shell=direct service=up endpoint=127.0.0.1:17890
+# shell=direct service=up endpoint=127.0.0.1:<已选择端口>
 ```
 
 服务没有运行时：
@@ -153,7 +165,7 @@ with_proxy git clone https://github.com/example/project.git
 ```bash
 proxy_on
 proxy_status
-# shell=proxied service=up endpoint=127.0.0.1:17890
+# shell=proxied service=up endpoint=127.0.0.1:<已选择端口>
 
 proxy_off
 ```
@@ -225,7 +237,6 @@ SSH 不设置该变量，仍然默认直连。
 - [从安装 Mihomo 开始配置完整环境](docs/zh-CN/setup.md)
 - [可直接复制的 Codex 安装 Prompt](docs/zh-CN/codex-install-prompt.md)
 - [架构与数据流](docs/zh-CN/architecture.md)
-- [从大型 `.bashrc` 迁移](docs/zh-CN/migration.md)
 - [安全模型](docs/zh-CN/security.md)
 - [停电、端口、凭据等排错](docs/zh-CN/troubleshooting.md)
 - [借鉴 Mihoro 的范围](docs/zh-CN/mihoro-inspiration.md)

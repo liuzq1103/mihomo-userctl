@@ -6,8 +6,8 @@ credential file, then install `mihomo-userctl`. The controller does not download
 or update Mihomo for you.
 
 Never commit subscription URLs, listener credentials, or `client.env`, paste
-them into issues, or put them in command arguments. Port `17890` is only an
-example; every user must choose a separate port.
+them into issues, or put them in command arguments. There is no default port;
+every user on the same server must choose a different one.
 
 ## 1. Read-only preflight
 
@@ -20,7 +20,6 @@ bash --version | head -n 1
 systemctl --user show-environment >/dev/null && echo 'systemd user manager: ready'
 command -v curl gzip sha256sum ss journalctl openssl
 env | grep -iE '^(http|https|all|no)_proxy=' || true
-ss -lntp 'sport = :17890'
 ```
 
 Stop if the user manager is unavailable, the candidate port has an unknown
@@ -70,7 +69,27 @@ chmod 755 "$HOME/.local/bin/mihomo"
 "$HOME/.local/bin/mihomo" -v
 ```
 
-## 3. Private directories and credentials
+## 3. Select and confirm a per-user port
+
+From the `mihomo-userctl` repository root, request a read-only candidate:
+
+```bash
+PROXY_PORT=$(./install.sh --suggest-port)
+printf 'candidate=%s\n' "$PROXY_PORT"
+ss -lnt "sport = :$PROXY_PORT"
+```
+
+The helper searches `20000-29999`, starting from a position derived from the
+current UID. It neither binds nor reserves the port. Confirm it with the user,
+coordinate with other users of the same server, and re-run `ss` immediately
+before starting Mihomo. Different users cannot bind the same loopback address
+and port. Authentication reduces misuse but does not solve binding conflicts.
+
+You may replace `PROXY_PORT` with another user-selected value in `1024-65535`.
+Avoid conventional ports used by existing proxy software and any port already
+listed by `ss`.
+
+## 4. Private directories and credentials
 
 ```bash
 install -d -m 700 "$HOME/.config/mihomo"
@@ -91,7 +110,7 @@ openssl rand -hex 32
 Place the output directly into mode-600 local files. Never paste it back into a
 chat or public log.
 
-## 4. Create `config.yaml`
+## 5. Create `config.yaml`
 
 Create `~/.config/mihomo/config.yaml`, replace the three private placeholders,
 and immediately set mode `600`:
@@ -106,7 +125,7 @@ listeners:
   - name: authenticated-loopback
     type: mixed
     listen: 127.0.0.1
-    port: 17890
+    port: PORT_SELECTED_BY_USER
     udp: false
     users:
       - username: replace-with-local-username
@@ -157,7 +176,10 @@ chmod 600 "$HOME/.config/mihomo/config.yaml"
   -f "$HOME/.config/mihomo/config.yaml"
 ```
 
-## 5. Create the user service
+Replace `PORT_SELECTED_BY_USER` with the confirmed numeric value before running
+the config test.
+
+## 6. Create the user service
 
 Create `~/.config/systemd/user/mihomo.service`:
 
@@ -186,21 +208,21 @@ systemctl --user daemon-reload
 systemctl --user start mihomo
 systemctl --user is-active mihomo
 systemctl --user is-enabled mihomo
-ss -lntp 'sport = :17890'
+ss -lntp "sport = :$PROXY_PORT"
 ```
 
-Expect `active`, `disabled`, and only `127.0.0.1:17890`. Never run `enable`,
+Expect `active`, `disabled`, and only `127.0.0.1:$PROXY_PORT`. Never run `enable`,
 `loginctl enable-linger`, `sudo systemctl`, or create a system unit. Not starting
 after a reboot is intentional.
 
-## 6. Create `client.env`
+## 7. Create `client.env`
 
 Create `~/.config/mihomo/client.env` with exactly the listener's credentials:
 
 ```ini
-MIHOMO_HTTP_PROXY='http://username:password@127.0.0.1:17890'
-MIHOMO_HTTPS_PROXY='http://username:password@127.0.0.1:17890'
-MIHOMO_ALL_PROXY='socks5h://username:password@127.0.0.1:17890'
+MIHOMO_HTTP_PROXY='http://username:password@127.0.0.1:PORT_SELECTED_BY_USER'
+MIHOMO_HTTPS_PROXY='http://username:password@127.0.0.1:PORT_SELECTED_BY_USER'
+MIHOMO_ALL_PROXY='socks5h://username:password@127.0.0.1:PORT_SELECTED_BY_USER'
 ```
 
 ```bash
@@ -212,7 +234,10 @@ stat -c '%U %a %n' "$HOME/.config/mihomo/config.yaml" \
 Percent-encode URL user information if you did not use hex-only credentials.
 Do not source this file; `mihomo-userctl` parses it as data.
 
-## 7. Install the controller
+Replace `PORT_SELECTED_BY_USER` with the same confirmed numeric value. The three
+URLs and the Mihomo listener must agree exactly.
+
+## 8. Install the controller
 
 From the repository root:
 
@@ -220,15 +245,15 @@ From the repository root:
 bash tests/test.sh
 bash tests/docs-test.sh
 bash tests/secret-scan.sh
-./install.sh --dry-run --port 17890 --bashrc "$HOME/.bashrc"
-./install.sh --port 17890 --bashrc "$HOME/.bashrc"
+./install.sh --dry-run --port "$PROXY_PORT" --bashrc "$HOME/.bashrc"
+./install.sh --port "$PROXY_PORT" --bashrc "$HOME/.bashrc"
 exec bash
 ```
 
 The installer neither starts nor enables the service and does not overwrite an
 existing `client.env`.
 
-## 8. Acceptance tests
+## 9. Acceptance tests
 
 ```bash
 proxy_status
@@ -237,12 +262,12 @@ mihomoctl ready
 systemctl --user is-enabled mihomo
 ```
 
-Expect `shell=direct service=up endpoint=127.0.0.1:17890` and `disabled`.
+Expect `shell=direct service=up endpoint=127.0.0.1:<selected-port>` and `disabled`.
 An unauthenticated request must fail:
 
 ```bash
 curl --fail --silent --show-error --max-time 10 \
-  --proxy http://127.0.0.1:17890 https://example.com/ && echo 'ERROR: auth bypass'
+  --proxy "http://127.0.0.1:$PROXY_PORT" https://example.com/ && echo 'ERROR: auth bypass'
 ```
 
 An opted-in child command must work without changing the parent:
@@ -259,7 +284,7 @@ and let curl use `ALL_PROXY`; exit the child afterward.
 Before ordinary `axel` or S3 downloads, confirm `proxy_status` is direct.
 A listening Mihomo service does not itself capture their traffic.
 
-## 9. Lifecycle and rollback
+## 10. Lifecycle and rollback
 
 ```bash
 mihomoctl stop
@@ -273,5 +298,5 @@ the timestamped `.bashrc` backup to roll back integration. Restore the exact
 binary backup for a core rollback. Stop only your user service before restoring
 configuration, re-run `mihomo -t`, and then `daemon-reload`.
 
-Do not restore a Windows SSH reverse forward as the long-term solution, and do
-not clean up an unrelated `127.0.0.1:7890` listener.
+Rollback must not introduce a new external tunnel or clean up an unrelated
+listener. Treat anything outside the current user's declared scope as untouched.

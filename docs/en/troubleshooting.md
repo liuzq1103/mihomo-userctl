@@ -29,7 +29,9 @@ Do not repair a few variables by hand.
 ```bash
 mihomoctl doctor
 mihomoctl logs --lines 100
-ss -lntp 'sport = :17890'
+PROXY_PORT=$(awk -F= '$1 == "MIHOMO_PORT" { print $2 }' \
+  "$HOME/.config/mihomo/mihomo-shell.conf")
+ss -lntp "sport = :$PROXY_PORT"
 ```
 
 Typical causes are expired providers, unavailable nodes, listener credentials
@@ -41,10 +43,12 @@ Perform only a read-only check. Do not kill unknown `ssh`/`sshd` or another
 user's process:
 
 ```bash
-ss -lntp 'sport = :17890'
+PROXY_PORT=$(awk -F= '$1 == "MIHOMO_PORT" { print $2 }' \
+  "$HOME/.config/mihomo/mihomo-shell.conf")
+ss -lntp "sport = :$PROXY_PORT"
 ```
 
-Stop the migration and ask the administrator for the smallest ownership check
+Stop the installation or change and ask the administrator for the smallest ownership check
 needed.
 
 ## Codex remote startup fails

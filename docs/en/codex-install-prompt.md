@@ -1,17 +1,39 @@
 # Copyable Codex installation prompt
 
-Use this when you want Codex to guide a fresh, per-user installation. Replace
-the bracketed values before sending it. Do not paste subscription URLs or
-passwords into the prompt; provide secrets only through a mode-600 server file
-when Codex asks for the local path.
+Use this for a fresh per-user installation. In a Codex client that offers it,
+switch the task to **Plan mode** before pasting the prompt below. Plan mode and
+interactive popups are Codex-client capabilities, not Mihomo requirements; if
+they are unavailable, the agent must stop and let the user choose whether to
+continue with explicit conversational confirmation.
+
+Do not pre-fill port placeholders. Codex should audit first and collect
+non-secret choices interactively. Never paste subscriptions or passwords into
+the prompt, a popup, or chat; secrets belong only in mode-600 server files.
 
 ```text
 Install a per-user Mihomo stack and mihomo-userctl for my current Linux account.
 
+Planning and interaction rules:
+- confirm that this task is in Plan mode; if not, stop and recommend switching;
+- after read-only discovery, present a complete plan and wait for my approval
+  before changing files;
+- whenever a non-secret value needs customization, use request_user_input or
+  the client's equivalent interactive popup; never guess or hard-code it;
+- ask only 1-3 short questions per popup, show a recommended choice with impact,
+  and allow a user-entered value;
+- interactively confirm at least the listener port, readiness URL, service name,
+  subscription integration method, existing-config merge strategy, and policy
+  choices;
+- never collect a subscription URL, listener password, or token in a popup or
+  chat; generate it locally or let me write it to a mode-600 server file, then
+  accept only the path and validate permissions;
+- if interactive input is unavailable, pause and report that limitation instead
+  of silently selecting defaults.
+
 Required result:
 - ordinary logins, new shells, axel, S3, and large datasets are direct by default;
 - only with_proxy, proxy_on, and explicitly approved remote-tool hooks use Mihomo;
-- Mihomo has one authenticated Mixed listener on 127.0.0.1:[PORT];
+- Mihomo has one authenticated Mixed listener on a user-confirmed loopback port;
 - use only systemctl --user; mihomo.service must remain disabled;
 - no sudo, root service, linger, cron, TUN, controller, system proxy, or route changes;
 - do not inspect, modify, stop, or authenticate as any other user;
@@ -24,25 +46,29 @@ Implementation order:
 2. Perform read-only checks for OS, CPU architecture, libc compatibility, Bash,
    systemd user manager, dependencies, current proxy variables, candidate ports,
    current user service, downloads, and existing configuration.
-3. Report the exact files and processes in scope. Stop before any step requiring
-   administrator permission or before changing an ambiguous existing setup.
-4. Back up every in-scope file with restrictive permissions.
-5. Install a pinned official MetaCubeX Mihomo release: download the matching
+3. Run ./install.sh --suggest-port and inspect current listeners. Use an
+   interactive popup to let me accept the candidate or enter a custom port.
+   Users on the same server must avoid each other's ports; recheck before bind.
+4. Collect the other non-secret choices interactively, then report the exact
+   plan, files, and processes in scope. Stop before administrator permission or
+   an ambiguous existing setup.
+5. Back up every in-scope file with restrictive permissions.
+6. Install a pinned official MetaCubeX Mihomo release: download the matching
    asset, verify its official SHA256, test the candidate version and config,
    then atomically install it under ~/.local/bin.
-6. Create a loopback-only authenticated configuration, private provider/cache
+7. Create a loopback-only authenticated configuration, private provider/cache
    paths, a systemd user unit, and mode-600 client.env without exposing secrets.
-7. Clone or use mihomo-userctl, run its tests, then run install.sh --dry-run
-   --port [PORT] and install.sh --port [PORT] --bashrc "$HOME/.bashrc".
-8. Do not enable or automatically start the service. Start it manually for tests.
-9. Verify: unauthenticated HTTP/SOCKS is rejected; authenticated HTTP and
+8. Clone or use mihomo-userctl, run its tests, then explicitly pass the confirmed
+   port to install.sh --dry-run --port and install.sh --port --bashrc "$HOME/.bashrc".
+9. Do not enable or automatically start the service. Start it manually for tests.
+10. Verify: unauthenticated HTTP/SOCKS is rejected; authenticated HTTP and
    SOCKS5H work; service is disabled; new shell is direct; with_proxy does not
    change its parent; ordinary axel/S3 is direct; logs and Git contain no secrets.
-10. Give me exact rollback commands and a redacted verification report.
+11. Give me exact rollback commands and a redacted verification report.
 
-Use [READY_URL] for readiness. Keep MATCH,DIRECT as the final Mihomo rule. Treat
-all policy rules and subscriptions as user-owned and do not replace them without
-showing a redacted diff and receiving approval.
+The readiness URL must be interactively confirmed. Keep MATCH,DIRECT as the
+final Mihomo rule. Treat all policy rules and subscriptions as user-owned and
+do not replace them without a redacted diff and approval.
 ```
 
 The prompt deliberately tells Codex to use deterministic project scripts. A

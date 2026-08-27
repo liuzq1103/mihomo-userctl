@@ -28,7 +28,9 @@ mihomoctl doctor
 ```bash
 mihomoctl doctor
 mihomoctl logs --lines 100
-ss -lntp 'sport = :17890'
+PROXY_PORT=$(awk -F= '$1 == "MIHOMO_PORT" { print $2 }' \
+  "$HOME/.config/mihomo/mihomo-shell.conf")
+ss -lntp "sport = :$PROXY_PORT"
 ```
 
 常见原因：订阅失效、节点不可用、`config.yaml` 与 `client.env` 凭据不同、端口
@@ -45,7 +47,9 @@ mihomoctl stop
 若仍提示占用，只做只读检查：
 
 ```bash
-ss -lntp 'sport = :17890'
+PROXY_PORT=$(awk -F= '$1 == "MIHOMO_PORT" { print $2 }' \
+  "$HOME/.config/mihomo/mihomo-shell.conf")
+ss -lntp "sport = :$PROXY_PORT"
 ```
 
 不要杀死未知 sshd、其他用户进程或范围外端口。确认归属前停止切换并联系管理

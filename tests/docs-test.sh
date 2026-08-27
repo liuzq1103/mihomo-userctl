@@ -8,7 +8,6 @@ expected=(
   README.md
   architecture.md
   codex-install-prompt.md
-  migration.md
   mihoro-inspiration.md
   security.md
   setup.md
@@ -37,6 +36,25 @@ while IFS= read -r -d '' document; do
     fi
   done < <(grep -oE '\]\([^)]+' "$document" || true)
 done < <(find "$root" -type f -name '*.md' -print0)
+
+if grep -RInE '17890|docs/(en|zh-CN)/migration\.md' \
+  "$root/README.md" "$root/README.zh-CN.md" "$root/docs" "$root/examples"; then
+  printf 'public documentation contains a personal port or removed migration guide\n' >&2
+  failed=1
+fi
+
+for language in en zh-CN; do
+  prompt="$root/docs/$language/codex-install-prompt.md"
+  if [[ $language == en ]]; then
+    plan_label='Plan mode'
+  else
+    plan_label='Plan 模式'
+  fi
+  if ! grep -Fq "$plan_label" "$prompt" || ! grep -Fq 'request_user_input' "$prompt"; then
+    printf 'installation prompt lacks Plan mode interactive-input guidance: %s\n' "$language" >&2
+    failed=1
+  fi
+done
 
 if ((failed)); then
   exit 1
