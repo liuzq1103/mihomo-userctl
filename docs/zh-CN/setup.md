@@ -70,7 +70,21 @@ chmod 755 "$HOME/.local/bin/mihomo"
 "$HOME/.local/bin/mihomo" -v
 ```
 
-## 3. 选择并确认用户专属端口
+## 3. 获取控制层源码并选择用户专属端口
+
+调用本项目的任何脚本前，先在当前用户拥有的目录中获取并审阅固定版本。
+例如：
+
+```bash
+git clone --branch v0.1.2 --depth 1 \
+  https://github.com/liuzq1103/mihomo-userctl.git "$HOME/mihomo-userctl"
+cd "$HOME/mihomo-userctl"
+git remote -v
+git describe --tags --exact-match
+```
+
+如果目标目录已存在，应先检查并复用，不要直接覆盖。不使用 `curl | bash`。
+本文后续命令均假定当前目录是这份已验证的代码检出。
 
 在 `mihomo-userctl` 仓库根目录运行只读建议器：
 
@@ -112,7 +126,7 @@ openssl rand -hex 32
 ## 5. 创建 `config.yaml`
 
 用本地编辑器创建 `~/.config/mihomo/config.yaml`，然后立即 `chmod 600`。完整
-最小结构如下；把三个 `replace-...` 占位符替换为本地秘密：
+最小结构如下；把三个 `replace-...` 占位符替换为本地敏感信息：
 
 ```yaml
 allow-lan: false
@@ -251,7 +265,10 @@ bash tests/secret-scan.sh
 exec bash
 ```
 
-安装器不会启动或 enable 服务，也不会覆盖现有 `client.env`。
+安装器不会启动或 enable 服务，也不会覆盖现有 `client.env`。写入活动
+文件前，它会在 `~/.local/share/mihomo-userctl-backups/` 中创建权限 `700`
+的事务备份。如果最后的 `mihomoctl doctor` 失败，安装器会自动恢复
+原有控制器、模块、补全、非敏感配置和 `.bashrc`，并保留备份供排查。
 
 ## 9. 验收
 
@@ -293,8 +310,9 @@ mihomoctl restart
 mihomoctl logs --lines 100
 ```
 
-`stop` 端口未释放时只会报错，不会杀进程。回滚控制层使用安装器打印的
-`.bashrc` 备份；回滚 Mihomo 二进制使用步骤 2 的精确备份；配置或 unit 回滚前
+`stop` 端口未释放时只会报错，不会杀进程。要回滚已成功安装的控制层，
+从 `install.sh` 打印的备份路径逐个恢复对应文件，不要盲目复制整个目录；回滚
+Mihomo 二进制使用步骤 2 的精确备份；配置或 unit 回滚前
 先停止用户服务，再恢复自己的备份、运行 `mihomo -t` 和 `daemon-reload`。
 
 回滚不能引入新的外部隧道，也不能清理无关 Listener。当前用户明确范围之外的

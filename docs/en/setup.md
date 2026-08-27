@@ -69,7 +69,22 @@ chmod 755 "$HOME/.local/bin/mihomo"
 "$HOME/.local/bin/mihomo" -v
 ```
 
-## 3. Select and confirm a per-user port
+## 3. Obtain the controller source and select a per-user port
+
+Choose a directory owned by your user, then obtain a reviewed release of this
+project before invoking any project script. For example:
+
+```bash
+git clone --branch v0.1.2 --depth 1 \
+  https://github.com/liuzq1103/mihomo-userctl.git "$HOME/mihomo-userctl"
+cd "$HOME/mihomo-userctl"
+git remote -v
+git describe --tags --exact-match
+```
+
+If the destination already exists, inspect and reuse it instead of overwriting
+it. Do not use `curl | bash`. The remaining commands in this guide assume the
+current directory is this verified checkout.
 
 From the `mihomo-userctl` repository root, request a read-only candidate:
 
@@ -251,7 +266,11 @@ exec bash
 ```
 
 The installer neither starts nor enables the service and does not overwrite an
-existing `client.env`.
+existing `client.env`. Before changing active files it creates a mode-700
+transaction backup under `~/.local/share/mihomo-userctl-backups/`. If the final
+`mihomoctl doctor` fails, it restores the previous controller, modules,
+completion, non-secret configuration, and `.bashrc`; the backup is retained for
+inspection.
 
 ## 9. Acceptance tests
 
@@ -293,10 +312,11 @@ mihomoctl restart
 mihomoctl logs --lines 100
 ```
 
-If the port does not release, `stop` reports an error and kills nothing. Restore
-the timestamped `.bashrc` backup to roll back integration. Restore the exact
-binary backup for a core rollback. Stop only your user service before restoring
-configuration, re-run `mihomo -t`, and then `daemon-reload`.
+If the port does not release, `stop` reports an error and kills nothing. To roll
+back a successful controller install, restore the exact files from the backup
+path printed by `install.sh`; do not copy the whole directory blindly. Restore
+the exact binary backup for a core rollback. Stop only your user service before
+restoring configuration, re-run `mihomo -t`, and then `daemon-reload`.
 
 Rollback must not introduce a new external tunnel or clean up an unrelated
 listener. Treat anything outside the current user's declared scope as untouched.

@@ -4,6 +4,21 @@ All notable changes follow a simplified Keep a Changelog format.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-08-27
+
+### Changed
+
+- Made installation transactional: a failed final diagnostic restores every
+  managed active file and prior managed-directory permissions.
+- Refused symbolic-link `.bashrc` targets in both install and uninstall paths.
+- Detected a user-owned `~/.local/bin/mihomo` in `mihomoctl version` even when a
+  non-interactive session omits that directory from `PATH`.
+- Corrected the Codex prompt order so a verified project checkout exists before
+  any project script runs.
+- Standardized Chinese security terminology: `敏感信息` is the umbrella
+  term and `凭据` is reserved for authentication material; `密钥` is not used as
+  a misleading replacement for passwords, tokens, or subscription URLs.
+
 ## [0.1.1] - 2026-08-27
 
 ### Changed

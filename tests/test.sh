@@ -79,6 +79,13 @@ assert 'doctor accepts secure config and disabled service' "$HOME/.local/bin/mih
 assert 'ready validates the authenticated path' "$HOME/.local/bin/mihomoctl" ready
 assert 'status reports active loopback listener' bash -c '[[ $(mihomoctl status) == *"service=up enabled=disabled listener=up endpoint=127.0.0.1:28443"* ]]'
 
+cat > "$HOME/.local/bin/mihomo" <<'EOF'
+#!/usr/bin/env bash
+printf 'Mihomo Meta fallback-test\n'
+EOF
+chmod 755 "$HOME/.local/bin/mihomo"
+assert 'version finds a user-local Mihomo outside PATH' bash -c '[[ $(PATH=/usr/bin:/bin "$1" version) == *"mihomo Mihomo Meta fallback-test"* ]]' _ "$HOME/.local/bin/mihomoctl"
+
 assert 'shell module starts direct and proxy_on exports eight variables' bash -c '
   export http_proxy=old HTTPS_PROXY=old
   source "$XDG_DATA_HOME/mihomo-userctl/shell.bash"
@@ -132,6 +139,76 @@ assert 'loader markers and unrelated bashrc lines are preserved' bash -c 'grep -
 assert 'installer is idempotent' env HOME="$INSTALL_HOME" XDG_CONFIG_HOME="$INSTALL_HOME/.config" XDG_DATA_HOME="$INSTALL_HOME/.local/share" PATH="$PATH" bash "$ROOT/install.sh" --port 28443 --bashrc "$INSTALL_HOME/.bashrc"
 assert 'uninstaller removes owned code but preserves credentials and config' env HOME="$INSTALL_HOME" XDG_CONFIG_HOME="$INSTALL_HOME/.config" XDG_DATA_HOME="$INSTALL_HOME/.local/share" PATH="$PATH" bash "$ROOT/uninstall.sh" --bashrc "$INSTALL_HOME/.bashrc"
 assert 'configuration survived uninstall' bash -c '[[ -f "$1/.config/mihomo/client.env" && -f "$1/.config/mihomo/mihomo-shell.conf" && ! -e "$1/.local/bin/mihomoctl" ]]' _ "$INSTALL_HOME"
+
+# A failed post-install doctor must restore every active file and prior directory mode.
+ROLLBACK_HOME=$TEST_ROOT/rollback-home
+mkdir -p "$ROLLBACK_HOME/.local/bin" "$ROLLBACK_HOME/.local/share/mihomo-userctl" "$ROLLBACK_HOME/.config/mihomo"
+chmod 755 "$ROLLBACK_HOME/.local/bin" "$ROLLBACK_HOME/.local/share/mihomo-userctl" "$ROLLBACK_HOME/.config/mihomo"
+printf 'old-controller\n' > "$ROLLBACK_HOME/.local/bin/mihomoctl"
+printf 'old-common\n' > "$ROLLBACK_HOME/.local/share/mihomo-userctl/common.bash"
+printf 'old-shell\n' > "$ROLLBACK_HOME/.local/share/mihomo-userctl/shell.bash"
+printf 'old-completion\n' > "$ROLLBACK_HOME/.local/share/mihomo-userctl/completion.bash"
+cat > "$ROLLBACK_HOME/.config/mihomo/mihomo-shell.conf" <<'EOF'
+MIHOMO_SERVICE=mihomo
+MIHOMO_PORT=28443
+MIHOMO_READY_URL=https://example.com/
+MIHOMO_READY_TIMEOUT=2
+MIHOMO_STOP_TIMEOUT=1
+EOF
+cp "$XDG_CONFIG_HOME/mihomo/client.env" "$ROLLBACK_HOME/.config/mihomo/client.env"
+chmod 600 "$ROLLBACK_HOME/.config/mihomo/mihomo-shell.conf" "$ROLLBACK_HOME/.config/mihomo/client.env"
+printf 'rollback-before=yes\n' > "$ROLLBACK_HOME/.bashrc"
+cp -p "$ROLLBACK_HOME/.bashrc" "$TEST_ROOT/rollback-bashrc.expected"
+cp -p "$ROLLBACK_HOME/.local/bin/mihomoctl" "$TEST_ROOT/rollback-mihomoctl.expected"
+cp -p "$ROLLBACK_HOME/.local/share/mihomo-userctl/common.bash" "$TEST_ROOT/rollback-common.expected"
+cp -p "$ROLLBACK_HOME/.local/share/mihomo-userctl/shell.bash" "$TEST_ROOT/rollback-shell.expected"
+cp -p "$ROLLBACK_HOME/.local/share/mihomo-userctl/completion.bash" "$TEST_ROOT/rollback-completion.expected"
+cp -p "$ROLLBACK_HOME/.config/mihomo/mihomo-shell.conf" "$TEST_ROOT/rollback-config.expected"
+assert 'failed doctor triggers transactional installer rollback' bash -c '
+  set +e
+  CURL_FAIL=1 HOME="$1" XDG_CONFIG_HOME="$1/.config" XDG_DATA_HOME="$1/.local/share" PATH="$2" \
+    bash "$3" --port 28443 --bashrc "$1/.bashrc" >/dev/null 2>&1
+  [[ $? == 2 ]]
+' _ "$ROLLBACK_HOME" "$PATH" "$ROOT/install.sh"
+assert 'transactional rollback restores all active files and directory modes' bash -c '
+  cmp -s "$1/.bashrc" "$2/rollback-bashrc.expected" &&
+  cmp -s "$1/.local/bin/mihomoctl" "$2/rollback-mihomoctl.expected" &&
+  cmp -s "$1/.local/share/mihomo-userctl/common.bash" "$2/rollback-common.expected" &&
+  cmp -s "$1/.local/share/mihomo-userctl/shell.bash" "$2/rollback-shell.expected" &&
+  cmp -s "$1/.local/share/mihomo-userctl/completion.bash" "$2/rollback-completion.expected" &&
+  cmp -s "$1/.config/mihomo/mihomo-shell.conf" "$2/rollback-config.expected" &&
+  [[ $(stat -c %a "$1/.local/share/mihomo-userctl") == 755 ]] &&
+  [[ $(stat -c %a "$1/.config/mihomo") == 755 ]] &&
+  backup=$(find "$1/.local/share/mihomo-userctl-backups" -mindepth 1 -maxdepth 1 -type d -print -quit) &&
+  [[ -n $backup && $(stat -c %a "$backup") == 700 && $(stat -c %a "$backup/manifest.tsv") == 600 ]]
+' _ "$ROLLBACK_HOME" "$TEST_ROOT"
+
+# A failed first install must remove newly created project files but keep credentials.
+FRESH_FAIL_HOME=$TEST_ROOT/fresh-fail-home
+mkdir -p "$FRESH_FAIL_HOME/.config/mihomo"
+chmod 700 "$FRESH_FAIL_HOME/.config/mihomo"
+cp "$XDG_CONFIG_HOME/mihomo/client.env" "$FRESH_FAIL_HOME/.config/mihomo/client.env"
+chmod 600 "$FRESH_FAIL_HOME/.config/mihomo/client.env"
+printf 'fresh-before=yes\n' > "$FRESH_FAIL_HOME/.bashrc"
+assert 'failed first install removes newly created active files' bash -c '
+  set +e
+  CURL_FAIL=1 HOME="$1" XDG_CONFIG_HOME="$1/.config" XDG_DATA_HOME="$1/.local/share" PATH="$2" \
+    bash "$3" --port 28443 --bashrc "$1/.bashrc" >/dev/null 2>&1
+  rc=$?
+  [[ $rc == 2 && $(<"$1/.bashrc") == fresh-before=yes &&
+     -f "$1/.config/mihomo/client.env" &&
+     ! -e "$1/.config/mihomo/mihomo-shell.conf" &&
+     ! -e "$1/.local/bin/mihomoctl" &&
+     ! -e "$1/.local/share/mihomo-userctl/common.bash" ]]
+' _ "$FRESH_FAIL_HOME" "$PATH" "$ROOT/install.sh"
+
+# Refuse a symbolic-link startup file instead of rewriting an unexpected target.
+LINK_HOME=$TEST_ROOT/link-home
+mkdir -p "$LINK_HOME"
+printf 'link-target-unchanged=yes\n' > "$LINK_HOME/real-bashrc"
+ln -s "$LINK_HOME/real-bashrc" "$LINK_HOME/.bashrc"
+assert 'installer refuses a symbolic-link bashrc' bash -c 'set +e; HOME="$1" XDG_CONFIG_HOME="$1/.config" XDG_DATA_HOME="$1/.local/share" PATH="$2" bash "$3" --dry-run --port 28443 --bashrc "$1/.bashrc" >/dev/null 2>&1; [[ $? == 2 ]]' _ "$LINK_HOME" "$PATH" "$ROOT/install.sh"
+assert 'uninstaller refuses a symbolic-link bashrc without changing its target' bash -c 'set +e; HOME="$1" XDG_CONFIG_HOME="$1/.config" XDG_DATA_HOME="$1/.local/share" PATH="$2" bash "$3" --bashrc "$1/.bashrc" >/dev/null 2>&1; [[ $? == 2 && $(<"$1/real-bashrc") == link-target-unchanged=yes ]]' _ "$LINK_HOME" "$PATH" "$ROOT/uninstall.sh"
 
 printf '1..%d\n' "$((PASS + FAIL))"
 printf '# pass=%d fail=%d\n' "$PASS" "$FAIL"

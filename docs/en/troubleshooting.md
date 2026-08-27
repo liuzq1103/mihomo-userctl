@@ -1,5 +1,14 @@
 # Troubleshooting
 
+## Installation stops at `doctor`
+
+The installer treats the update as a transaction. It restores the previous
+controller, modules, completion, non-secret configuration, `.bashrc`, and prior
+managed-directory modes, then prints the retained backup path. Review its
+mode-600 `manifest.tsv` and the redacted `doctor` output. Do not delete the
+backup until the cause is understood. The installer never starts or enables
+Mihomo during this process.
+
 ## After a power failure or reboot
 
 The service is deliberately disabled and will not start automatically:
@@ -48,8 +57,8 @@ PROXY_PORT=$(awk -F= '$1 == "MIHOMO_PORT" { print $2 }' \
 ss -lntp "sport = :$PROXY_PORT"
 ```
 
-Stop the installation or change and ask the administrator for the smallest ownership check
-needed.
+Stop the installation or change and ask the administrator for the smallest
+ownership check needed.
 
 ## Codex remote startup fails
 

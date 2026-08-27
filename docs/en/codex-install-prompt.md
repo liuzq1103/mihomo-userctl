@@ -46,25 +46,29 @@ Implementation order:
 2. Perform read-only checks for OS, CPU architecture, libc compatibility, Bash,
    systemd user manager, dependencies, current proxy variables, candidate ports,
    current user service, downloads, and existing configuration.
-3. Run ./install.sh --suggest-port and inspect current listeners. Use an
+3. Confirm a user-approved checkout directory, then clone or use a local
+   mihomo-userctl checkout at a pinned released tag. Verify its origin, inspect
+   the files, and do not use curl-piped installation.
+4. From that verified checkout, run ./install.sh --suggest-port and inspect
+   current listeners. Use an
    interactive popup to let me accept the candidate or enter a custom port.
    Users on the same server must avoid each other's ports; recheck before bind.
-4. Collect the other non-secret choices interactively, then report the exact
+5. Collect the other non-secret choices interactively, then report the exact
    plan, files, and processes in scope. Stop before administrator permission or
    an ambiguous existing setup.
-5. Back up every in-scope file with restrictive permissions.
-6. Install a pinned official MetaCubeX Mihomo release: download the matching
+6. Back up every in-scope file with restrictive permissions.
+7. Install a pinned official MetaCubeX Mihomo release: download the matching
    asset, verify its official SHA256, test the candidate version and config,
    then atomically install it under ~/.local/bin.
-7. Create a loopback-only authenticated configuration, private provider/cache
+8. Create a loopback-only authenticated configuration, private provider/cache
    paths, a systemd user unit, and mode-600 client.env without exposing secrets.
-8. Clone or use mihomo-userctl, run its tests, then explicitly pass the confirmed
+9. Run mihomo-userctl's tests, then explicitly pass the confirmed
    port to install.sh --dry-run --port and install.sh --port --bashrc "$HOME/.bashrc".
-9. Do not enable or automatically start the service. Start it manually for tests.
-10. Verify: unauthenticated HTTP/SOCKS is rejected; authenticated HTTP and
+10. Do not enable or automatically start the service. Start it manually for tests.
+11. Verify: unauthenticated HTTP/SOCKS is rejected; authenticated HTTP and
    SOCKS5H work; service is disabled; new shell is direct; with_proxy does not
    change its parent; ordinary axel/S3 is direct; logs and Git contain no secrets.
-11. Give me exact rollback commands and a redacted verification report.
+12. Give me exact rollback commands and a redacted verification report.
 
 The readiness URL must be interactively confirmed. Keep MATCH,DIRECT as the
 final Mihomo rule. Treat all policy rules and subscriptions as user-owned and

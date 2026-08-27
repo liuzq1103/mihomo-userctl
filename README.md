@@ -142,7 +142,9 @@ control layer explicitly:
 ```
 
 Re-running is idempotent. An update preserves `client.env` and refuses a
-conflicting port. It never enables or starts the user service.
+conflicting port. Before writing, it records every managed file in a mode-700
+transaction backup; a failed final `doctor` restores the previous active files
+automatically. It never enables or starts the user service.
 
 ## Daily use
 

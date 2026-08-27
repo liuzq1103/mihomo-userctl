@@ -1,5 +1,14 @@
 # Security model
 
+## Terminology
+
+- **Sensitive information** includes subscription URLs, usernames, passwords,
+  tokens, and complete proxy URLs.
+- **Credentials** are values that authenticate or authorize access; here they
+  primarily mean the listener username and password.
+- **Keys** means actual cryptographic or API keys. Subscription URLs, passwords,
+  and tokens are not all described as keys.
+
 ## Threats in scope
 
 The project addresses accidental paid-proxy use by large downloads, inherited

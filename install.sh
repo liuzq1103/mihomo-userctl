@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION=0.1.1
+VERSION=0.1.2
 BEGIN_MARKER='# >>> mihomo-userctl managed loader >>>'
 END_MARKER='# <<< mihomo-userctl managed loader <<<'
 
@@ -59,7 +59,7 @@ if ((suggest_only)); then
   done
   die 'no unused candidate was found in 20000-29999'
 fi
-for command in bash systemctl curl ss journalctl stat awk grep id mktemp cp chmod mv mkdir date; do
+for command in bash systemctl curl ss journalctl stat awk grep id mktemp cp chmod mv mkdir date rm rmdir dirname; do
   command -v "$command" >/dev/null 2>&1 || die "missing command: $command"
 done
 systemctl --user show-environment >/dev/null 2>&1 || die 'the systemd user manager is unavailable'
@@ -74,6 +74,20 @@ config_file=$config_dir/mihomo-shell.conf
 bin_file=$bin_home/mihomoctl
 
 [[ $bashrc == "$HOME"/* || $bashrc == "$HOME/.bashrc" ]] || die '--bashrc must be inside the current HOME'
+[[ ! -L $bashrc ]] || die '--bashrc must not be a symbolic link'
+
+managed_targets=(
+  "$lib_dir/common.bash"
+  "$lib_dir/shell.bash"
+  "$lib_dir/completion.bash"
+  "$bin_file"
+  "$config_file"
+  "$bashrc"
+)
+for target in "${managed_targets[@]}"; do
+  [[ ! -L $target ]] || die "managed target must not be a symbolic link: $target"
+  [[ ! -e $target || -f $target ]] || die "managed target is not a regular file: $target"
+done
 
 existing_port=
 if [[ -f $config_file ]]; then
@@ -108,12 +122,89 @@ if (( dry_run )); then
 fi
 
 timestamp=$(date +%Y%m%d-%H%M%S)
+backup_parent=$data_home/mihomo-userctl-backups
+mkdir -p -- "$backup_parent"
+chmod 700 -- "$backup_parent"
+backup_root=$(mktemp -d "$backup_parent/install-$timestamp.XXXXXX")
+chmod 700 -- "$backup_root"
+backup_manifest=$backup_root/manifest.tsv
+: > "$backup_manifest"
+chmod 600 -- "$backup_manifest"
+
+backup_names=(common.bash shell.bash completion.bash mihomoctl mihomo-shell.conf bashrc)
+backup_states=()
+for index in "${!managed_targets[@]}"; do
+  target=${managed_targets[$index]}
+  backup_file=$backup_root/${backup_names[$index]}
+  if [[ -e $target ]]; then
+    cp -p -- "$target" "$backup_file"
+    backup_states+=(present)
+    printf 'file\tpresent\t%s\t%s\n' "${backup_names[$index]}" "$target" >> "$backup_manifest"
+  else
+    backup_states+=(absent)
+    printf 'file\tabsent\t%s\t%s\n' "${backup_names[$index]}" "$target" >> "$backup_manifest"
+  fi
+done
+
+managed_dirs=("$bin_home" "$lib_dir" "$config_dir")
+dir_states=()
+dir_modes=()
+for target_dir in "${managed_dirs[@]}"; do
+  if [[ -d $target_dir ]]; then
+    dir_states+=(present)
+    dir_modes+=("$(stat -c '%a' -- "$target_dir")")
+    printf 'directory\tpresent:%s\t-\t%s\n' "${dir_modes[-1]}" "$target_dir" >> "$backup_manifest"
+  else
+    dir_states+=(absent)
+    dir_modes+=(none)
+    printf 'directory\tabsent\t-\t%s\n' "$target_dir" >> "$backup_manifest"
+  fi
+done
+
+transaction_active=1
+transaction_temps=()
+rollback_install() {
+  local rc=$? index target backup_file target_dir tmp rollback_failed=0
+  trap - EXIT
+  if (( transaction_active )); then
+    set +e
+    for tmp in "${transaction_temps[@]}"; do
+      rm -f -- "$tmp"
+    done
+    for index in "${!managed_targets[@]}"; do
+      target=${managed_targets[$index]}
+      backup_file=$backup_root/${backup_names[$index]}
+      if [[ ${backup_states[$index]} == present ]]; then
+        mkdir -p -- "$(dirname -- "$target")" || { rollback_failed=1; continue; }
+        tmp=$(mktemp "${target}.rollback.XXXXXX") || { rollback_failed=1; continue; }
+        cp -p -- "$backup_file" "$tmp" || { rm -f -- "$tmp"; rollback_failed=1; continue; }
+        mv -f -- "$tmp" "$target" || { rm -f -- "$tmp"; rollback_failed=1; }
+      else
+        rm -f -- "$target" || rollback_failed=1
+      fi
+    done
+    for index in "${!managed_dirs[@]}"; do
+      target_dir=${managed_dirs[$index]}
+      if [[ ${dir_states[$index]} == present ]]; then
+        chmod "${dir_modes[$index]}" -- "$target_dir" || rollback_failed=1
+      else
+        rmdir -- "$target_dir" 2>/dev/null || true
+      fi
+    done
+    printf 'install.sh: installation failed; active files were restored from %s\n' "$backup_root" >&2
+    (( rollback_failed == 0 )) || printf 'install.sh: warning: automatic rollback was incomplete; inspect the backup above\n' >&2
+  fi
+  exit "$rc"
+}
+trap rollback_install EXIT
+
 mkdir -p -- "$bin_home" "$lib_dir" "$config_dir"
 chmod 700 -- "$lib_dir" "$config_dir"
 
 atomic_install() {
   local source=$1 target=$2 mode=$3 tmp
   tmp=$(mktemp "${target}.tmp.XXXXXX")
+  transaction_temps+=("$tmp")
   cp -- "$source" "$tmp"
   chmod "$mode" -- "$tmp"
   mv -f -- "$tmp" "$target"
@@ -126,6 +217,7 @@ atomic_install "$script_dir/src/mihomoctl" "$bin_file" 755
 
 if [[ ! -f $config_file ]]; then
   config_tmp=$(mktemp "${config_file}.tmp.XXXXXX")
+  transaction_temps+=("$config_tmp")
   {
     printf 'MIHOMO_SERVICE=mihomo\n'
     printf 'MIHOMO_PORT=%s\n' "$port"
@@ -141,10 +233,8 @@ fi
 
 loader_file=$script_dir/examples/bashrc-loader.bash
 [[ -f $bashrc ]] || : > "$bashrc"
-backup=${bashrc}.mihomo-userctl-backup.${timestamp}
-cp -p -- "$bashrc" "$backup"
-chmod 600 -- "$backup"
 bashrc_tmp=$(mktemp "${bashrc}.tmp.XXXXXX")
+transaction_temps+=("$bashrc_tmp")
 
 if (( managed_count == 1 )); then
   awk -v begin="$BEGIN_MARKER" -v end="$END_MARKER" -v loader="$loader_file" '
@@ -157,21 +247,22 @@ if (( managed_count == 1 )); then
     skipping && $0 == end { skipping=0; next }
     !skipping { print }
     END { if (skipping) exit 3 }
-  ' "$bashrc" > "$bashrc_tmp" || { cp -p -- "$backup" "$bashrc"; die 'failed to refresh .bashrc loader'; }
+  ' "$bashrc" > "$bashrc_tmp" || die 'failed to refresh .bashrc loader'
 else
   cp -- "$bashrc" "$bashrc_tmp"
   printf '\n' >> "$bashrc_tmp"
   awk '{ print }' "$loader_file" >> "$bashrc_tmp"
 fi
 
-bash -n "$bashrc_tmp" || { cp -p -- "$backup" "$bashrc"; die 'generated .bashrc failed bash -n'; }
+bash -n "$bashrc_tmp" || die 'generated .bashrc failed bash -n'
 chmod --reference="$bashrc" "$bashrc_tmp"
 mv -f -- "$bashrc_tmp" "$bashrc"
 
 MIHOMO_USERCTL_LIB_DIR=$lib_dir "$bin_file" doctor || {
-  cp -p -- "$backup" "$bashrc"
-  die "doctor failed; .bashrc was restored from $backup"
+  die 'doctor failed'
 }
+transaction_active=0
+trap - EXIT
 note "installed mihomo-userctl $VERSION"
-note "backup=$backup"
+note "backup=$backup_root"
 note 'the Mihomo service was not enabled or started'

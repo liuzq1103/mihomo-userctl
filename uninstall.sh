@@ -16,6 +16,7 @@ while (( $# )); do
   esac
 done
 [[ $bashrc == "$HOME"/* || $bashrc == "$HOME/.bashrc" ]] || die '--bashrc must be inside the current HOME'
+[[ ! -L $bashrc ]] || die '--bashrc must not be a symbolic link'
 
 data_home=${XDG_DATA_HOME:-$HOME/.local/share}
 lib_dir=$data_home/mihomo-userctl

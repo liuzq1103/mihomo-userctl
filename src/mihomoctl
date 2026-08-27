@@ -187,9 +187,14 @@ cmd_logs() {
 }
 
 cmd_version() {
-  local core=unavailable
-  if command -v mihomo >/dev/null 2>&1; then
-    core=$(mihomo -v 2>/dev/null | head -n 1 || true)
+  local core=unavailable core_bin=
+  if core_bin=$(command -v mihomo 2>/dev/null); then
+    :
+  elif [[ -f $HOME/.local/bin/mihomo && -x $HOME/.local/bin/mihomo && -O $HOME/.local/bin/mihomo ]]; then
+    core_bin=$HOME/.local/bin/mihomo
+  fi
+  if [[ -n $core_bin ]]; then
+    core=$("$core_bin" -v 2>/dev/null | head -n 1 || true)
     [[ -n $core ]] || core=unknown
   fi
   printf 'mihomo-userctl %s\n' "$MIHOMO_USERCTL_VERSION"
