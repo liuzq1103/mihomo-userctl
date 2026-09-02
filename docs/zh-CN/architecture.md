@@ -61,8 +61,9 @@ axel → 服务器网络接口 → 目标站点
   └─ 子 Shell退出，父 Shell仍为 direct
 ```
 
-Mihomo 内部的 `MATCH,DIRECT`、AI 规则、SEA-AD 精确 DIRECT 等策略不属于
-`mihomo-userctl`；本项目只决定程序是否进入 Mihomo。
+Mihomo 内部的域名规则、策略组、节点选择和最终 fallback 不属于
+`mihomo-userctl`；本项目只决定程序是否进入 Mihomo。任何数据集或科研站点的
+专属规则都应留在用户自己的 Mihomo 配置中，而不是进入公共控制层。
 
 ## 三种 Codex 启动路径
 

@@ -158,29 +158,23 @@ proxy-providers:
       interval: 600
 
 proxy-groups:
-  - name: Ai+
+  - name: Proxy
     type: url-test
     use: [subscription]
     url: https://www.gstatic.com/generate_204
     interval: 600
-  - name: 学术搜索
-    type: select
-    proxies: [Ai+, DIRECT]
-  - name: 学术访问
-    type: select
-    proxies: [DIRECT, Ai+]
 
 rules:
-  - DOMAIN,sea-ad-single-cell-profiling.s3.amazonaws.com,DIRECT
-  - DOMAIN-SUFFIX,github.com,Ai+
-  - DOMAIN-SUFFIX,chatgpt.com,Ai+
+  - DOMAIN-SUFFIX,github.com,Proxy
+  - DOMAIN-SUFFIX,chatgpt.com,Proxy
   - MATCH,DIRECT
 ```
 
 关键约束：没有全局 `mixed-port`、TUN、`external-controller`、Dashboard 或
 路由修改；Listener 只绑定 `127.0.0.1` 且必须认证；provider 缓存位于 Mihomo
-HomeDir；SEA-AD 只精确直连确认的域名，不粗暴直连整个 `amazonaws.com`；最后
-固定 `MATCH,DIRECT`。真实策略可扩展，但必须保留这些安全不变量。
+HomeDir；最后固定 `MATCH,DIRECT`。上面的域名和 `Proxy` 组只是通用示例，不是
+项目内置策略。数据集、科研站点、订阅节点和其他自定义路由必须由每位用户在
+自己的 Mihomo 配置中维护，不能写成公共项目的专属要求。
 
 ```bash
 chmod 600 "$HOME/.config/mihomo/config.yaml"

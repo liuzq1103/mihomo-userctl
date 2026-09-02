@@ -160,29 +160,24 @@ proxy-providers:
       interval: 600
 
 proxy-groups:
-  - name: Ai+
+  - name: Proxy
     type: url-test
     use: [subscription]
     url: https://www.gstatic.com/generate_204
     interval: 600
-  - name: Academic Search
-    type: select
-    proxies: [Ai+, DIRECT]
-  - name: Academic Access
-    type: select
-    proxies: [DIRECT, Ai+]
 
 rules:
-  - DOMAIN,sea-ad-single-cell-profiling.s3.amazonaws.com,DIRECT
-  - DOMAIN-SUFFIX,github.com,Ai+
-  - DOMAIN-SUFFIX,chatgpt.com,Ai+
+  - DOMAIN-SUFFIX,github.com,Proxy
+  - DOMAIN-SUFFIX,chatgpt.com,Proxy
   - MATCH,DIRECT
 ```
 
 Do not add a global `mixed-port`, TUN, external controller, dashboard, or route
 changes. Keep the listener authenticated and loopback-only, store provider
-cache under the Mihomo home directory, use exact large-data DIRECT rules, and
-retain final `MATCH,DIRECT`.
+cache under the Mihomo home directory, and retain final `MATCH,DIRECT`. The
+domains and `Proxy` group above are neutral examples, not project policy.
+Dataset, research-site, provider-node, and other custom routing requirements
+belong only in each user's own Mihomo configuration.
 
 ```bash
 chmod 600 "$HOME/.config/mihomo/config.yaml"

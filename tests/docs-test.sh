@@ -45,6 +45,13 @@ if grep -RInE '17890|docs/(en|zh-CN)/migration\.md' \
   failed=1
 fi
 
+if git -C "$root" grep -InE \
+  'SEA[-_ ]?AD|sea-ad-single-cell|Ai\+|学术搜索|学术访问|Academic (Search|Access)' \
+  -- README.md README.zh-CN.md 'docs/*.md'; then
+  printf 'tracked public documentation contains maintainer-specific routing policy\n' >&2
+  failed=1
+fi
+
 for language in en zh-CN; do
   prompt="$root/docs/$language/agent-install-prompt.md"
   compatibility="$root/docs/$language/codex-install-prompt.md"

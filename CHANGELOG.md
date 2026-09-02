@@ -4,6 +4,18 @@ All notable changes follow a simplified Keep a Changelog format.
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-09-02
+
+### Changed
+
+- Removed a maintainer-specific dataset-domain routing rule and associated
+  policy-group names from the public setup example and architecture guide.
+- Replaced them with a neutral `Proxy` group and generic GitHub/ChatGPT examples.
+  User-specific dataset, research, provider, and routing policy remains entirely
+  outside the generic control-layer project.
+- Added a documentation regression check that rejects those private policy
+  identifiers if they are reintroduced into tracked public Markdown files.
+
 ## [0.1.5] - 2026-09-02
 
 ### Fixed
