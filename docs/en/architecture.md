@@ -41,6 +41,26 @@ The controller does not generate Mihomo policy and does not contain desktop
 Clash/FlClash rules. That separation prevents server lifecycle code and PC rule
 generation from becoming one coupled deployment.
 
+## Three Codex launch paths
+
+```text
+terminal: with_proxy codex -> eight proxy variables -> Mihomo
+Codex Remote: launcher supplies CODEX_REMOTE_PAYLOAD -> .bashrc hook -> Mihomo
+VS Code Remote: Machine http.proxy -> Extension Host starts app-server -> Mihomo
+```
+
+These paths are independent. The managed loader must precede Ubuntu's common
+non-interactive `.bashrc` return guard. VS Code Remote does not run Shell
+functions and must not be assumed to provide `CODEX_REMOTE_PAYLOAD`; it needs
+an explicit Machine `http.proxy` when proxying is desired. In the tested
+same-version extension, the Codex child received `HTTP_PROXY` and `HTTPS_PROXY`,
+not all eight variables managed by the terminal integration.
+
+Environment changes are inherited only at process creation. A stale Codex App
+Server or Extension Host can remain direct after configuration is fixed. Restart
+only the current user's client connection, then verify the new process
+environment, listener socket, and Mihomo logs.
+
 ## Trust boundary
 
 The loader validates module ownership and permissions before sourcing code.

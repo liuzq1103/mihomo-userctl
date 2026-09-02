@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION=0.1.4
+VERSION=0.1.5
 BEGIN_MARKER='# >>> mihomo-userctl managed loader >>>'
 END_MARKER='# <<< mihomo-userctl managed loader <<<'
 
@@ -236,7 +236,48 @@ loader_file=$script_dir/examples/bashrc-loader.bash
 bashrc_tmp=$(mktemp "${bashrc}.tmp.XXXXXX")
 transaction_temps+=("$bashrc_tmp")
 
+# Ubuntu's default .bashrc returns before doing any work in a non-interactive
+# shell. Codex Remote uses such a shell, so a loader placed after that guard is
+# present on disk but never runs. Detect the standard case guard and keep the
+# managed loader before it. Custom startup files without this guard retain the
+# historical append/in-place behavior.
+guard_line=$(awk '
+  /^[[:space:]]*case[[:space:]]+\$-[[:space:]]+in[[:space:]]*$/ {
+    candidate=NR
+    in_guard=1
+    has_return=0
+    next
+  }
+  in_guard {
+    if ($0 ~ /(^|[;[:space:]])return([;[:space:]]|$)/) has_return=1
+    if ($0 ~ /^[[:space:]]*esac([[:space:]]*#.*)?$/) {
+      if (has_return) {
+        print candidate
+        exit
+      }
+      in_guard=0
+    }
+  }
+' "$bashrc")
+managed_line=
 if (( managed_count == 1 )); then
+  managed_line=$(grep -Fnm1 "$BEGIN_MARKER" "$bashrc" | cut -d: -f1)
+fi
+
+if (( managed_count == 1 )) &&
+   [[ -n $guard_line && $managed_line -gt $guard_line ]]; then
+  awk -v begin="$BEGIN_MARKER" -v end="$END_MARKER" \
+      -v loader="$loader_file" -v insert_before="$guard_line" '
+    NR == insert_before {
+      while ((getline line < loader) > 0) print line
+      close(loader)
+    }
+    $0 == begin { skipping=1; next }
+    skipping && $0 == end { skipping=0; next }
+    !skipping { print }
+    END { if (skipping) exit 3 }
+  ' "$bashrc" > "$bashrc_tmp" || die 'failed to relocate .bashrc loader'
+elif (( managed_count == 1 )); then
   awk -v begin="$BEGIN_MARKER" -v end="$END_MARKER" -v loader="$loader_file" '
     $0 == begin {
       while ((getline line < loader) > 0) print line
@@ -248,6 +289,14 @@ if (( managed_count == 1 )); then
     !skipping { print }
     END { if (skipping) exit 3 }
   ' "$bashrc" > "$bashrc_tmp" || die 'failed to refresh .bashrc loader'
+elif [[ -n $guard_line ]]; then
+  awk -v loader="$loader_file" -v insert_before="$guard_line" '
+    NR == insert_before {
+      while ((getline line < loader) > 0) print line
+      close(loader)
+    }
+    { print }
+  ' "$bashrc" > "$bashrc_tmp" || die 'failed to place .bashrc loader before the non-interactive guard'
 else
   cp -- "$bashrc" "$bashrc_tmp"
   printf '\n' >> "$bashrc_tmp"

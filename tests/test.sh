@@ -137,6 +137,50 @@ assert 'first installation still requires an explicit port' bash -c 'set +e; HOM
 assert 'installer appends its loader and preserves unrelated bashrc lines' env HOME="$INSTALL_HOME" XDG_CONFIG_HOME="$INSTALL_HOME/.config" XDG_DATA_HOME="$INSTALL_HOME/.local/share" PATH="$PATH" bash "$ROOT/install.sh" --port 28443 --bashrc "$INSTALL_HOME/.bashrc"
 assert 'loader markers and unrelated bashrc lines are preserved' bash -c 'grep -Fqx "before=yes" "$1" && grep -Fqx "after=yes" "$1" && [[ $(grep -c "mihomo-userctl managed loader" "$1") == 2 ]]' _ "$INSTALL_HOME/.bashrc"
 assert 'installer is idempotent' env HOME="$INSTALL_HOME" XDG_CONFIG_HOME="$INSTALL_HOME/.config" XDG_DATA_HOME="$INSTALL_HOME/.local/share" PATH="$PATH" bash "$ROOT/install.sh" --port 28443 --bashrc "$INSTALL_HOME/.bashrc"
+
+# Ubuntu returns from .bashrc before non-interactive launchers reach content
+# appended at the end. The installer must place and, on upgrade, relocate its
+# managed loader before that guard without changing unrelated startup content.
+UBUNTU_HOME=$TEST_ROOT/ubuntu-home
+mkdir -p "$UBUNTU_HOME/.config/mihomo"
+chmod 700 "$UBUNTU_HOME/.config/mihomo"
+cp "$XDG_CONFIG_HOME/mihomo/client.env" "$UBUNTU_HOME/.config/mihomo/client.env"
+chmod 600 "$UBUNTU_HOME/.config/mihomo/client.env"
+cat > "$UBUNTU_HOME/.bashrc" <<'EOF'
+# Ubuntu-style startup file
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+ubuntu_after=yes
+EOF
+cp -p "$UBUNTU_HOME/.bashrc" "$TEST_ROOT/ubuntu-bashrc.expected"
+assert 'installer places loader before Ubuntu non-interactive guard' env HOME="$UBUNTU_HOME" XDG_CONFIG_HOME="$UBUNTU_HOME/.config" XDG_DATA_HOME="$UBUNTU_HOME/.local/share" PATH="$PATH" bash "$ROOT/install.sh" --port 28443 --bashrc "$UBUNTU_HOME/.bashrc"
+assert 'Ubuntu non-interactive source reaches Codex hook' env CODEX_REMOTE_PAYLOAD=compat-probe HOME="$UBUNTU_HOME" XDG_CONFIG_HOME="$UBUNTU_HOME/.config" XDG_DATA_HOME="$UBUNTU_HOME/.local/share" PATH="$PATH" bash -c 'source "$1"; [[ $(proxy_status) == "shell=proxied service=up endpoint=127.0.0.1:28443" ]]' _ "$UBUNTU_HOME/.bashrc"
+assert 'Ubuntu startup content is byte-preserved outside managed loader' bash -c '
+  awk '\''$0 == "# >>> mihomo-userctl managed loader >>>" { skip=1; next }
+       skip && $0 == "# <<< mihomo-userctl managed loader <<<" { skip=0; next }
+       !skip { print }'\'' "$1/.bashrc" > "$2/ubuntu-bashrc.recovered"
+  cmp -s "$2/ubuntu-bashrc.expected" "$2/ubuntu-bashrc.recovered"
+' _ "$UBUNTU_HOME" "$TEST_ROOT"
+assert 'Ubuntu loader placement remains idempotent' env HOME="$UBUNTU_HOME" XDG_CONFIG_HOME="$UBUNTU_HOME/.config" XDG_DATA_HOME="$UBUNTU_HOME/.local/share" PATH="$PATH" bash "$ROOT/install.sh" --port 28443 --bashrc "$UBUNTU_HOME/.bashrc"
+assert 'Ubuntu loader remains unique and before guard' bash -c '
+  loader=$(grep -Fnm1 "# >>> mihomo-userctl managed loader >>>" "$1" | cut -d: -f1)
+  guard=$(grep -Enm1 "^[[:space:]]*case[[:space:]]+\\\$-[[:space:]]+in" "$1" | cut -d: -f1)
+  [[ $(grep -Fxc "# >>> mihomo-userctl managed loader >>>" "$1") == 1 && $loader -lt $guard ]]
+' _ "$UBUNTU_HOME/.bashrc"
+
+LEGACY_HOME=$TEST_ROOT/legacy-loader-home
+mkdir -p "$LEGACY_HOME/.config/mihomo"
+chmod 700 "$LEGACY_HOME/.config/mihomo"
+cp "$XDG_CONFIG_HOME/mihomo/client.env" "$LEGACY_HOME/.config/mihomo/client.env"
+chmod 600 "$LEGACY_HOME/.config/mihomo/client.env"
+cp "$TEST_ROOT/ubuntu-bashrc.expected" "$LEGACY_HOME/.bashrc"
+printf '\n' >> "$LEGACY_HOME/.bashrc"
+awk '{ print }' "$ROOT/examples/bashrc-loader.bash" >> "$LEGACY_HOME/.bashrc"
+assert 'upgrade relocates a legacy loader from below Ubuntu guard' env HOME="$LEGACY_HOME" XDG_CONFIG_HOME="$LEGACY_HOME/.config" XDG_DATA_HOME="$LEGACY_HOME/.local/share" PATH="$PATH" bash "$ROOT/install.sh" --port 28443 --bashrc "$LEGACY_HOME/.bashrc"
+assert 'relocated legacy loader runs in a non-interactive Codex shell' env CODEX_REMOTE_PAYLOAD=compat-probe HOME="$LEGACY_HOME" XDG_CONFIG_HOME="$LEGACY_HOME/.config" XDG_DATA_HOME="$LEGACY_HOME/.local/share" PATH="$PATH" bash -c 'source "$1"; [[ $(proxy_status) == "shell=proxied service=up endpoint=127.0.0.1:28443" ]]' _ "$LEGACY_HOME/.bashrc"
+
 assert 'uninstaller removes owned code but preserves credentials and config' env HOME="$INSTALL_HOME" XDG_CONFIG_HOME="$INSTALL_HOME/.config" XDG_DATA_HOME="$INSTALL_HOME/.local/share" PATH="$PATH" bash "$ROOT/uninstall.sh" --bashrc "$INSTALL_HOME/.bashrc"
 assert 'configuration survived uninstall' bash -c '[[ -f "$1/.config/mihomo/client.env" && -f "$1/.config/mihomo/mihomo-shell.conf" && ! -e "$1/.local/bin/mihomoctl" ]]' _ "$INSTALL_HOME"
 

@@ -44,6 +44,20 @@ Environment variables remain visible to sufficiently privileged tools and to
 some processes under the same UID. Do not share one Unix account with untrusted
 people.
 
+## VS Code Remote credential boundary
+
+The optional remote Machine `http.proxy` contains a complete authenticated URL,
+so `~/.vscode-server/data/Machine/settings.json` is sensitive. It and every
+backup must be current-user-owned and mode `600`; never print the URL while
+configuring or testing it.
+
+This setting is narrower than a global Shell proxy but is not necessarily
+Codex-only: other remote extensions that honor VS Code `http.proxy` may use it.
+Ordinary SSH shells, `axel`, and S3 remain direct. Do not solve extension
+connectivity by exporting the proxy from `.profile`, a global environment, or
+`server-env-setup`. See the
+[recommended VS Code Remote configuration](vscode-remote.md).
+
 ## Conservative stopping
 
 `mihomoctl stop` calls only `systemctl --user stop` for the validated service

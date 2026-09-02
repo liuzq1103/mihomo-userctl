@@ -303,6 +303,16 @@ and let curl use `ALL_PROXY`; exit the child afterward.
 Before ordinary `axel` or S3 downloads, confirm `proxy_status` is direct.
 A listening Mihomo service does not itself capture their traffic.
 
+### Optional: VS Code Remote
+
+A working terminal `with_proxy codex` and Codex Remote hook do not imply that
+the VS Code Extension Host inherits the same environment. If the Codex extension
+is required in VS Code Remote, continue with the
+[recommended VS Code Remote configuration](vscode-remote.md). This is a
+separate opt-in because it stores an authenticated URL in remote Machine
+Settings and can affect other extensions that honor the setting; ordinary
+shells and large downloads remain direct.
+
 ## 10. Lifecycle and rollback
 
 ```bash

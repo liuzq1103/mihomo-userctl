@@ -39,12 +39,20 @@ Phase 1 — capability gate, read-only audit, and plan
    files in this phase. Treat a pre-existing 127.0.0.1:7890 and every unknown
    listener as out of scope unless I separately authorize it. Other users are
    always out of scope.
+   Also inspect, read-only, the order of the managed loader and a common
+   non-interactive `case $- ... return` guard in `.bashrc`. Identify only the
+   current user's Codex App Server, VS Code Extension Host, and extension Codex
+   children, whether they predate installation, and whether proxy variables are
+   present. Report presence/counts only, never values.
 3. Ask me for non-sensitive choices through ordinary conversation, at most
    three concise questions at a time. Confirm the checkout path, shell startup
    file, readiness URL, service name, subscription integration method,
    existing-configuration preserve/merge strategy, policy choices, and a final
    per-user port. There is no default port. Users on the same server must select
-   different ports. Do not ask me to paste any sensitive information into chat.
+   different ports. Explicitly ask whether the Codex extension in VS Code Remote
+   must use the proxy. This is a separate, optional Machine setting that may
+   affect other remote extensions; do not configure it without my choice. Do
+   not ask me to paste any sensitive information into chat.
 4. Sensitive information must stay on the target machine. Generate listener
    credentials locally without printing them, or instruct me to enter a
    subscription URL or existing credential directly into a current-user-owned,
@@ -103,11 +111,26 @@ Phase 2 — implementation after explicit approval
     `proxy_on || exit 1`: it uses the authenticated user listener when ready and
     fails closed when unavailable. It must never start Mihomo automatically.
     Document that this variable is a locally verified compatibility hook, not a
-    public or stable API, and re-test it after remote-client upgrades.
-13. Validate configuration syntax before any service start. A test start must
+    public or stable API, and re-test it after remote-client upgrades. The
+    managed loader must precede Ubuntu's common non-interactive `.bashrc` return
+    guard. Use a non-sensitive one-shot child test to prove the hook is reachable
+    while the ordinary parent remains direct. Environment changes apply only to
+    newly created processes. If a current-user Codex App Server predates the
+    installation, report its PID, UID, parentage, and redacted variable count;
+    reconnect normally or stop that exact process only after my explicit
+    approval. Never kill by name or affect another user.
+13. If I explicitly selected VS Code Remote integration in Phase 1, first read
+    docs/en/vscode-remote.md. Back up and structurally merge server-side
+    ~/.vscode-server/data/Machine/settings.json. Read MIHOMO_HTTPS_PROXY from
+    client.env locally without echoing it, set it as http.proxy, keep
+    http.proxyStrictSSL true, and make the active file and sensitive backup mode
+    600. Do not assume the extension supplies CODEX_REMOTE_PAYLOAD, and do not
+    substitute a global profile or server-env-setup. Reload only my own VS Code
+    connection and only after my approval.
+14. Validate configuration syntax before any service start. A test start must
     use systemctl --user only. Confirm systemctl --user is-enabled mihomo remains
     disabled. Do not enable linger or create any automatic startup mechanism.
-14. Perform final acceptance tests without exposing sensitive information:
+15. Perform final acceptance tests without exposing sensitive information:
     authenticated HTTP and SOCKS5H succeed; unauthenticated requests fail; the
     listener is only 127.0.0.1 on the chosen port; new shells are direct;
     proxy_on and proxy_off work; with_proxy affects only its child shell; the
@@ -117,14 +140,19 @@ Phase 2 — implementation after explicit approval
     service stop releases the port; logs and the project checkout contain no
     sensitive values; and no other user or unrelated listener was changed. Use
     the isolated project test harness for failure paths when stopping a live
-    service could interrupt current work.
-15. If a write or acceptance test fails, stop, restore the affected files from
+    service could interrupt current work. If VS Code Remote was selected, also
+    confirm that the new extension Codex child has HTTP_PROXY and HTTPS_PROXY
+    (report `2/2`, never values), connects to the user listener, and produces a
+    redacted target-domain entry in Mihomo logs. The Extension Host may be `0/2`.
+16. If a write or acceptance test fails, stop, restore the affected files from
     the verified backup when safe, and report the remaining state. Never kill an
     unknown process, broaden permissions, use sudo, or silently weaken a check.
-16. Finish with a redacted report containing: versions and verified checksums;
+17. Finish with a redacted report containing: versions and verified checksums;
     chosen port; files changed; backup locations; service active/enabled state;
     acceptance results; any skipped or failed check; and exact rollback steps.
-    Do not include any sensitive value.
+    Do not include any sensitive value. If VS Code Remote was selected, include
+    the Machine settings mode, new-process variable presence, and socket/log
+    acceptance results, never the proxy URL.
 ```
 
 The prompt is an orchestration contract, not a replacement for the repository's

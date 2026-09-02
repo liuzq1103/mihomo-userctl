@@ -75,6 +75,43 @@ mihomoctl doctor
 三项通过后正常重连 Codex。不要让普通 `.bashrc` 自动启动服务；否则会改变
 “重启后默认不运行”的设计。
 
+### 非交互 `.bashrc` 提前返回
+
+Ubuntu 常见 `.bashrc` 会在文件前部对非交互 Shell 执行 `return`。`v0.1.5`
+会在首次安装和升级时把 managed loader 放到该 guard 之前。可只读检查顺序：
+
+```bash
+grep -nE 'mihomo-userctl managed loader|case \$-|(^|[;[:space:]])return([;[:space:]]|$)' \
+  "$HOME/.bashrc"
+```
+
+不要把 `CODEX_REMOTE_PAYLOAD` 写入 `.bashrc` 或全局环境。测试时只能给一次性子
+进程提供非敏感占位值，并确认父 Shell 仍为 direct。
+
+### 终端已代理，但仍复用旧 App Server
+
+环境变量不会注入已运行进程。安装前启动的 Codex App Server 即使在新终端执行
+`with_proxy codex` 后也可能保持 `0/8`，并让新 CLI 通过本地 socket 复用它。
+典型证据是新 CLI 连接本地 Listener，而旧 app-server 仍对公网 `:443` 发起
+`SYN-SENT`。
+
+先退出当前用户自己的 Codex 客户端并正常重连；只有确认 PID、UID 和父子关系后
+才停止当前用户的残留进程。不要按进程名全局 `pkill`，不要停止其他用户或未知
+SSH 会话。新进程应重新继承环境，并在 Mihomo 日志中出现目标域名。
+
+## 终端 Codex 正常，但 VS Code Remote 扩展失败
+
+VS Code Extension Host 不运行 `with_proxy`，也不应假定它会提供
+`CODEX_REMOTE_PAYLOAD`。若远程 Codex 子进程没有代理变量，按
+[VS Code Remote 推荐配置](vscode-remote.md)配置服务器侧 Machine
+`http.proxy`，保护包含认证 URL 的设置文件为当前用户所有且权限 `600`，然后
+重载窗口。当前实机验证的同版扩展会向 Codex 子进程传递两个大写变量，因此
+预期为 `proxy_vars=2/2`，Extension Host 自身仍可能为 `0/2`。
+
+若仍失败，重启当前用户自己的远程 VS Code 连接，再确认 Codex 子进程连接的是
+`127.0.0.1:<用户端口>`。不要把代理写入全局 profile 或
+`server-env-setup`，否则会扩大到普通任务和其他远程扩展进程。
+
 ## `client.env must have mode 600`
 
 确认文件属于当前用户后：

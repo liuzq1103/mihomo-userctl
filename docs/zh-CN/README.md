@@ -6,6 +6,7 @@
 2. [安装和使用 mihomo-userctl](../../README.zh-CN.md)
 3. [架构与数据流](architecture.md)
 4. [安全模型](security.md)
+5. [VS Code Remote 推荐配置](vscode-remote.md)（可选）
 
 其他资料：
 

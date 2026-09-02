@@ -13,6 +13,7 @@ expected=(
   security.md
   setup.md
   troubleshooting.md
+  vscode-remote.md
 )
 
 for language in en zh-CN; do
@@ -75,6 +76,8 @@ for language in en zh-CN; do
       'is-enabled mihomo remains'
       'official release source'
       'published checksum'
+      'VS Code Remote'
+      'http.proxy'
     )
   else
     checkout_label='已发布标签'
@@ -104,6 +107,8 @@ for language in en zh-CN; do
       'disabled'
       '官方 Release'
       '官方摘要'
+      'VS Code Remote'
+      'http.proxy'
     )
   fi
 
@@ -141,6 +146,22 @@ if ! grep -Fq 'docs/en/agent-install-prompt.md' "$root/README.md" ||
   printf 'top-level README does not use the generic installation prompt as the main entry\n' >&2
   failed=1
 fi
+
+for language in en zh-CN; do
+  guide="$root/docs/$language/vscode-remote.md"
+  if [[ $language == en ]]; then
+    permission_marker='mode `600`'
+  else
+    permission_marker='权限 `600`'
+  fi
+  for marker in 'http.proxy' 'http.proxyStrictSSL' "$permission_marker" \
+                'proxy_vars=2/2' 'CODEX_REMOTE_PAYLOAD' 'server-env-setup'; do
+    if ! grep -Fq "$marker" "$guide"; then
+      printf 'VS Code Remote guide lacks required marker %s: %s\n' "$marker" "$language" >&2
+      failed=1
+    fi
+  done
+done
 
 if ! grep -Fq 'if [[ -n ${CODEX_REMOTE_PAYLOAD:-} ]]' "$root/src/shell.bash" ||
    ! grep -Fq 'proxy_on || exit 1' "$root/src/shell.bash"; then

@@ -74,6 +74,47 @@ mihomoctl doctor
 `CODEX_REMOTE_PAYLOAD` is a locally verified compatibility hook, not a public,
 stable Codex API. Re-test after Codex upgrades.
 
+### A non-interactive `.bashrc` returns too early
+
+Ubuntu commonly returns near the top of `.bashrc` for non-interactive shells.
+Version `0.1.5` places or relocates the managed loader before that guard. Inspect
+the order without exposing credentials:
+
+```bash
+grep -nE 'mihomo-userctl managed loader|case \$-|(^|[;[:space:]])return([;[:space:]]|$)' \
+  "$HOME/.bashrc"
+```
+
+Never persist or invent `CODEX_REMOTE_PAYLOAD`. A compatibility test may supply
+a non-sensitive value to one child process; the parent must remain direct.
+
+### A proxied terminal still reuses a stale App Server
+
+Environment changes do not alter an existing process. A Codex App Server that
+predates installation can retain `0/8` proxy variables even when a new
+`with_proxy codex` CLI has `8/8`, and the new CLI may reuse that server through
+a local socket. Direct `SYN-SENT` attempts from the old server plus a local
+listener connection from the new client are strong evidence of this split.
+
+Exit and reconnect only the current user's Codex client. Stop a residual process
+only after verifying its PID, UID, and parentage. Never use a server-wide
+process-name kill or interfere with another user or an unknown SSH session.
+
+## Terminal Codex works but the VS Code Remote extension fails
+
+The VS Code Extension Host does not run `with_proxy`, and callers must not assume
+it supplies `CODEX_REMOTE_PAYLOAD`. Follow the
+[recommended VS Code Remote configuration](vscode-remote.md): set remote Machine
+`http.proxy`, keep the authenticated settings file current-user-owned and mode
+`600`, then reload the window. In the same-version tested extension, the Codex
+child receives two uppercase variables (`proxy_vars=2/2`); the Extension Host
+itself may remain `0/2`.
+
+If it still fails, restart only the current user's remote VS Code connection and
+verify that the new Codex child connects to `127.0.0.1:<user-port>`. Do not use a
+global profile or `server-env-setup`, which broadens proxy inheritance beyond
+the intended extension path.
+
 ## Confirm that `axel` is direct
 
 In the exact Shell that launches it:

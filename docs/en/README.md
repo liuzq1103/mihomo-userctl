@@ -6,6 +6,7 @@ If starting on a new server, read these in order:
 2. [Install and use mihomo-userctl](../../README.md)
 3. [Architecture and data flow](architecture.md)
 4. [Security model](security.md)
+5. [Recommended VS Code Remote configuration](vscode-remote.md) (optional)
 
 Other references:
 

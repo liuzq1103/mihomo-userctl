@@ -64,6 +64,24 @@ axel → 服务器网络接口 → 目标站点
 Mihomo 内部的 `MATCH,DIRECT`、AI 规则、SEA-AD 精确 DIRECT 等策略不属于
 `mihomo-userctl`；本项目只决定程序是否进入 Mihomo。
 
+## 三种 Codex 启动路径
+
+```text
+终端：with_proxy codex → 继承八个代理变量 → Mihomo
+Codex Remote：远程启动器提供 CODEX_REMOTE_PAYLOAD → .bashrc hook → Mihomo
+VS Code Remote：Machine http.proxy → Extension Host 启动 Codex app-server → Mihomo
+```
+
+三条路径彼此独立。Ubuntu 的 `.bashrc` 常在非交互 Shell 中提前 `return`，所以
+managed loader 必须位于该 guard 之前。VS Code Remote 不执行 Shell 函数，也
+不应假定它会提供 `CODEX_REMOTE_PAYLOAD`；需要单独配置 Machine `http.proxy`。
+当前同版扩展的实机行为是把 `HTTP_PROXY`、`HTTPS_PROXY` 传给 Codex 子进程，
+而不是导出终端使用的全部八个变量。
+
+环境变量只在创建进程时继承。旧 Codex App Server 或 Extension Host 即使在
+配置修复后仍可能保持 direct，必须重启当前用户自己的客户端连接，再以新进程
+的环境、到 Listener 的 socket 和 Mihomo 日志完成验收。
+
 ## 文件信任模型
 
 - `.bashrc` loader 在 source 前检查 `shell.bash` 和父目录；

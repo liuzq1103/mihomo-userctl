@@ -4,6 +4,39 @@ All notable changes follow a simplified Keep a Changelog format.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-09-02
+
+### Fixed
+
+- Installed and upgraded the managed loader before Ubuntu's standard
+  non-interactive `.bashrc` return guard. This lets an explicitly supplied
+  `CODEX_REMOTE_PAYLOAD` reach the fail-closed compatibility hook.
+- Added regression coverage for fresh installs, upgrades from a loader below
+  that guard, non-interactive hook execution, idempotency, and preservation of
+  unrelated startup-file content.
+
+### Added
+
+- Added matching English and Chinese VS Code Remote guides for the optional
+  remote Machine `http.proxy` integration, secure file permissions, process
+  restart, traffic verification, impact scope, and rollback.
+- Documented two separate long-lived-process failures found during real-world
+  acceptance: a stale Codex App Server retaining its original direct
+  environment, and the VS Code Extension Host starting Codex without the Shell
+  hook or proxy variables.
+- Extended the coding-agent installation protocol to discover and explicitly
+  approve optional VS Code Remote integration and to validate the resulting
+  process and socket path without exposing credentials.
+
+### Security
+
+- Kept VS Code proxy credentials out of chat, command arguments, logs, diffs,
+  and Git; remote Machine Settings containing an authenticated URL must be
+  current-user-owned and mode `600`.
+- Restart instructions are limited to the current user's client connection and
+  processes. They never authorize server-wide process-name kills or changes to
+  another user.
+
 ## [0.1.4] - 2026-09-02
 
 ### Fixed

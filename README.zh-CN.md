@@ -219,6 +219,22 @@ mihomoctl logs --follow
 该变量不是公开、稳定的 Codex API，因此升级 Codex 后应重新做连接验收。普通
 SSH 不设置该变量，仍然默认直连。
 
+安装器会把 managed loader 放在 Ubuntu 常见的非交互 Shell 提前 `return` 之前。
+升级时也会自动纠正旧版本中 loader 位于该 guard 之后的情况。代理环境只在进程
+启动时继承；安装或修改代理后，必须正常重连当前用户自己的 Codex 客户端，避免
+继续复用安装前启动的旧 App Server。
+
+## VS Code Remote
+
+VS Code Remote 的 Extension Host 不执行 `with_proxy`，也不应假定它会提供
+`CODEX_REMOTE_PAYLOAD`。如果远程 Codex 扩展需要代理，请在服务器侧的 VS Code
+Machine Settings 中显式配置 `http.proxy`，并将包含认证 URL 的文件权限收紧为
+`600`。这项设置可能同时影响其他遵循 VS Code 代理设置的远程扩展，但不会让
+普通 SSH Shell、`axel` 或 S3 下载自动走代理。
+
+完整配置、验收、影响范围和回滚见
+[VS Code Remote 推荐配置](docs/zh-CN/vscode-remote.md)。
+
 ## 卸载
 
 ```bash
@@ -239,6 +255,7 @@ SSH 不设置该变量，仍然默认直连。
 
 - [从安装 Mihomo 开始配置完整环境](docs/zh-CN/setup.md)
 - [可直接复制的 Coding Agent 安装 Prompt](docs/zh-CN/agent-install-prompt.md)
+- [VS Code Remote 推荐配置](docs/zh-CN/vscode-remote.md)
 - [架构与数据流](docs/zh-CN/architecture.md)
 - [安全模型](docs/zh-CN/security.md)
 - [停电、端口、凭据等排错](docs/zh-CN/troubleshooting.md)

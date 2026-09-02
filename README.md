@@ -228,6 +228,24 @@ MIHOMO_STOP_TIMEOUT=5
 must be mode `600`. These files are parsed with a fixed key whitelist; they are
 not Shell programs.
 
+## Codex Remote and VS Code Remote
+
+The locally verified `CODEX_REMOTE_PAYLOAD` compatibility hook remains the
+fail-closed opt-in path for Codex Remote launchers that actually supply it. The
+installer now places the managed loader before Ubuntu's common non-interactive
+`.bashrc` return guard and relocates an older managed block when upgrading.
+Because a running process cannot acquire environment changes retroactively,
+reconnect only the current user's Codex client after installation instead of
+reusing an older App Server.
+
+VS Code Remote is a separate launch path: its Extension Host does not execute
+`with_proxy`, and callers must not assume it supplies `CODEX_REMOTE_PAYLOAD`.
+When the remote Codex extension needs the proxy, configure the server-side VS
+Code Machine `http.proxy` explicitly and protect the authenticated setting with
+mode `600`. This can affect other remote extensions that honor the same VS Code
+setting, but ordinary SSH shells, `axel`, and S3 downloads remain direct. See
+the [recommended VS Code Remote configuration](docs/en/vscode-remote.md).
+
 ## Uninstall
 
 ```bash
@@ -252,6 +270,7 @@ is documented in [the Mihoro inspiration note](docs/en/mihoro-inspiration.md).
 
 - [Install Mihomo and configure the complete stack](docs/en/setup.md)
 - [Copyable coding-agent installation prompt](docs/en/agent-install-prompt.md)
+- [Recommended VS Code Remote configuration](docs/en/vscode-remote.md)
 - [Architecture and data flow](docs/en/architecture.md)
 - [Security model](docs/en/security.md)
 - [Troubleshooting](docs/en/troubleshooting.md)

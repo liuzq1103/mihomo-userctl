@@ -301,6 +301,14 @@ HTTP/HTTPS 变量，只保留 `ALL_PROXY/all_proxy` 后运行 curl，退出子 S
 普通 `axel`/S3 下载前检查 `proxy_status` 为 direct。Mihomo 正在监听不等于
 普通程序会经过它。
 
+### 可选：VS Code Remote
+
+终端 `with_proxy codex` 和 Codex Remote hook 验收成功，并不代表 VS Code
+Extension Host 会继承同一环境。需要在 VS Code Remote 中使用 Codex 扩展时，
+继续阅读 [VS Code Remote 推荐配置](vscode-remote.md)。该步骤必须单独选择，
+会把认证 URL 写入远程 Machine Settings，并可能影响其他遵循该设置的扩展；
+普通 Shell 和大型下载仍保持直连。
+
 ## 10. 停止、重启与回滚
 
 ```bash

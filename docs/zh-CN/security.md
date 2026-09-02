@@ -61,6 +61,17 @@ HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY
 环境变量仍可能被同一 UID 的调试工具读取。因此同一 Linux 账户下的进程不被
 视为彼此隔离；不要让不受信任的人共享同一个账户。
 
+## VS Code Remote 凭据边界
+
+可选的远程 Machine `http.proxy` 包含完整认证 URL，因此其
+`~/.vscode-server/data/Machine/settings.json` 也属于敏感文件：必须属于当前
+用户、权限为 `600`，备份同样需要 `600`。配置和验证时不得打印完整 URL。
+
+该设置只比全局 Shell 代理更窄，并非只影响 Codex；其他遵循 VS Code
+`http.proxy` 的远程扩展也可能使用它。普通 SSH Shell、`axel` 和 S3 仍默认
+直连。不要为解决扩展联网而把代理写入 `.profile`、全局环境或
+`server-env-setup`。完整做法见 [VS Code Remote 推荐配置](vscode-remote.md)。
+
 ## 停止策略
 
 `mihomoctl stop` 只调用：

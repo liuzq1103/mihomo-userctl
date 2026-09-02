@@ -32,10 +32,16 @@ CODEX_REMOTE_PAYLOAD 显式启用代理。只操作我的账户，不影响其�
    系统级服务、linger、cron、TUN、controller 或系统代理；不得停止进程、变更
    端口、启动服务或写文件。已有 127.0.0.1:7890 和所有归属不明的监听都属于
    范围外，除非我另行明确授权；其他用户始终完全不在范围内。
+   同时只读检查 `.bashrc` 中 managed loader 与常见非交互
+   `case $- ... return` guard 的相对顺序，以及当前用户自己的 Codex App Server、
+   VS Code Extension Host 和扩展 Codex 子进程是否早于安装启动、是否继承代理
+   变量；只报告变量是否存在和计数，不得输出值。
 3. 通过普通对话向我逐项确认非敏感选项，每次最多提出三个简短问题。确认项目
    检出路径、Shell 启动文件、readiness URL、服务名、订阅接入方式、现有配置
    的保留/合并方案、策略选择和最终的每用户端口。项目没有默认端口；同一服务
-   器上的用户必须选择不同端口。不得要求我把敏感信息粘贴到聊天。
+   器上的用户必须选择不同端口。另请明确询问我是否需要 VS Code Remote 中的
+   Codex 扩展使用代理；这是可选、独立且可能影响其他远程扩展的 Machine 设置，
+   未经明确选择不得配置。不得要求我把敏感信息粘贴到聊天。
 4. 敏感信息必须留在目标机器本地。Listener 凭据应在本地生成且不得打印；订阅
    URL 或已有凭据应由我直接写入属于当前用户、权限为 600 的文件。你只能接收
    文件路径，并在不回显值的前提下检查所有者、权限和必需结构；不得让值进入
@@ -77,22 +83,38 @@ CODEX_REMOTE_PAYLOAD 显式启用代理。只操作我的账户，不影响其�
     CODEX_REMOTE_PAYLOAD 时，模块必须自动执行等价于 `proxy_on || exit 1` 的
     逻辑：服务就绪时使用带认证的用户 Listener；不可用时 fail closed；绝不自动
     启动 Mihomo。文档必须说明该变量只是本机已验证的兼容钩子，不是公开、稳定
-    的 API；远程客户端升级后要重新验收。
-13. 启动服务前先验证配置语法。测试启动只能使用 systemctl --user。确认
+    的 API；远程客户端升级后要重新验收。managed loader 必须位于 Ubuntu 常见
+    的非交互 `.bashrc` 提前 return guard 之前，并用非敏感的一次性子进程测试
+    确认 hook 可达、普通父 Shell 仍为 direct。环境变量只在进程启动时继承；
+    如发现安装前启动的当前用户 Codex App Server，先报告 PID、UID、父子关系和
+    脱敏环境计数，获得我明确批准后再正常重连或精确停止。不得按名称批量杀进程，
+    也不得处理其他用户。
+13. 如果我在阶段一明确选择 VS Code Remote 集成，先阅读
+    docs/zh-CN/vscode-remote.md。备份并结构化合并服务器侧
+    ~/.vscode-server/data/Machine/settings.json：从 client.env 在本地读取
+    MIHOMO_HTTPS_PROXY，绝不回显其值，将其设置为 http.proxy，同时保持
+    http.proxyStrictSSL 为 true，并把活动文件和含凭据备份权限设为 600。
+    不得假设 VS Code 扩展会提供 CODEX_REMOTE_PAYLOAD，不得改用全局 profile
+    或 server-env-setup。只在我批准后重载当前用户自己的 VS Code 连接。
+14. 启动服务前先验证配置语法。测试启动只能使用 systemctl --user。确认
     systemctl --user is-enabled mihomo 始终返回 disabled。不得启用 linger，
     也不得创建任何自动启动机制。
-14. 在不暴露敏感信息的前提下完成最终验收：认证 HTTP 和 SOCKS5H 成功；未认证
+15. 在不暴露敏感信息的前提下完成最终验收：认证 HTTP 和 SOCKS5H 成功；未认证
     请求失败；Listener 只监听所选端口的 127.0.0.1；新 Shell 默认直连；
     proxy_on 和 proxy_off 正常；with_proxy 只影响子 Shell；CODEX_REMOTE_PAYLOAD
     路径在服务就绪时进入代理、不可用时明确失败而不是悄悄直连，并且不会自动
     启动服务；普通 axel、S3 和大文件下载保持直连；停止服务后端口释放；日志和
     项目检出中没有敏感值；其他用户与无关监听没有发生变化。如果停止正在使用
-    的服务会中断当前工作，失败路径必须使用项目的隔离测试环境验证。
-15. 如果写入或验收失败，立即停止；在安全且可验证时从备份恢复受影响文件，
+    的服务会中断当前工作，失败路径必须使用项目的隔离测试环境验证。如果选择了
+    VS Code Remote，还要确认新扩展 Codex 子进程包含 HTTP_PROXY 和 HTTPS_PROXY
+    （只报告 `2/2`，不输出值）、连接用户 Listener，目标域名出现在 Mihomo 脱敏
+    日志；Extension Host 本身可以为 `0/2`。
+16. 如果写入或验收失败，立即停止；在安全且可验证时从备份恢复受影响文件，
     并报告剩余状态。绝不杀死未知进程、扩大权限、使用 sudo 或悄悄弱化检查。
-16. 最后提供脱敏报告：版本和已验证摘要、所选端口、修改文件、备份位置、服务
+17. 最后提供脱敏报告：版本和已验证摘要、所选端口、修改文件、备份位置、服务
     active/enabled 状态、验收结果、跳过或失败的检查，以及准确回滚步骤。报告中
-    不得包含任何敏感值。
+    不得包含任何敏感值。若选择 VS Code Remote，还要列出 Machine 设置的权限、
+    新进程的变量存在性和 socket/log 验收结果，不得列出代理 URL。
 ```
 
 这份 Prompt 是编排协议，不替代仓库中确定性的安装器和测试。请先审核 Agent
