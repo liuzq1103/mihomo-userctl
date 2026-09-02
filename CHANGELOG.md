@@ -4,6 +4,17 @@ All notable changes follow a simplified Keep a Changelog format.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-02
+
+### Fixed
+
+- Restored the complete installation task in the agent-neutral prompts,
+  including the CODEX_REMOTE_PAYLOAD opt-in and fail-closed acceptance path.
+- Restored explicit protection for the out-of-scope loopback port, active
+  downloads and SSH sessions, current proxy state, and existing user policy.
+- Narrowed the product-specific test ban to installation interfaces only;
+  runtime compatibility requirements must now be present in both languages.
+
 ## [0.1.3] - 2026-09-02
 
 ### Changed

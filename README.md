@@ -116,7 +116,9 @@ an agent that can read files, run terminal commands, use SSH when needed, and
 pause for your approval. A chat-only model cannot execute the installation; it
 can only explain the manual steps. The prompt requires a read-only audit and a
 complete plan before any modification, while sensitive values remain on the
-target machine and outside the conversation.
+target machine and outside the conversation. Making the installer agent-neutral
+does not change the installation task: the prompt still configures and validates
+the Codex Remote compatibility hook described below.
 
 ### Auditable command-line setup
 

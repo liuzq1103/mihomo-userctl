@@ -6,7 +6,7 @@
 
 # Used by src/mihomoctl after this shared module is sourced.
 # shellcheck disable=SC2034
-MIHOMO_USERCTL_VERSION="0.1.3"
+MIHOMO_USERCTL_VERSION="0.1.4"
 
 _muc_err() {
   printf 'mihomo-userctl: %s\n' "$*" >&2
