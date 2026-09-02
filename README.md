@@ -110,11 +110,13 @@ project only controls the server user's existing service and shell environment.
 
 ### Lowest-effort guided setup
 
-For a fresh server, switch a supported Codex client to Plan mode and copy the
-[Codex installation prompt](docs/en/codex-install-prompt.md) into a new task.
-It asks Codex to collect non-secret custom choices through interactive popups,
-audit the machine, stop at permission or ownership ambiguities, and use the
-repository's deterministic scripts. Secrets never belong in a popup or chat.
+For a fresh server, copy the
+[generic coding-agent installation prompt](docs/en/agent-install-prompt.md) into
+an agent that can read files, run terminal commands, use SSH when needed, and
+pause for your approval. A chat-only model cannot execute the installation; it
+can only explain the manual steps. The prompt requires a read-only audit and a
+complete plan before any modification, while sensitive values remain on the
+target machine and outside the conversation.
 
 ### Auditable command-line setup
 
@@ -247,7 +249,7 @@ is documented in [the Mihoro inspiration note](docs/en/mihoro-inspiration.md).
 ## Documentation
 
 - [Install Mihomo and configure the complete stack](docs/en/setup.md)
-- [Copyable Codex installation prompt](docs/en/codex-install-prompt.md)
+- [Copyable coding-agent installation prompt](docs/en/agent-install-prompt.md)
 - [Architecture and data flow](docs/en/architecture.md)
 - [Security model](docs/en/security.md)
 - [Troubleshooting](docs/en/troubleshooting.md)

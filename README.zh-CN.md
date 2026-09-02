@@ -94,12 +94,13 @@ Mihomo 的用户应从[安装 Mihomo 开始的完整教程](docs/zh-CN/setup.md)
 
 ## 安装
 
-### 最省脑：复制 Prompt 交给 Codex
+### 最省脑：复制 Prompt 交给 Coding Agent
 
-全新服务器建议先把受支持的 Codex 客户端切换到 Plan 模式，再把
-[完整安装 Prompt](docs/zh-CN/codex-install-prompt.md)复制到新任务。Prompt 要求
-Codex 用交互弹窗收集非敏感自定义项，先审计系统、架构、端口和权限，遇到归属
-不明或需要管理员权限的步骤立即停止；订阅 URL、密码和令牌等敏感信息不得进入弹窗或聊天。
+全新服务器可以把[通用 Coding Agent 安装 Prompt](docs/zh-CN/agent-install-prompt.md)
+复制给能够读取文件、执行终端命令、在需要时使用 SSH，并能暂停等待你批准的
+Agent。只有普通聊天能力的模型不能代替你安装，只能解释人工步骤。Prompt 要求
+先完成只读审计和完整计划，取得明确批准后才允许修改；敏感信息始终保留在目标
+机器本地，不进入聊天。
 
 Prompt 是编排入口，不是安装程序本身。这样既容易使用，也避免把不可审计的
 `curl | bash` 当成“一键安装”。
@@ -236,7 +237,7 @@ SSH 不设置该变量，仍然默认直连。
 ## 进一步阅读
 
 - [从安装 Mihomo 开始配置完整环境](docs/zh-CN/setup.md)
-- [可直接复制的 Codex 安装 Prompt](docs/zh-CN/codex-install-prompt.md)
+- [可直接复制的 Coding Agent 安装 Prompt](docs/zh-CN/agent-install-prompt.md)
 - [架构与数据流](docs/zh-CN/architecture.md)
 - [安全模型](docs/zh-CN/security.md)
 - [停电、端口、凭据等排错](docs/zh-CN/troubleshooting.md)

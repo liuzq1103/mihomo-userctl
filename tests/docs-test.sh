@@ -6,6 +6,7 @@ failed=0
 
 expected=(
   README.md
+  agent-install-prompt.md
   architecture.md
   codex-install-prompt.md
   mihoro-inspiration.md
@@ -44,25 +45,62 @@ if grep -RInE '17890|docs/(en|zh-CN)/migration\.md' \
 fi
 
 for language in en zh-CN; do
-  prompt="$root/docs/$language/codex-install-prompt.md"
+  prompt="$root/docs/$language/agent-install-prompt.md"
+  compatibility="$root/docs/$language/codex-install-prompt.md"
   if [[ $language == en ]]; then
-    plan_label='Plan mode'
     checkout_label='pinned released tag'
+    required=(
+      'capability gate'
+      'read-only audit'
+      'explicit approval'
+      'Sensitive information'
+      'rollback'
+      'final acceptance'
+    )
   else
-    plan_label='Plan 模式'
     checkout_label='已发布标签'
+    required=('能力检查' '只读审计' '明确批准' '敏感信息' '回滚' '最终验收')
   fi
-  if ! grep -Fq "$plan_label" "$prompt" || ! grep -Fq 'request_user_input' "$prompt"; then
-    printf 'installation prompt lacks Plan mode interactive-input guidance: %s\n' "$language" >&2
+
+  if grep -Ein \
+    'Plan mode|Plan 模式|request_user_input|interactive popup|交互弹窗|CODEX_REMOTE_PAYLOAD|Codex' \
+    "$prompt"; then
+    printf 'generic installation prompt contains a product-specific interface: %s\n' "$language" >&2
     failed=1
   fi
-  checkout_line=$(grep -n -m1 "$checkout_label" "$prompt" | cut -d: -f1)
-  suggest_line=$(grep -n -m1 './install.sh --suggest-port' "$prompt" | cut -d: -f1)
+  for marker in "${required[@]}"; do
+    if ! grep -Fiq "$marker" "$prompt"; then
+      printf 'generic installation prompt lacks required marker %s: %s\n' "$marker" "$language" >&2
+      failed=1
+    fi
+  done
+  if ! grep -Fq '](agent-install-prompt.md)' "$compatibility"; then
+    printf 'legacy prompt page does not point to the generic prompt: %s\n' "$language" >&2
+    failed=1
+  fi
+  if grep -Fq '```text' "$compatibility"; then
+    printf 'legacy prompt page duplicates an executable prompt: %s\n' "$language" >&2
+    failed=1
+  fi
+
+  checkout_line=$(grep -n -m1 "$checkout_label" "$prompt" | cut -d: -f1 || true)
+  suggest_line=$(grep -n -m1 './install.sh --suggest-port' "$prompt" | cut -d: -f1 || true)
   if [[ -z $checkout_line || -z $suggest_line || $checkout_line -ge $suggest_line ]]; then
     printf 'installation prompt uses project scripts before obtaining the checkout: %s\n' "$language" >&2
     failed=1
   fi
 done
+
+if ! grep -Fq 'docs/en/agent-install-prompt.md' "$root/README.md" ||
+   ! grep -Fq 'docs/zh-CN/agent-install-prompt.md' "$root/README.zh-CN.md"; then
+  printf 'top-level README does not use the generic installation prompt as the main entry\n' >&2
+  failed=1
+fi
+
+if ! grep -Fq 'CODEX_REMOTE_PAYLOAD' "$root/src/shell.bash"; then
+  printf 'remote-runtime compatibility hook was removed unexpectedly\n' >&2
+  failed=1
+fi
 
 if ((failed)); then
   exit 1

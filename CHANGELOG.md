@@ -4,6 +4,20 @@ All notable changes follow a simplified Keep a Changelog format.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-02
+
+### Changed
+
+- Replaced the primary product-specific installation prompt with matching
+  English and Chinese, tool-agnostic coding-agent protocols.
+- Added explicit capability detection, a read-only planning phase, ordinary
+  conversational choices, sensitive-information boundaries, approval gates,
+  rollback, and final acceptance requirements.
+- Kept the former prompt paths as short compatibility pages while preserving
+  the existing remote-runtime compatibility hook and usage documentation.
+- Bumped the packaged controller version to `0.1.3`; this release does not
+  change proxy behavior, credentials, routing policy, or service lifecycle.
+
 ## [0.1.2] - 2026-08-27
 
 ### Changed
