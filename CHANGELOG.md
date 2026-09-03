@@ -4,6 +4,8 @@ All notable changes follow a simplified Keep a Changelog format.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-03
+
 ### Added
 
 - Version-pinned official self-updates, check/dry-run modes, explicit-path legacy

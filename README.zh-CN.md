@@ -151,7 +151,9 @@ mihomoctl update --version vX.Y.Z --dry-run
 mihomoctl update --version vX.Y.Z
 ```
 
-`vX.Y.Z` 必须替换为实际发布且兼容的正式版本；0.2 源码实现本身不等于已发布版本。
+`vX.Y.Z` 必须替换为实际发布且兼容的正式版本。
+[v0.2.0](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v0.2.0) 是首个支持此流程的
+正式版本，旧版安装需要先按指南完成一次性迁移。
 只更新 mihomo-userctl，保留个人设置和服务状态。退出 0 是查询/预演成功；3 是文件已安装但
 验收未完成；5 是文件已安装但 Listener 验收失败。完整退出码、旧版迁移及精确回滚见
 [更新指南](docs/zh-CN/update.md)，可复制[更新 Prompt](docs/zh-CN/agent-update-prompt.md)。

@@ -6,8 +6,9 @@
 provider、节点或路由，不会启动/启用服务、配置 linger、使用 sudo、修改系统代理或停止进程。
 保留服务原有的 active/enabled 状态，包括原本已 enabled 的服务。
 
-0.2 源码系列的更新器要求 Linux、Bash 5+、Python 3.8+、原控制器依赖，以及可用的
-systemd 用户管理器。本次源码变更本身不代表 GitHub 已发布新版本。目标必须是实际已发布的
+更新器要求 Linux、Bash 5+、Python 3.8+、原控制器依赖，以及可用的 systemd 用户管理器。
+[v0.2.0](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v0.2.0) 是首个支持此流程的
+正式版本；旧版安装需要先完成下文的一次性迁移。目标必须是实际已发布的
 正式 `vX.Y.Z` 标签，且带有声明更新协议 1 的 `release-manifest.json`；旧版发布不兼容。
 查询到 latest 不代表目标兼容，请先预演。
 

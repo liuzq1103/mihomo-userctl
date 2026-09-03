@@ -7,9 +7,11 @@ Mihomo core, change subscriptions/providers/routing, start or enable services,
 configure linger, use sudo, set a system proxy, or stop processes. Existing
 service active/enabled states are preserved, including an enabled service.
 
-The updater in the 0.2 source series requires Linux, Bash 5+, Python 3.8+, the
-existing controller dependencies and a working systemd user manager. This source
-change does not itself publish a GitHub release. Use an actually published stable
+The updater requires Linux, Bash 5+, Python 3.8+, the existing controller
+dependencies and a working systemd user manager.
+[v0.2.0](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v0.2.0) is the first
+stable release supporting this flow. Older installations need the one-time
+migration described below. Use an actually published stable
 `vX.Y.Z` release that contains `release-manifest.json` with update protocol 1;
 pre-update releases are incompatible. A latest-release query does not certify
 compatibility. Run the dry-run before applying.

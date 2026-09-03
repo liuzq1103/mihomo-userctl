@@ -163,8 +163,10 @@ mihomoctl update --version vX.Y.Z --dry-run
 mihomoctl update --version vX.Y.Z
 ```
 
-Replace `vX.Y.Z` with an actually published compatible stable release. The 0.2
-source implementation does not itself publish a release. Update only changes
+Replace `vX.Y.Z` with an actually published compatible stable release.
+[v0.2.0](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v0.2.0) is the first
+release supporting this flow; older installations need the one-time migration.
+Update only changes
 mihomo-userctl, preserving personal settings and service state. Exit 0 is query/
 dry-run success; 3 is installed with acceptance pending; 5 is installed with
 listener acceptance failures. See [all exit codes, old-version migration and
