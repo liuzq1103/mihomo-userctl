@@ -1,7 +1,7 @@
 _mihomoctl_complete() {
   local current=${COMP_WORDS[COMP_CWORD]}
   local previous=${COMP_WORDS[COMP_CWORD-1]}
-  local commands='start stop restart status ready doctor logs log version help'
+  local commands='start stop restart status ready doctor logs log version update help'
   if (( COMP_CWORD == 1 )); then
     mapfile -t COMPREPLY < <(compgen -W "$commands" -- "$current")
   elif [[ ${COMP_WORDS[1]} == logs || ${COMP_WORDS[1]} == log ]]; then
@@ -10,6 +10,8 @@ _mihomoctl_complete() {
     else
       mapfile -t COMPREPLY < <(compgen -W '--lines --follow -f' -- "$current")
     fi
+  elif [[ ${COMP_WORDS[1]} == update ]]; then
+    mapfile -t COMPREPLY < <(compgen -W '--check --version --dry-run --help' -- "$current")
   else
     COMPREPLY=()
   fi

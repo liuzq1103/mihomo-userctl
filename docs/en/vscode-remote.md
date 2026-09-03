@@ -177,6 +177,11 @@ Replace `<port>` with this account's configured port. Codex should connect to
 the loopback listener, and ChatGPT/OpenAI domains in Mihomo logs should select
 the intended user policy.
 
+If the extension is missing, reload has not happened, or an old process is still
+reused, record UNVERIFIED; use DEFERRED only after explicit postponement. Writing
+settings or stopping an old process is not a pass. Correlate the new process,
+listener connection, and proxy routing; see [acceptance requirements](acceptance.md).
+
 ## Security and scope
 
 - `settings.json` now contains listener credentials. It must remain owned by

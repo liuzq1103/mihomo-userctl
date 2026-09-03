@@ -35,6 +35,8 @@ Commands:
   logs [--lines N] [--follow]
                         Read the user-service journal
   version               Print mihomo-userctl and detected Mihomo versions
+  update --check | --version TAG [--dry-run]
+                        Update only mihomo-userctl from an official stable release
   help                  Show this help
 EOF
 }
@@ -112,7 +114,7 @@ doctor_line() {
 }
 
 cmd_doctor() {
-  local failed=0 command enabled service=down listener=down
+  local failed=0 command enabled service=down listener=down offline=${1:-0}
   for command in bash systemctl ss curl journalctl stat awk grep id; do
     if command -v "$command" >/dev/null 2>&1; then
       doctor_line "$command" ok
@@ -136,13 +138,13 @@ cmd_doctor() {
   enabled=$(_muc_service_enabled_state)
   [[ -n $enabled ]] || enabled=unknown
   doctor_line enabled "$enabled"
-  [[ $enabled == disabled ]] || failed=1
+  [[ $enabled == disabled || $offline == 1 ]] || failed=1
   _muc_service_active && service=up
   _muc_listening && listener=up
   doctor_line service "$service"
   doctor_line listener "$listener"
   doctor_line endpoint "127.0.0.1:$MIHOMO_PORT"
-  if [[ $service == up ]]; then
+  if [[ $service == up && $offline == 0 ]]; then
     if _muc_probe; then
       doctor_line readiness ok
     else
@@ -150,7 +152,7 @@ cmd_doctor() {
       failed=1
     fi
   else
-    doctor_line readiness skipped-service-down
+    doctor_line readiness skipped-offline-or-service-down
   fi
   doctor_line secrets redacted
   (( failed == 0 ))
@@ -209,8 +211,17 @@ case $command_name in
   restart) (( $# == 0 )) || { usage >&2; exit 2; }; cmd_restart ;;
   status) (( $# == 0 )) || { usage >&2; exit 2; }; cmd_status ;;
   ready) (( $# == 0 )) || { usage >&2; exit 2; }; cmd_ready ;;
-  doctor) (( $# == 0 )) || { usage >&2; exit 2; }; cmd_doctor ;;
+  doctor)
+    if (( $# == 0 )); then cmd_doctor
+    elif (( $# == 1 )) && [[ $1 == --offline ]]; then cmd_doctor 1
+    else usage >&2; exit 2; fi
+    ;;
   logs|log) cmd_logs "$@" ;;
+  update)
+    _muc_require_safe_module "$_muc_lib_dir/update.py" || exit 2
+    command -v python3 >/dev/null 2>&1 || { _muc_err 'update requires Python 3.8+'; exit 2; }
+    exec python3 -B "$_muc_lib_dir/update.py" --install-root "${MIHOMO_USERCTL_INSTALL_ROOT:-$_muc_lib_dir}" --current-version "$MIHOMO_USERCTL_VERSION" "$@"
+    ;;
   version|--version|-V) (( $# == 0 )) || { usage >&2; exit 2; }; cmd_version ;;
   help|--help|-h) usage ;;
   *) _muc_err "unknown command: $command_name"; usage >&2; exit 2 ;;

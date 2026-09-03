@@ -4,6 +4,34 @@ All notable changes follow a simplified Keep a Changelog format.
 
 ## [Unreleased]
 
+### Added
+
+- Version-pinned official self-updates, check/dry-run modes, explicit-path legacy
+  migration, local source provenance and defined partial-acceptance exit codes.
+- Immutable installed generations, shared installer/update/uninstall locking,
+  transaction recovery helpers, and isolated update/rollback regressions.
+- Bilingual update guides and evidence-based update prompts.
+
+- Added a non-disruptive listener acceptance verifier with measured HTTP status,
+  explicit HTTP/SOCKS authentication rejection checks, and four evidence states.
+- Added bilingual acceptance/rollback guidance and regression tests for verifier
+  failures, audit-tool failures, redaction, and fail-closed shell paths.
+
+### Fixed
+
+- Documentation and repository secret scans now fail when enumeration/search
+  tools fail; the secret scan no longer prints matching sensitive values.
+
+### Changed
+
+- Installation now requires Python 3.8+, records original XDG/startup paths, and
+  publishes controller modules together via an atomic generation pointer.
+
+- Installation prompts require scoped evidence, original exit codes, immutable
+  source provenance, and explicit pending results instead of blanket success.
+- Setup guides use a reviewed source ref, distinguish readiness from proxy
+  routing, and avoid printing pre-existing proxy environment values.
+
 ## [0.1.6] - 2026-09-02
 
 ### Changed

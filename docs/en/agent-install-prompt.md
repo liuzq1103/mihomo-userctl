@@ -99,7 +99,9 @@ Phase 2 — implementation after explicit approval
     diffs, or reports.
 11. In the verified checkout, first run its documented Bash syntax checks,
     ShellCheck when available, complete test suite, documentation/link tests,
-    sensitive-information scan, and whitespace check; stop on any failure. Then
+    sensitive-information scan, and whitespace check; stop on any failure.
+    Include python3 -m unittest discover -s tests -p 'test_*.py' -v and
+    bash tests/audit-test.sh in the test inventory. Then
     run the deterministic control-layer workflow: ./install.sh --dry-run --port
     PORT, followed by ./install.sh --port PORT --bashrc PATH. Substitute only the
     values approved in Phase 1. Do not enable the service. Do not modify files
@@ -153,6 +155,47 @@ Phase 2 — implementation after explicit approval
     Do not include any sensitive value. If VS Code Remote was selected, include
     the Machine settings mode, new-process variable presence, and socket/log
     acceptance results, never the proxy URL.
+
+18. Follow the evidence and reporting contract in docs/en/acceptance.md:
+    - First run bash scripts/acceptance.sh with an approved public HTTPS target
+      and --expect-status when appropriate. Preserve redacted original output
+      and the actual exit code. Exit 2 means UNVERIFIED/DEFERRED work remains,
+      not installation failure or permission to claim everything passed.
+      Missing script/dependencies means UNVERIFIED; improvised commands do not
+      count as execution of the versioned verifier.
+    - Use only PASS, FAIL, UNVERIFIED, or DEFERRED per item, with command, exit
+      code, redacted observed value, scope, and time. DEFERRED needs my explicit
+      decision and a next action. List unselected optional items outside the
+      scope, never as PASS. Any required selected item that remains pending,
+      deferred, or failed prevents an overall complete-acceptance claim.
+    - Measure actual HTTP status. Successful authentication is not necessarily
+      a 204; an unauthenticated timeout or TLS/network error is not rejection
+      evidence. Separate listener readiness from Proxy egress: the default
+      example routes gstatic.com via MATCH,DIRECT, so it cannot prove proxy-node
+      or OpenAI connectivity. A small file, variable count, or zero journal
+      delta cannot establish S3/large-download or application acceptance.
+    - Writing settings or stopping an old PID does not verify VS Code/remote
+      clients. Inspect the new PID after reconnect, variable presence, socket,
+      and routing. If live stop would disrupt work, use isolated tests while
+      keeping the corresponding live item UNVERIFIED; never relabel simulation
+      results as live evidence.
+    - Preserve each real exit code; use pipefail and capture PIPESTATUS
+      immediately for pipelines. Never let tail, tee, or echo hide failure.
+      Missing raw output means "reported pass, not independently verified".
+      Sensitive scans report scope/counts only, never matching values; a finite
+      pattern scan cannot prove absence of all leaks.
+    - Record source tag and commit. For an explicitly approved archive or other
+      provenance deviation, record archive SHA256, available commit, and missing
+      origin evidence. Record the full pinned Mihomo asset name and both
+      official expected and actual digests. A version string or PROVENANCE file
+      is not itself verification.
+    - Distinguish pre-install backups, post-install snapshots, and absent
+      originals. Stop first, restore and validate, then remove a new binary only
+      after checks needing it are finished. uninstall.sh preserves the core,
+      unit, config, and credentials; never call it complete uninstallation.
+      Restore by exact inventory while preserving original permissions and
+      unrelated later edits. An after-test snapshot cannot restore pre-install
+      state.
 ```
 
 The prompt is an orchestration contract, not a replacement for the repository's

@@ -19,7 +19,11 @@ ldd --version 2>&1 | head -n 1
 bash --version | head -n 1
 systemctl --user show-environment >/dev/null && echo 'systemd user manager: ready'
 command -v curl gzip sha256sum ss journalctl openssl
-env | grep -iE '^(http|https|all|no)_proxy=' || true
+proxy_var_count=0
+for name in http_proxy https_proxy all_proxy no_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY; do
+  [[ -n ${!name:-} ]] && proxy_var_count=$((proxy_var_count + 1))
+done
+printf 'proxy_vars_present=%s/8\n' "$proxy_var_count"
 ```
 
 Stop if the user manager is unavailable, the candidate port has an unknown
@@ -75,12 +79,19 @@ Choose a directory owned by your user, then obtain a reviewed release of this
 project before invoking any project script. For example:
 
 ```bash
-git clone --branch v0.1.2 --depth 1 \
+MIHOMO_USERCTL_REF='REPLACE_WITH_APPROVED_TAG_OR_FULL_COMMIT'
+git clone --no-checkout \
   https://github.com/liuzq1103/mihomo-userctl.git "$HOME/mihomo-userctl"
 cd "$HOME/mihomo-userctl"
 git remote -v
-git describe --tags --exact-match
+git checkout --detach "$MIHOMO_USERCTL_REF"
+git rev-parse HEAD
 ```
+
+Replace the ref placeholder with a reviewed, pinned released tag containing the
+verifier and verify its commit. Unreleased improvements require explicit approval
+of a full immutable commit and a recorded provenance deviation. Older tags may
+lack these checks; never claim they ran against such a tag.
 
 If the destination already exists, inspect and reuse it instead of overwriting
 it. Do not use `curl | bash`. The remaining commands in this guide assume the
@@ -256,6 +267,8 @@ From the repository root:
 
 ```bash
 bash tests/test.sh
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+bash tests/audit-test.sh
 bash tests/docs-test.sh
 bash tests/secret-scan.sh
 ./install.sh --dry-run --port "$PROXY_PORT" --bashrc "$HOME/.bashrc"
@@ -272,34 +285,38 @@ inspection.
 
 ## 9. Acceptance tests
 
+Follow [installation acceptance and evidence](acceptance.md), preserving actual
+exit codes and observations:
+
 ```bash
 proxy_status
 mihomoctl doctor
 mihomoctl ready
 systemctl --user is-enabled mihomo
+
+acceptance_rc=0
+bash scripts/acceptance.sh \
+  --url https://www.gstatic.com/generate_204 --expect-status 204 \
+  || acceptance_rc=$?
+printf 'acceptance_rc=%s\n' "$acceptance_rc"
 ```
 
-Expect `shell=direct service=up endpoint=127.0.0.1:<selected-port>` and `disabled`.
-An unauthenticated request must fail:
+The script requires Python 3.8+ and performs non-disruptive listener baseline
+checks, reporting PASS / FAIL / UNVERIFIED / DEFERRED. A passing baseline with
+end-to-end work pending exits 2; this is not installation failure. Do not use
+only the last command's exit code in a logging pipeline.
 
-```bash
-curl --fail --silent --show-error --max-time 10 \
-  --proxy "http://127.0.0.1:$PROXY_PORT" https://example.com/ && echo 'ERROR: auth bypass'
-```
+An ordinary new shell should be direct, with the service active and disabled.
+The verifier checks actual HTTP status, the local peer, unauthenticated HTTP
+407, and explicit SOCKS5 rejection of the no-auth method. Network failures are
+not authentication rejection evidence. Independently verify proxy_on/off,
+with_proxy isolation, installed loader/hook, download sockets, and optional VS
+Code; none of these follow from the listener results alone.
 
-An opted-in child command must work without changing the parent:
-
-```bash
-with_proxy curl --fail --silent --show-error https://example.com/ >/dev/null
-proxy_status
-```
-
-The second command must still report direct. For a dedicated SOCKS5H test, use
-a temporary child Shell, run `proxy_on`, clear only its HTTP/HTTPS variables,
-and let curl use `ALL_PROXY`; exit the child afterward.
-
-Before ordinary `axel` or S3 downloads, confirm `proxy_status` is direct.
-A listening Mihomo service does not itself capture their traffic.
+This example routes gstatic.com through MATCH,DIRECT. It tests a request through
+the listener, not proxy-node availability. Separately request an approved target
+routed to Proxy and correlate redacted routing evidence. A small-file download
+does not verify S3 or large transfers.
 
 ### Optional: VS Code Remote
 
@@ -321,10 +338,18 @@ mihomoctl logs --lines 100
 ```
 
 If the port does not release, `stop` reports an error and kills nothing. To roll
-back a successful controller install, restore the exact files from the backup
-path printed by `install.sh`; do not copy the whole directory blindly. Restore
+back a successful controller install, use the exact backup recovery command in
+[the update guide](update.md); do not mix individual generation files. Restore
 the exact binary backup for a core rollback. Stop only your user service before
 restoring configuration, re-run `mihomo -t`, and then `daemon-reload`.
 
 Rollback must not introduce a new external tunnel or clean up an unrelated
 listener. Treat anything outside the current user's declared scope as untouched.
+
+Pre-install backups are not after-test snapshots; record newly created files as
+previously absent. Stop first, restore the binary/config, then validate; remove
+the binary last when undoing a fresh install. Controller uninstall preserves the
+core, unit, and config. See [rollback order](acceptance.md#5-rollback-order).
+
+For later controller-only updates, use [the update guide](update.md) or
+[update prompt](agent-update-prompt.md). Installation and updates require Python 3.8+.

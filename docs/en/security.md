@@ -67,3 +67,10 @@ name and waits for the configured port to be released. It never runs `kill` or
 Never post subscriptions, full proxy URLs, credentials, or unredacted logs in
 a public issue. Follow the private reporting instructions in
 [SECURITY.md](../../SECURITY.md).
+
+## Self-update trust
+
+Updates execute explicitly selected official release code, resolved to an immutable
+GitHub commit over HTTPS. A locally calculated archive hash is recorded without
+claiming an independent publisher checksum or signature verification. Private
+backups may contain personal startup settings. See [update provenance and recovery](update.md).

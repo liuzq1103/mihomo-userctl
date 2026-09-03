@@ -4,15 +4,39 @@ set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 failed=0
 
+# grep 1 means no match; 2+ means the check did not run successfully.
+checked_grep() {
+  local rc=0
+  command grep "$@" || rc=$?
+  if (( rc > 1 )); then
+    printf 'documentation: grep failed; refusing a success report\n' >&2
+    exit 2
+  fi
+  return "$rc"
+}
+
+documents=$(mktemp)
+links=$(mktemp) || { rm -f -- "$documents"; exit 2; }
+trap 'rm -f -- "$documents" "$links"' EXIT
+# Process substitution hides the producer's exit status, even with pipefail.
+if ! find "$root" -type f -name '*.md' -print0 > "$documents"; then
+  printf 'documentation: file enumeration failed\n' >&2
+  exit 2
+fi
+[[ -s $documents ]] || { printf 'documentation: no documents found\n' >&2; exit 2; }
+
 expected=(
   README.md
+  acceptance.md
   agent-install-prompt.md
+  agent-update-prompt.md
   architecture.md
   codex-install-prompt.md
   mihoro-inspiration.md
   security.md
   setup.md
   troubleshooting.md
+  update.md
   vscode-remote.md
 )
 
@@ -26,6 +50,7 @@ for language in en zh-CN; do
 done
 
 while IFS= read -r -d '' document; do
+  checked_grep -oE '\]\([^)]+' "$document" > "$links" || true
   while IFS= read -r raw_link; do
     target=${raw_link#']('}
     target=${target%%#*}
@@ -36,19 +61,20 @@ while IFS= read -r -d '' document; do
       printf 'broken relative link: %s -> %s\n' "${document#"$root/"}" "$target" >&2
       failed=1
     fi
-  done < <(grep -oE '\]\([^)]+' "$document" || true)
-done < <(find "$root" -type f -name '*.md' -print0)
+  done < "$links"
+done < "$documents"
 
-if grep -RInE '17890|docs/(en|zh-CN)/migration\.md' \
+if checked_grep -RInE '17890|docs/(en|zh-CN)/migration\.md' \
   "$root/README.md" "$root/README.zh-CN.md" "$root/docs" "$root/examples"; then
   printf 'public documentation contains a personal port or removed migration guide\n' >&2
   failed=1
 fi
 
-if git -C "$root" grep -InE \
+# Source archives have no Git index. Scan all public Markdown in either layout.
+if checked_grep -RInE --include='*.md' \
   'SEA[-_ ]?AD|sea-ad-single-cell|Ai\+|学术搜索|学术访问|Academic (Search|Access)' \
-  -- README.md README.zh-CN.md 'docs/*.md'; then
-  printf 'tracked public documentation contains maintainer-specific routing policy\n' >&2
+  "$root/README.md" "$root/README.zh-CN.md" "$root/docs"; then
+  printf 'public documentation contains maintainer-specific routing policy\n' >&2
   failed=1
 fi
 
@@ -119,42 +145,52 @@ for language in en zh-CN; do
     )
   fi
 
-  if grep -Ein \
+  required+=('scripts/acceptance.sh' 'PASS' 'FAIL' 'UNVERIFIED' 'DEFERRED' '--expect-status' 'PIPESTATUS' 'SHA256')
+  if checked_grep -Ein \
     'Plan mode|Plan 模式|request_user_input|interactive popup|交互弹窗|Codex client|Codex 客户端|Skills?' \
     "$prompt"; then
     printf 'generic installation prompt contains a product-specific interface: %s\n' "$language" >&2
     failed=1
   fi
   for marker in "${required[@]}"; do
-    if ! grep -Fiq "$marker" "$prompt"; then
+    if ! checked_grep -Fiq -- "$marker" "$prompt"; then
       printf 'generic installation prompt lacks required marker %s: %s\n' "$marker" "$language" >&2
       failed=1
     fi
   done
-  if ! grep -Fq '](agent-install-prompt.md)' "$compatibility"; then
+  if ! checked_grep -Fq '](agent-install-prompt.md)' "$compatibility"; then
     printf 'legacy prompt page does not point to the generic prompt: %s\n' "$language" >&2
     failed=1
   fi
-  if grep -Fq '```text' "$compatibility"; then
+  if checked_grep -Fq '```text' "$compatibility"; then
     printf 'legacy prompt page duplicates an executable prompt: %s\n' "$language" >&2
     failed=1
   fi
 
-  checkout_line=$(grep -n -m1 "$checkout_label" "$prompt" | cut -d: -f1 || true)
-  suggest_line=$(grep -n -m1 './install.sh --suggest-port' "$prompt" | cut -d: -f1 || true)
+  checkout_line=$(awk -v text="$checkout_label" 'index($0, text) { print NR; exit }' "$prompt")
+  suggest_line=$(awk 'index($0, "./install.sh --suggest-port") { print NR; exit }' "$prompt")
   if [[ -z $checkout_line || -z $suggest_line || $checkout_line -ge $suggest_line ]]; then
     printf 'installation prompt uses project scripts before obtaining the checkout: %s\n' "$language" >&2
     failed=1
   fi
 done
 
-if ! grep -Fq 'docs/en/agent-install-prompt.md' "$root/README.md" ||
-   ! grep -Fq 'docs/zh-CN/agent-install-prompt.md' "$root/README.zh-CN.md"; then
+if ! checked_grep -Fq 'docs/en/agent-install-prompt.md' "$root/README.md" ||
+   ! checked_grep -Fq 'docs/zh-CN/agent-install-prompt.md' "$root/README.zh-CN.md"; then
   printf 'top-level README does not use the generic installation prompt as the main entry\n' >&2
   failed=1
 fi
 
 for language in en zh-CN; do
+  for topic in update.md agent-update-prompt.md; do
+    for marker in 'mihomoctl update --check' '--dry-run' '--version' 'scripts/migrate.py' \
+                  'PASS' 'FAIL' 'UNVERIFIED' 'DEFERRED' 'active/enabled'; do
+      if ! checked_grep -Fq -- "$marker" "$root/docs/$language/$topic"; then
+        printf 'update document lacks required marker %s: %s/%s\n' "$marker" "$language" "$topic" >&2
+        failed=1
+      fi
+    done
+  done
   guide="$root/docs/$language/vscode-remote.md"
   if [[ $language == en ]]; then
     permission_marker='mode `600`'
@@ -163,15 +199,15 @@ for language in en zh-CN; do
   fi
   for marker in 'http.proxy' 'http.proxyStrictSSL' "$permission_marker" \
                 'proxy_vars=2/2' 'CODEX_REMOTE_PAYLOAD' 'server-env-setup'; do
-    if ! grep -Fq "$marker" "$guide"; then
+    if ! checked_grep -Fq "$marker" "$guide"; then
       printf 'VS Code Remote guide lacks required marker %s: %s\n' "$marker" "$language" >&2
       failed=1
     fi
   done
 done
 
-if ! grep -Fq 'if [[ -n ${CODEX_REMOTE_PAYLOAD:-} ]]' "$root/src/shell.bash" ||
-   ! grep -Fq 'proxy_on || exit 1' "$root/src/shell.bash"; then
+if ! checked_grep -Fq 'if [[ -n ${CODEX_REMOTE_PAYLOAD:-} ]]' "$root/src/shell.bash" ||
+   ! checked_grep -Fq 'proxy_on || exit 1' "$root/src/shell.bash"; then
   printf 'remote-runtime compatibility hook was removed unexpectedly\n' >&2
   failed=1
 fi

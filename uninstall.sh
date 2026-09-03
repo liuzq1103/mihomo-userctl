@@ -5,12 +5,14 @@ BEGIN_MARKER='# >>> mihomo-userctl managed loader >>>'
 END_MARKER='# <<< mihomo-userctl managed loader <<<'
 dry_run=0
 bashrc=$HOME/.bashrc
+bashrc_set=0
+original_args=("$@")
 
 die() { printf 'uninstall.sh: %s\n' "$*" >&2; exit 2; }
 while (( $# )); do
   case $1 in
     --dry-run) dry_run=1; shift ;;
-    --bashrc) [[ $# -ge 2 ]] || die '--bashrc requires a path'; bashrc=$2; shift 2 ;;
+    --bashrc) [[ $# -ge 2 ]] || die '--bashrc requires a path'; bashrc=$2; bashrc_set=1; shift 2 ;;
     -h|--help) printf 'Usage: ./uninstall.sh [--dry-run] [--bashrc PATH]\n'; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
@@ -21,6 +23,13 @@ done
 data_home=${XDG_DATA_HOME:-$HOME/.local/share}
 lib_dir=$data_home/mihomo-userctl
 bin_file=$HOME/.local/bin/mihomoctl
+support=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/scripts/install_support.py
+bashrc=$(python3 "$support" bashrc "$lib_dir" "$bashrc" "$bashrc_set") || die 'cannot determine original startup file'
+python3 "$support" preflight "$bashrc" || die 'unsafe uninstallation paths; no active files changed'
+if (( ! dry_run )) && [[ -z ${MIHOMO_INSTALL_LOCK_FD:-} ]]; then
+  exec python3 "$support" locked bash "${BASH_SOURCE[0]}" "${original_args[@]}"
+fi
+[[ ! -e $lib_dir/pending-install.json ]] || die 'rollback interrupted installation before uninstall'
 targets=("$bin_file" "$lib_dir/common.bash" "$lib_dir/shell.bash" "$lib_dir/completion.bash")
 
 if (( dry_run )); then
@@ -59,4 +68,5 @@ for target in "${targets[@]}"; do
     *) die "unsafe uninstall target: $target" ;;
   esac
 done
+python3 "$support" uninstall-clean "$lib_dir"
 printf 'removed project-owned code and loader; Mihomo configuration and credentials were preserved\n'

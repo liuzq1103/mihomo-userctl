@@ -18,7 +18,11 @@ ldd --version 2>&1 | head -n 1
 bash --version | head -n 1
 systemctl --user show-environment >/dev/null && echo 'systemd user manager: ready'
 command -v curl gzip sha256sum ss journalctl openssl
-env | grep -iE '^(http|https|all|no)_proxy=' || true
+proxy_var_count=0
+for name in http_proxy https_proxy all_proxy no_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY; do
+  [[ -n ${!name:-} ]] && proxy_var_count=$((proxy_var_count + 1))
+done
+printf 'proxy_vars_present=%s/8\n' "$proxy_var_count"
 ```
 
 期望 Linux、64 位、Bash 5+，并且候选端口没有未知监听。若 systemd 用户管理器
@@ -76,12 +80,18 @@ chmod 755 "$HOME/.local/bin/mihomo"
 例如：
 
 ```bash
-git clone --branch v0.1.2 --depth 1 \
+MIHOMO_USERCTL_REF='REPLACE_WITH_APPROVED_TAG_OR_FULL_COMMIT'
+git clone --no-checkout \
   https://github.com/liuzq1103/mihomo-userctl.git "$HOME/mihomo-userctl"
 cd "$HOME/mihomo-userctl"
 git remote -v
-git describe --tags --exact-match
+git checkout --detach "$MIHOMO_USERCTL_REF"
+git rev-parse HEAD
 ```
+
+先把引用占位符替换为已审核、包含验收脚本的固定已发布标签，并核对其 commit；
+如需使用尚未发布的改进，必须明确批准固定的完整 commit 并记录来源偏差。
+旧标签可能不含本教程的新验收脚本，不得沿用旧标签后声称新检查已通过。
 
 如果目标目录已存在，应先检查并复用，不要直接覆盖。不使用 `curl | bash`。
 本文后续命令均假定当前目录是这份已验证的代码检出。
@@ -255,6 +265,8 @@ Listener 完全一致。
 
 ```bash
 bash tests/test.sh
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+bash tests/audit-test.sh
 bash tests/docs-test.sh
 bash tests/secret-scan.sh
 ./install.sh --dry-run --port "$PROXY_PORT" --bashrc "$HOME/.bashrc"
@@ -269,34 +281,33 @@ exec bash
 
 ## 9. 验收
 
+按[安装验收与证据要求](acceptance.md)执行，保留真实退出码与观察值：
+
 ```bash
 proxy_status
 mihomoctl doctor
 mihomoctl ready
 systemctl --user is-enabled mihomo
+
+acceptance_rc=0
+bash scripts/acceptance.sh \
+  --url https://www.gstatic.com/generate_204 --expect-status 204 \
+  || acceptance_rc=$?
+printf 'acceptance_rc=%s\n' "$acceptance_rc"
 ```
 
-新 Shell 应为 `shell=direct service=up endpoint=127.0.0.1:<已选择端口>`，enable 状态
-必须为 `disabled`。未认证请求必须失败：
+脚本需要 Python 3.8+，只执行不会停服的 Listener 基线检查，并输出
+PASS / FAIL / UNVERIFIED / DEFERRED。正常基线通过后仍有端到端待验证项时，
+退出码为 2，不等于安装失败。不要只检查管道末尾命令的退出码。
 
-```bash
-curl --fail --silent --show-error --max-time 10 \
-  --proxy "http://127.0.0.1:$PROXY_PORT" https://example.com/ && echo 'ERROR: auth bypass'
-```
+新普通 Shell 应为 direct，服务 active 且 disabled。脚本核对实际 HTTP 状态、
+本地对端、无认证 HTTP 的 407，以及 SOCKS5 明确拒绝无认证方法；网络失败不算
+认证拒绝。还需独立验证 `proxy_on/off`、`with_proxy` 隔离、已安装 loader、
+hook、下载连接和可选 VS Code，不能由脚本的 Listener 结果推断它们已经通过。
 
-随后验证显式代理和父 Shell 隔离：
-
-```bash
-with_proxy curl --fail --silent --show-error https://example.com/ >/dev/null
-proxy_status
-```
-
-仍应为 direct。要专门验证 SOCKS5H，可在临时子 Shell 中先 `proxy_on`，清除
-HTTP/HTTPS 变量，只保留 `ALL_PROXY/all_proxy` 后运行 curl，退出子 Shell 后
-父 Shell 不受影响。
-
-普通 `axel`/S3 下载前检查 `proxy_status` 为 direct。Mihomo 正在监听不等于
-普通程序会经过它。
+此示例中的 `gstatic.com` 命中 `MATCH,DIRECT`。它可验证 Listener 请求，
+不能证明 Proxy 节点可用；需另选已获批且命中 Proxy 的目标，关联脱敏路由证据。
+小文件下载成功不能代替 S3 或大文件的实测。
 
 ### 可选：VS Code Remote
 
@@ -316,9 +327,16 @@ mihomoctl logs --lines 100
 ```
 
 `stop` 端口未释放时只会报错，不会杀进程。要回滚已成功安装的控制层，
-从 `install.sh` 打印的备份路径逐个恢复对应文件，不要盲目复制整个目录；回滚
+使用[更新指南](update.md)中本次备份的精确恢复命令，不要混用不同版本模块；回滚
 Mihomo 二进制使用步骤 2 的精确备份；配置或 unit 回滚前
 先停止用户服务，再恢复自己的备份、运行 `mihomo -t` 和 `daemon-reload`。
 
 回滚不能引入新的外部隧道，也不能清理无关 Listener。当前用户明确范围之外的
 对象一律保持不变。
+
+安装前备份与 after-test 快照不是一回事；全新文件须记录原先不存在。先停服，
+再恢复二进制/配置并验证；彻底撤销全新安装时最后才移除二进制。控制层卸载
+会保留核心、unit 和配置，详见[回滚顺序](acceptance.md#5-回滚顺序)。
+
+后续仅更新控制层请使用[更新指南](update.md)或[更新 Prompt](agent-update-prompt.md)。
+安装与更新需要 Python 3.8+。

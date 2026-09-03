@@ -75,7 +75,8 @@ CODEX_REMOTE_PAYLOAD 显式启用代理。只操作我的账户，不影响其�
     不得进入 Git、聊天、命令参数、日志、截图、diff 或报告。
 11. 在已验证的检出目录中，先运行文档规定的 Bash 语法检查、可用时的
     ShellCheck、完整测试套件、文档/链接测试、敏感信息扫描和空白检查；任一失败
-    都必须停止。随后执行确定性控制层流程：先运行 ./install.sh --dry-run
+    都必须停止。测试清单同时包含 python3 -m unittest discover -s tests
+    -p 'test_*.py' -v 和 bash tests/audit-test.sh。随后执行确定性控制层流程：先运行 ./install.sh --dry-run
     --port PORT，再运行 ./install.sh --port PORT --bashrc PATH。只能替换阶段一
     确认过的值。不得 enable 服务，不得修改当前用户获批路径以外的文件。
 12. 验证安装后的 Shell 集成，但不要自行定义或持久导出 CODEX_REMOTE_PAYLOAD。
@@ -115,6 +116,35 @@ CODEX_REMOTE_PAYLOAD 显式启用代理。只操作我的账户，不影响其�
     active/enabled 状态、验收结果、跳过或失败的检查，以及准确回滚步骤。报告中
     不得包含任何敏感值。若选择 VS Code Remote，还要列出 Machine 设置的权限、
     新进程的变量存在性和 socket/log 验收结果，不得列出代理 URL。
+
+18. 严格遵守 docs/zh-CN/acceptance.md 的证据与报告规则：
+    - 先运行 bash scripts/acceptance.sh，使用已确认的公开 HTTPS 目标，需要时
+      明确 --expect-status；保存脱敏原始输出和实际退出码。脚本退出 2 表示尚有
+      UNVERIFIED/DEFERRED，不得当作安装失败，也不得忽略后声称全部通过。
+      缺少脚本或 Python 等依赖时写 UNVERIFIED，不得用临时命令冒充已运行脚本。
+    - 每项只能写 PASS、FAIL、UNVERIFIED、DEFERRED，并列出命令、退出码、
+      脱敏观察值、范围和时间。DEFERRED 必须对应我的明确决定及后续动作；
+      未选择的可选项单列范围，不能算 PASS。只要选定范围的必需项还有未验证、
+      延后或失败，总结就必须明确“安装完成但验收未完成”或实际失败情况。
+    - 必须读取实际 HTTP 状态码。认证请求成功不等于状态必为 204；无认证请求
+      的超时、TLS/网络错误不等于认证拒绝。区分 Listener readiness 与 Proxy
+      出站证据；gstatic.com 在默认示例中走 MATCH,DIRECT，不能据此宣称节点
+      或 OpenAI 已可用。不得根据小文件成功、环境变量计数或日志零增量，推断
+      S3/大文件或目标应用已经实测通过。
+    - 只写配置或停止旧进程不算 VS Code/远程客户端验收完成；必须验证重连后
+      的新 PID、变量存在性、socket 和路由。停服有中断风险时运行隔离测试，
+      同时把真实环境对应项目记为 UNVERIFIED，不能把模拟结果写成实机结果。
+    - 每条检查保存真实退出码；管道启用 pipefail 并立即保存 PIPESTATUS，
+      不得用 tail、tee 或 echo 的成功掩盖原命令失败。缺少原始输出时只报告
+      “记录声称通过，未独立验证”。敏感信息扫描仅报告范围和计数，不能由
+      有限模式无命中推断“绝无泄漏”；不得打印命中的敏感值。
+    - 记录源码 tag 与 commit；明确批准使用归档等来源偏差时，记录归档
+      SHA256、可取得的 commit 和缺失的来源证据。固定 Mihomo 完整资产名、
+      官方预期摘要与实际摘要；版本字符串或 PROVENANCE 文件本身不构成校验。
+    - 分清安装前备份、安装后快照和原先不存在的文件；先停服，再恢复并验证，
+      删除新二进制只能在所有需要它的验证之后。uninstall.sh 保留核心、unit、
+      配置及凭据，不得称为完整卸载。回滚须按准确清单保留原文件权限及后续
+      无关修改；不得声称用 after-test 快照恢复了安装前状态。
 ```
 
 这份 Prompt 是编排协议，不替代仓库中确定性的安装器和测试。请先审核 Agent

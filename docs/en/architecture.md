@@ -67,3 +67,10 @@ The loader validates module ownership and permissions before sourcing code.
 Configuration and credentials are parsed as non-executable data with fixed key
 whitelists. Unknown or duplicate keys, invalid quoting, wrong endpoints, and
 unsafe permissions fail closed.
+
+## Installed versions
+
+Stable launchers resolve `current` once per invocation and load a complete immutable
+`generations/<id>` directory. The installer owns the operation lock, transaction
+backup, atomic publication and rollback. Metadata records original XDG/startup
+paths and file hashes; the updater invokes this same installer. See [updates](update.md).

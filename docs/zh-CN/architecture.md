@@ -90,3 +90,9 @@ managed loader 必须位于该 guard 之前。VS Code Remote 不执行 Shell 函
 - 控制器独立检查 `common.bash`；
 - 配置和凭据只作为文本解析；
 - 未知字段、重复字段、非法引号、非法 URL 或权限均导致 fail closed。
+
+## 安装版本
+
+固定启动器每次调用只解析一次 `current`，加载完整的 `generations/<id>` 版本目录。
+安装器统一负责操作锁、事务备份、原子发布及回滚；元数据记录原 XDG/启动路径和文件哈希，
+更新器调用同一安装器。详见[更新机制](update.md)。

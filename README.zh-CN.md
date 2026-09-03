@@ -86,7 +86,7 @@ Codex Remote、VS Code Remote、Git 或少量指定命令使用个人代理订�
 - Mihomo 只在 `127.0.0.1` 创建带认证的 Mixed Listener；
 - 系统具备 `curl`、`ss`、`journalctl`、`stat`、`awk`、`grep`。
 
-v0.1 不下载或更新 Mihomo、不接管订阅、不安装面板、不启用 TUN。尚未安装
+本项目不下载或更新 Mihomo、不接管订阅、不安装面板、不启用 TUN。尚未安装
 Mihomo 的用户应从[安装 Mihomo 开始的完整教程](docs/zh-CN/setup.md)阅读。
 
 本项目也不生成 PC 端 Clash/FlClash Merge、路由规则或服务器策略 YAML。规则
@@ -140,6 +140,22 @@ ss -lnt "sport = :$PROXY_PORT"
 7. 执行不泄露敏感信息的 `mihomoctl doctor`；
 8. `doctor` 失败时自动恢复原有活动文件；
 9. 不启动、不 enable 服务。
+
+## 更新控制层
+
+Git 与 ZIP 安装共用已安装的更新命令，不依赖原源码目录；元数据记录原路径和来源。
+
+```bash
+mihomoctl update --check
+mihomoctl update --version vX.Y.Z --dry-run
+mihomoctl update --version vX.Y.Z
+```
+
+`vX.Y.Z` 必须替换为实际发布且兼容的正式版本；0.2 源码实现本身不等于已发布版本。
+只更新 mihomo-userctl，保留个人设置和服务状态。退出 0 是查询/预演成功；3 是文件已安装但
+验收未完成；5 是文件已安装但 Listener 验收失败。完整退出码、旧版迁移及精确回滚见
+[更新指南](docs/zh-CN/update.md)，可复制[更新 Prompt](docs/zh-CN/agent-update-prompt.md)。
+安装、更新和验收需要 Python 3.8+。更新后适时重新打开终端并重连长期运行客户端。
 
 ## 日常使用
 
@@ -254,6 +270,7 @@ Machine Settings 中显式配置 `http.proxy`，并将包含认证 URL 的文件
 ## 进一步阅读
 
 - [从安装 Mihomo 开始配置完整环境](docs/zh-CN/setup.md)
+- [安装验收与证据要求](docs/zh-CN/acceptance.md)
 - [可直接复制的 Coding Agent 安装 Prompt](docs/zh-CN/agent-install-prompt.md)
 - [VS Code Remote 推荐配置](docs/zh-CN/vscode-remote.md)
 - [架构与数据流](docs/zh-CN/architecture.md)

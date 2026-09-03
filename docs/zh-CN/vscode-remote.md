@@ -167,6 +167,10 @@ mihomoctl logs --follow
 将 `<port>` 换成当前账户配置的端口。Codex 请求应连接 loopback Listener，
 Mihomo 日志中的 ChatGPT/OpenAI 域名应命中用户预期的代理策略。
 
+未安装扩展、未重载或复用旧进程时，验收记为 UNVERIFIED；用户明确延后才记为
+DEFERRED。写入 settings.json 或停止旧进程不能算通过。必须关联新进程、实际
+Listener 连接与代理路由；详见[验收与报告要求](acceptance.md)。
+
 ## 安全和影响范围
 
 - `settings.json` 现在含有 Listener 凭据，必须为当前用户所有且权限 `600`；

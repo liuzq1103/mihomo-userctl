@@ -10,6 +10,11 @@
 
 其他资料：
 
+- [安装验收与证据要求](acceptance.md)
+
 - [可直接复制的 Coding Agent 安装 Prompt](agent-install-prompt.md)
 - [故障排查](troubleshooting.md)
 - [借鉴 Mihoro 的范围和明确差异](mihoro-inspiration.md)
+
+- [更新与一次性迁移](update.md)
+- [编码 Agent 更新 Prompt](agent-update-prompt.md)

@@ -246,6 +246,29 @@ assert 'failed first install removes newly created active files' bash -c '
      ! -e "$1/.local/share/mihomo-userctl/common.bash" ]]
 ' _ "$FRESH_FAIL_HOME" "$PATH" "$ROOT/install.sh"
 
+
+# Failure-path evidence is isolated: these stubs cannot stop a live user service.
+assert 'with_proxy readiness failure never executes the child or changes its parent' bash -c '
+  source "$XDG_DATA_HOME/mihomo-userctl/shell.bash"
+  rc=0
+  CURL_FAIL=1 with_proxy printf "unexpected-child-command" > "$1/failed-child" 2>/dev/null || rc=$?
+  [[ $rc == 1 && ! -s "$1/failed-child" && -z ${https_proxy+x} ]]
+' _ "$TEST_ROOT"
+
+assert 'ready-service hook fails closed when the authenticated request fails' bash -c '
+  rc=0
+  out=$(CURL_FAIL=1 CODEX_REMOTE_PAYLOAD=compat-probe bash -c '\''source "$XDG_DATA_HOME/mihomo-userctl/shell.bash"; printf "unexpected-child-command"'\'' 2>/dev/null) || rc=$?
+  [[ $rc == 1 && -z $out && $(<"$1/service-state") == active ]]
+' _ "$TEST_ROOT"
+
+printf 'inactive\n' > "$TEST_ROOT/service-state"
+assert 'down-service hook exits without executing commands or starting the service' bash -c '
+  rc=0
+  out=$(CODEX_REMOTE_PAYLOAD=compat-probe bash -c '\''source "$XDG_DATA_HOME/mihomo-userctl/shell.bash"; printf "unexpected-child-command"'\'' 2>/dev/null) || rc=$?
+  [[ $rc == 1 && -z $out && $(<"$1/service-state") == inactive ]]
+' _ "$TEST_ROOT"
+printf 'active\n' > "$TEST_ROOT/service-state"
+
 # Refuse a symbolic-link startup file instead of rewriting an unexpected target.
 LINK_HOME=$TEST_ROOT/link-home
 mkdir -p "$LINK_HOME"

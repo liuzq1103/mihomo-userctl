@@ -37,7 +37,9 @@ The implementation is kept outside `.bashrc` so it can be tested and audited:
 
 ```text
 ~/.local/bin/mihomoctl
-~/.local/share/mihomo-userctl/{common.bash,shell.bash,completion.bash}
+~/.local/share/mihomo-userctl/{common.bash,shell.bash,completion.bash}  # stable launchers
+~/.local/share/mihomo-userctl/current -> generations/<id>
+~/.local/share/mihomo-userctl/generations/<id>/  # code and installation.json
 ~/.config/mihomo/{mihomo-shell.conf,client.env}
 ```
 
@@ -92,13 +94,13 @@ See [architecture and data flow](docs/en/architecture.md) for the trust boundary
 
 ## Requirements
 
-- Linux with Bash 5+
+- Linux with Bash 5+ and Python 3.8+ (installation, updates and acceptance)
 - a working `systemd --user` manager
 - an existing `mihomo.service`
 - an authenticated Mixed listener bound only to `127.0.0.1`
 - `curl`, `ss`, `journalctl`, `stat`, `awk`, `grep`
 
-The v0.1 series does not download Mihomo, subscriptions, geodata, or a web
+The project does not download Mihomo, subscriptions, geodata, or a web
 dashboard. Start with the [complete Mihomo setup tutorial](docs/en/setup.md) if the
 Mihomo service is not installed yet.
 
@@ -149,6 +151,25 @@ Re-running is idempotent. An update preserves `client.env` and refuses a
 conflicting port. Before writing, it records every managed file in a mode-700
 transaction backup; a failed final `doctor` restores the previous active files
 automatically. It never enables or starts the user service.
+
+## Update the controller
+
+Git and ZIP installations share the installed update command. The source directory
+may be deleted; installation metadata records the original paths and provenance.
+
+```bash
+mihomoctl update --check
+mihomoctl update --version vX.Y.Z --dry-run
+mihomoctl update --version vX.Y.Z
+```
+
+Replace `vX.Y.Z` with an actually published compatible stable release. The 0.2
+source implementation does not itself publish a release. Update only changes
+mihomo-userctl, preserving personal settings and service state. Exit 0 is query/
+dry-run success; 3 is installed with acceptance pending; 5 is installed with
+listener acceptance failures. See [all exit codes, old-version migration and
+rollback](docs/en/update.md) and the [update prompt](docs/en/agent-update-prompt.md).
+Open a new terminal and reconnect long-lived clients when appropriate.
 
 ## Daily use
 
@@ -269,6 +290,7 @@ is documented in [the Mihoro inspiration note](docs/en/mihoro-inspiration.md).
 ## Documentation
 
 - [Install Mihomo and configure the complete stack](docs/en/setup.md)
+- [Installation acceptance and evidence](docs/en/acceptance.md)
 - [Copyable coding-agent installation prompt](docs/en/agent-install-prompt.md)
 - [Recommended VS Code Remote configuration](docs/en/vscode-remote.md)
 - [Architecture and data flow](docs/en/architecture.md)

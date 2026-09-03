@@ -6,3 +6,4 @@
 *.md text eol=lf
 LICENSE text eol=lf
 mihomoctl text eol=lf
+.shellcheckrc text eol=lf

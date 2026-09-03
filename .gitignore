@@ -1,3 +1,5 @@
 *.tmp.*
 *.backup.*
 .shellcheckrc.local
+__pycache__/
+*.pyc

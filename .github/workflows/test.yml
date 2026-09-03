@@ -18,9 +18,13 @@ jobs:
       - name: Bash syntax
         run: find . -type f \( -name '*.sh' -o -name '*.bash' -o -name mihomoctl \) -print0 | xargs -0 -n1 bash -n
       - name: ShellCheck
-        run: shellcheck -x src/common.bash src/mihomoctl src/shell.bash install.sh uninstall.sh completions/mihomoctl.bash tests/*.sh
+        run: shellcheck -x src/common.bash src/mihomoctl src/shell.bash install.sh uninstall.sh completions/mihomoctl.bash scripts/*.sh tests/*.sh
       - name: Tests
         run: bash tests/test.sh
+      - name: Acceptance and update regression tests (isolated, no live service)
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Audit tool failure regression tests
+        run: bash tests/audit-test.sh
       - name: Documentation structure and links
         run: bash tests/docs-test.sh
       - name: Secret scan
