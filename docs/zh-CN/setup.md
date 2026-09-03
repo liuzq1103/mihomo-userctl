@@ -167,6 +167,9 @@ proxy-groups:
 rules:
   - DOMAIN-SUFFIX,github.com,Proxy
   - DOMAIN-SUFFIX,chatgpt.com,Proxy
+  - DOMAIN-SUFFIX,api.openai.com,Proxy
+  - DOMAIN-SUFFIX,openai.com,Proxy
+  - DOMAIN-SUFFIX,google.com,Proxy
   - MATCH,DIRECT
 ```
 
