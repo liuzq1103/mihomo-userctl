@@ -1,6 +1,7 @@
 """Isolated verifier regressions: no real service, credentials, or public network."""
 import contextlib
 import io
+import json
 import os
 import socket
 import subprocess
@@ -162,6 +163,51 @@ class AcceptanceTests(unittest.TestCase):
                 patch.object(a, "curl_check") as curl:
             self.assertEqual(a.main([]), 1)
             curl.assert_not_called()
+
+    def test_direct_check_clears_proxy_and_requires_non_listener_peer(self):
+        with patch.object(a, "run_command", return_value=completed("204\t192.0.2.10\t443")) as run:
+            result = a.direct_check(URL, 2, 204)
+        self.assertEqual(result.status, "PASS")
+        args, _, env = run.call_args.args
+        self.assertEqual(args[args.index("--noproxy") + 1], "*")
+        self.assertFalse(any(key.lower() in ("http_proxy", "https_proxy", "all_proxy", "no_proxy")
+                             for key in env))
+
+    def test_test_url_json_has_no_pending_claims_or_secrets(self):
+        env = {"MIHOMO_SERVICE": "mihomo", "MIHOMO_PORT": str(PORT), "MIHOMO_READY_URL": URL,
+               "MIHOMO_HTTPS_PROXY": HTTP_PROXY, "MIHOMO_ALL_PROXY": SOCKS_PROXY}
+        passing = a.Result("PASS", "measured", "ok")
+        output = io.StringIO()
+        with patch.dict(os.environ, env), contextlib.redirect_stdout(output), \
+                patch.object(a, "direct_check", return_value=passing), \
+                patch.object(a, "service_active_check", return_value=passing), \
+                patch.object(a, "listener_check", return_value=passing), \
+                patch.object(a, "curl_check", return_value=passing), \
+                patch.object(a, "http_no_auth", return_value=passing), \
+                patch.object(a, "socks_no_auth", return_value=passing):
+            self.assertEqual(a.main(["--profile", "test-url", "--url", URL, "--json"]), 0)
+        document = json.loads(output.getvalue())
+        self.assertEqual(document["overall"], "PASS")
+        self.assertNotIn(SECRET, output.getvalue())
+        self.assertNotIn("proxy-route", output.getvalue())
+
+    def test_direct_failure_does_not_skip_independent_proxy_checks(self):
+        env = {"MIHOMO_SERVICE": "mihomo", "MIHOMO_PORT": str(PORT), "MIHOMO_READY_URL": URL,
+               "MIHOMO_HTTPS_PROXY": HTTP_PROXY, "MIHOMO_ALL_PROXY": SOCKS_PROXY}
+        passing = a.Result("PASS", "measured", "ok")
+        with patch.dict(os.environ, env), contextlib.redirect_stdout(io.StringIO()), \
+                patch.object(a, "direct_check", return_value=a.Result("FAIL", "direct-target", "failed")), \
+                patch.object(a, "service_active_check", return_value=passing), \
+                patch.object(a, "listener_check", return_value=passing), \
+                patch.object(a, "curl_check", return_value=passing) as curl, \
+                patch.object(a, "http_no_auth", return_value=passing), \
+                patch.object(a, "socks_no_auth", return_value=passing):
+            self.assertEqual(a.main(["--profile", "test-url", "--url", URL]), 1)
+        self.assertEqual(curl.call_count, 2)
+
+    def test_test_url_rejects_local_hostnames(self):
+        self.assertFalse(a.public_https_url("https://localhost/"))
+        self.assertFalse(a.public_https_url("https://service.local/"))
 
 
 if __name__ == "__main__":

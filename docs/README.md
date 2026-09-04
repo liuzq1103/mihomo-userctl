@@ -12,3 +12,4 @@ as part of this installation.
 
 - Updates: [English](en/update.md) · [简体中文](zh-CN/update.md)
 - Update prompts: [English](en/agent-update-prompt.md) · [简体中文](zh-CN/agent-update-prompt.md)
+- Private rules: [English](en/rules.md) · [简体中文](zh-CN/rules.md)

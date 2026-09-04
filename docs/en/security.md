@@ -74,3 +74,16 @@ Updates execute explicitly selected official release code, resolved to an immuta
 GitHub commit over HTTPS. A locally calculated archive hash is recorded without
 claiming an independent publisher checksum or signature verification. Private
 backups may contain personal startup settings. See [update provenance and recovery](update.md).
+
+## Redacted process and rule inspection
+
+`inspect-process` and `inspect-name` refuse processes not owned by the current
+UID. They expose only process relationships, the count/classification of eight
+known proxy variables, and connection categories. They do not print values,
+command arguments, or remote endpoints and never terminate a process.
+
+`rules status/check` accepts only explicit current-user paths without symlinks.
+It reports rule counts and digests rather than entries. Full Mihomo test output
+is suppressed because configuration diagnostics may include subscriptions,
+nodes, domains, or credentials. These commands never edit configuration or
+change service state.

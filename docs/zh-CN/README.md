@@ -18,3 +18,4 @@
 
 - [更新与一次性迁移](update.md)
 - [编码 Agent 更新 Prompt](agent-update-prompt.md)
+- [私有自定义规则契约与只读检查](rules.md)

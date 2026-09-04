@@ -22,8 +22,11 @@ BEGIN = "# >>> mihomo-userctl managed loader >>>"
 END = "# <<< mihomo-userctl managed loader <<<"
 RUNTIME = {"src/common.bash": "common.bash", "src/shell.bash": "shell.bash",
            "src/mihomoctl": "mihomoctl", "completions/mihomoctl.bash": "completion.bash",
-           "scripts/update.py": "update.py", "scripts/install_support.py": "install_support.py",
-           "scripts/acceptance.py": "acceptance.py"}
+            "scripts/update.py": "update.py", "scripts/install_support.py": "install_support.py",
+            "scripts/acceptance.py": "acceptance.py", "scripts/diagnostics.py": "diagnostics.py",
+            "scripts/rules.py": "rules.py"}
+RUNTIME_020 = frozenset(("common.bash", "shell.bash", "mihomoctl", "completion.bash",
+                         "update.py", "install_support.py", "acceptance.py"))
 
 
 class InstallError(Exception):
@@ -188,11 +191,13 @@ def loader_block(path):
 def verify_generation(record):
     root = Path(record["install_root"])
     generation = root / "generations" / record["generation"]
-    if (set(record["runtime_hashes"]) != set(RUNTIME.values()) or
+    expected_runtime = (RUNTIME_020 if record.get("version") == "0.2.0"
+                        else frozenset(RUNTIME.values()))
+    if (set(record["runtime_hashes"]) != expected_runtime or
             set(record["bootstrap_hashes"]) != {"mihomoctl", "common.bash", "shell.bash", "completion.bash"}):
         raise InstallError("incomplete-installation-integrity-record")
     for name, expected in record["runtime_hashes"].items():
-        if name not in RUNTIME.values() or digest(safe_path(generation / name)) != expected:
+        if name not in expected_runtime or digest(safe_path(generation / name)) != expected:
             raise InstallError("installed-code-modified-review-local-customizations")
 
 

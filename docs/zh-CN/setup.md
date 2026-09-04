@@ -188,6 +188,8 @@ rules:
 HomeDir；最后固定 `MATCH,DIRECT`。上面的域名和 `Proxy` 组只是通用示例，不是
 项目内置策略。数据集、科研站点、订阅节点和其他自定义路由必须由每位用户在
 自己的 Mihomo 配置中维护，不能写成公共项目的专属要求。
+需要长期维护较多个人规则时，采用[三文件私有规则契约](rules.md)及其只读检查，
+不要继续把个人数据加入公共示例。
 
 ```bash
 chmod 600 "$HOME/.config/mihomo/config.yaml"

@@ -4,6 +4,24 @@ All notable changes follow a simplified Keep a Changelog format.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-04
+
+### Added
+
+- Added `mihomoctl exec --` and `mihomoctl direct --` as explicit child-process
+  boundaries that reuse the existing authenticated proxy activation path.
+- Added stable JSON for status/readiness/doctor, redacted URL probes, and
+  same-user process environment/socket classification.
+- Added a documented three-file private rule contract with read-only status,
+  structural checks, Mihomo configuration testing, and fictional examples.
+
+### Changed
+
+- Installed diagnostics and rule-check modules are now hashed into immutable
+  generations and validated by version-pinned updates.
+- Expanded isolated regression, documentation, and secret-scan coverage for
+  the new commands without changing service state or private Mihomo data.
+
 ## [0.2.0] - 2026-09-03
 
 ### Added

@@ -192,6 +192,8 @@ cache under the Mihomo home directory, and retain final `MATCH,DIRECT`. The
 domains and `Proxy` group above are neutral examples, not project policy.
 Dataset, research-site, provider-node, and other custom routing requirements
 belong only in each user's own Mihomo configuration.
+For a scalable private layout, use the [three-file custom-rule contract](rules.md)
+and its read-only checks instead of adding personal data to this public example.
 
 ```bash
 chmod 600 "$HOME/.config/mihomo/config.yaml"

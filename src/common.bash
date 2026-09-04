@@ -6,7 +6,7 @@
 
 # Used by src/mihomoctl after this shared module is sourced.
 # shellcheck disable=SC2034
-MIHOMO_USERCTL_VERSION="0.2.0"
+MIHOMO_USERCTL_VERSION="0.2.1"
 
 _muc_err() {
   printf 'mihomo-userctl: %s\n' "$*" >&2
@@ -226,6 +226,50 @@ _muc_probe() (
     curl --fail --silent --show-error --max-time 5 \
       --output /dev/null "$MIHOMO_READY_URL"
 )
+
+_muc_enable_proxy_environment() {
+  local proxy_http proxy_https proxy_socks
+  _muc_clear_proxy_environment
+  _muc_load_config || return 2
+  _muc_service_active || {
+    _muc_err "Mihomo user service is not running; run: mihomoctl start"
+    return 1
+  }
+  _muc_listening || {
+    _muc_err "Mihomo is not listening on 127.0.0.1:$MIHOMO_PORT"
+    return 1
+  }
+  _muc_load_credentials || return 2
+  proxy_http=$MIHOMO_HTTP_PROXY
+  proxy_https=$MIHOMO_HTTPS_PROXY
+  proxy_socks=$MIHOMO_ALL_PROXY
+  unset MIHOMO_HTTP_PROXY MIHOMO_HTTPS_PROXY MIHOMO_ALL_PROXY
+  if ! env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY \
+    http_proxy="$proxy_http" https_proxy="$proxy_https" all_proxy= no_proxy= \
+    curl --fail --silent --show-error --max-time 5 --output /dev/null "$MIHOMO_READY_URL"; then
+    _muc_err "authenticated Mihomo readiness check failed"
+    return 1
+  fi
+  export http_proxy=$proxy_http https_proxy=$proxy_https
+  export HTTP_PROXY=$proxy_http HTTPS_PROXY=$proxy_https
+  export all_proxy=$proxy_socks ALL_PROXY=$proxy_socks
+  export no_proxy='localhost,127.0.0.1,::1'
+  export NO_PROXY=$no_proxy
+}
+
+_muc_find_core() {
+  local candidate
+  if candidate=$(command -v mihomo 2>/dev/null); then
+    printf '%s' "$candidate"
+    return 0
+  fi
+  candidate=$HOME/.local/bin/mihomo
+  if [[ -f $candidate && -x $candidate && -O $candidate ]]; then
+    printf '%s' "$candidate"
+    return 0
+  fi
+  return 1
+}
 
 _muc_wait_ready() {
   local deadline=$((SECONDS + MIHOMO_READY_TIMEOUT)) rc

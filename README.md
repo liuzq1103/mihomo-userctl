@@ -179,6 +179,9 @@ Open a new terminal and reconnect long-lived clients when appropriate.
 mihomoctl start       # start service; current shell remains direct
 mihomoctl status
 mihomoctl doctor
+mihomoctl exec -- git fetch
+mihomoctl direct -- axel -n 10 https://example.org/large-file
+mihomoctl test-url https://example.com/ --json
 
 with_proxy curl https://github.com
 with_proxy git clone https://github.com/example/project.git
@@ -219,6 +222,13 @@ mihomoctl restart
 mihomoctl status
 mihomoctl ready
 mihomoctl doctor
+mihomoctl exec -- COMMAND [ARGS...]
+mihomoctl direct -- COMMAND [ARGS...]
+mihomoctl test-url URL [--json]
+mihomoctl inspect-process PID [--json]
+mihomoctl inspect-name NAME [--json]
+mihomoctl rules status [--json]
+mihomoctl rules check
 mihomoctl logs [--lines N] [--follow]
 mihomoctl version
 ```
@@ -232,8 +242,16 @@ proxy_on  proxy_off  proxy_status  with_proxy
 The legacy `mihomo_start`, `mihomo_stop`, `mihomo_restart`, `mihomo_status`, and
 `mihomo_logs` wrappers remain available throughout the 0.x series.
 
-Exit status is stable: `0` success/healthy, `1` runtime or readiness failure,
-and `2` usage, configuration, permission, or dependency failure.
+Exit status is stable: `0` success/healthy, `1` an observed runtime, readiness,
+or validation failure, and `2` usage, configuration, permission, dependency, or
+unverifiable input. After `exec` or `direct` launches its command, the command's
+own exit status is preserved.
+
+`status`, `ready`, and `doctor` accept `--json`. Process inspection reads only a
+current-user PID and reports counts and connection categories, never environment
+values or remote addresses. `test-url` separates direct target access from the
+local listener and authenticated proxy requests; it does not prove which policy
+rule or proxy node Mihomo selected.
 
 ## Configuration
 
@@ -250,6 +268,10 @@ MIHOMO_STOP_TIMEOUT=5
 `~/.config/mihomo/client.env` contains the authenticated local endpoints and
 must be mode `600`. These files are parsed with a fixed key whitelist; they are
 not Shell programs.
+
+Private routing rules can use the documented three-file contract and read-only
+`mihomoctl rules` checks. See [private custom rules](docs/en/rules.md). The tool
+does not create rule files, edit `config.yaml`, or restart Mihomo.
 
 ## Codex Remote and VS Code Remote
 
@@ -295,6 +317,7 @@ is documented in [the Mihoro inspiration note](docs/en/mihoro-inspiration.md).
 - [Installation acceptance and evidence](docs/en/acceptance.md)
 - [Copyable coding-agent installation prompt](docs/en/agent-install-prompt.md)
 - [Recommended VS Code Remote configuration](docs/en/vscode-remote.md)
+- [Private custom-rule contract and read-only checks](docs/en/rules.md)
 - [Architecture and data flow](docs/en/architecture.md)
 - [Security model](docs/en/security.md)
 - [Troubleshooting](docs/en/troubleshooting.md)

@@ -32,6 +32,17 @@ Commands:
   status                Print a stable one-line service/listener status
   ready                 Test service, listener, credentials, and an authenticated HTTP request
   doctor                Run safe configuration and runtime diagnostics
+  exec -- COMMAND [ARGS...]
+                        Run one command with validated proxy variables
+  direct -- COMMAND [ARGS...]
+                        Run one command with all proxy variables removed
+  test-url URL [--json] Test direct, listener, authentication, and target paths
+  inspect-process PID [--json]
+                        Inspect one current-user process without exposing values
+  inspect-name NAME [--json]
+                        Inspect current-user processes with an exact name
+  rules status [OPTIONS] | rules check [OPTIONS]
+                        Inspect the documented custom-rule contract without changes
   logs [--lines N] [--follow]
                         Read the user-service journal
   version               Print mihomo-userctl and detected Mihomo versions
@@ -43,6 +54,19 @@ EOF
 
 load_config_or_exit() {
   _muc_load_config || exit 2
+}
+
+require_python_module() {
+  local path=$1
+  _muc_require_safe_module "$path" || exit 2
+  command -v python3 >/dev/null 2>&1 || { _muc_err 'this command requires Python 3.8+'; exit 2; }
+}
+
+json_error() {
+  local command=$1 code=$2
+  require_python_module "$_muc_lib_dir/diagnostics.py"
+  python3 -B "$_muc_lib_dir/diagnostics.py" error "$command" "$code"
+  exit 2
 }
 
 cmd_start() {
@@ -85,25 +109,49 @@ cmd_restart() {
 }
 
 cmd_status() {
-  local service=down listener=down enabled
-  load_config_or_exit
+  local service=down listener=down enabled json=${1:-0}
+  if ! _muc_load_config; then
+    (( json )) && json_error status config-invalid
+    exit 2
+  fi
   _muc_service_active && service=up
   _muc_listening && listener=up
   enabled=$(_muc_service_enabled_state)
   [[ -n $enabled ]] || enabled=unknown
-  printf 'service=%s enabled=%s listener=%s endpoint=127.0.0.1:%s\n' \
-    "$service" "$enabled" "$listener" "$MIHOMO_PORT"
-  [[ $service == up && $listener == up ]]
+  case $enabled in enabled|enabled-runtime|disabled|static|indirect|masked|masked-runtime) ;; *) enabled=unknown ;; esac
+  if (( json )); then
+    require_python_module "$_muc_lib_dir/diagnostics.py"
+    python3 -B "$_muc_lib_dir/diagnostics.py" format status --service "$service" \
+      --enabled "$enabled" --listener "$listener" --port "$MIHOMO_PORT"
+  else
+    printf 'service=%s enabled=%s listener=%s endpoint=127.0.0.1:%s\n' \
+      "$service" "$enabled" "$listener" "$MIHOMO_PORT"
+    [[ $service == up && $listener == up ]]
+  fi
 }
 
 cmd_ready() {
-  local rc
-  load_config_or_exit
+  local rc json=${1:-0}
+  if ! _muc_load_config; then
+    (( json )) && json_error ready config-invalid
+    exit 2
+  fi
   if _muc_probe; then
-    printf 'ready=up endpoint=127.0.0.1:%s\n' "$MIHOMO_PORT"
+    if (( json )); then
+      require_python_module "$_muc_lib_dir/diagnostics.py"
+      python3 -B "$_muc_lib_dir/diagnostics.py" format ready --ready up --port "$MIHOMO_PORT"
+    else
+      printf 'ready=up endpoint=127.0.0.1:%s\n' "$MIHOMO_PORT"
+    fi
   else
     rc=$?
-    printf 'ready=down endpoint=127.0.0.1:%s\n' "$MIHOMO_PORT" >&2
+    if (( json )); then
+      (( rc == 2 )) && json_error ready credentials-invalid
+      require_python_module "$_muc_lib_dir/diagnostics.py"
+      python3 -B "$_muc_lib_dir/diagnostics.py" format ready --ready down --port "$MIHOMO_PORT"
+    else
+      printf 'ready=down endpoint=127.0.0.1:%s\n' "$MIHOMO_PORT" >&2
+    fi
     (( rc == 2 )) && exit 2
     exit 1
   fi
@@ -114,48 +162,143 @@ doctor_line() {
 }
 
 cmd_doctor() {
-  local failed=0 command enabled service=down listener=down offline=${1:-0}
-  for command in bash systemctl ss curl journalctl stat awk grep id; do
+  local failed=0 dependency_failed=0 command enabled service=down listener=down
+  local offline=${1:-0} json=${2:-0} rc
+  local -a checks=()
+  for command in bash python3 systemctl ss curl journalctl stat awk grep id; do
     if command -v "$command" >/dev/null 2>&1; then
-      doctor_line "$command" ok
+      (( json )) || doctor_line "$command" ok
+      checks+=(--check "$command=PASS")
     else
-      doctor_line "$command" missing
+      (( json )) || doctor_line "$command" missing
+      checks+=(--check "$command=FAIL")
       failed=1
+      dependency_failed=1
     fi
   done
+  if (( json && dependency_failed )) && ! command -v python3 >/dev/null 2>&1; then
+    printf '%s\n' '{"command":"doctor","error":{"code":"python3-missing"},"overall":"UNVERIFIED","schema":"mihomo-userctl.diagnostics/v1"}'
+    exit 2
+  fi
   if ! _muc_load_config; then
+    (( json )) && json_error doctor config-invalid
     doctor_line config invalid
     exit 2
   fi
-  doctor_line config ok
+  (( json )) || doctor_line config ok
+  checks+=(--check config=PASS)
   if _muc_load_credentials; then
-    doctor_line credentials ok
+    (( json )) || doctor_line credentials ok
+    checks+=(--check credentials=PASS)
   else
+    (( json )) && json_error doctor credentials-invalid
     doctor_line credentials invalid
     exit 2
   fi
   unset MIHOMO_HTTP_PROXY MIHOMO_HTTPS_PROXY MIHOMO_ALL_PROXY
   enabled=$(_muc_service_enabled_state)
   [[ -n $enabled ]] || enabled=unknown
-  doctor_line enabled "$enabled"
-  [[ $enabled == disabled || $offline == 1 ]] || failed=1
+  case $enabled in enabled|enabled-runtime|disabled|static|indirect|masked|masked-runtime) ;; *) enabled=unknown ;; esac
+  (( json )) || doctor_line enabled "$enabled"
+  if [[ $enabled == disabled || $offline == 1 ]]; then
+    checks+=(--check enabled-policy=PASS)
+  else
+    checks+=(--check enabled-policy=FAIL)
+    failed=1
+  fi
   _muc_service_active && service=up
   _muc_listening && listener=up
-  doctor_line service "$service"
-  doctor_line listener "$listener"
-  doctor_line endpoint "127.0.0.1:$MIHOMO_PORT"
+  (( json )) || doctor_line service "$service"
+  (( json )) || doctor_line listener "$listener"
+  (( json )) || doctor_line endpoint "127.0.0.1:$MIHOMO_PORT"
   if [[ $service == up && $offline == 0 ]]; then
     if _muc_probe; then
-      doctor_line readiness ok
+      (( json )) || doctor_line readiness ok
+      checks+=(--check readiness=PASS)
     else
-      doctor_line readiness failed
+      (( json )) || doctor_line readiness failed
+      checks+=(--check readiness=FAIL)
       failed=1
     fi
   else
-    doctor_line readiness skipped-offline-or-service-down
+    (( json )) || doctor_line readiness skipped-offline-or-service-down
+    checks+=(--check readiness=SKIPPED)
   fi
-  doctor_line secrets redacted
-  (( failed == 0 ))
+  (( json )) || doctor_line secrets redacted
+  checks+=(--check secrets=PASS)
+  if (( json )); then
+    require_python_module "$_muc_lib_dir/diagnostics.py"
+    python3 -B "$_muc_lib_dir/diagnostics.py" format doctor --service "$service" \
+      --enabled "$enabled" --listener "$listener" --port "$MIHOMO_PORT" "${checks[@]}"
+    rc=$?
+    (( dependency_failed )) && return 2
+    return "$rc"
+  else
+    (( dependency_failed )) && return 2
+    (( failed == 0 ))
+  fi
+}
+
+cmd_exec() {
+  [[ ${1:-} == -- && $# -ge 2 ]] || { _muc_err 'usage: mihomoctl exec -- command [args...]'; exit 2; }
+  shift
+  _muc_enable_proxy_environment || exit $?
+  exec -- "$@"
+}
+
+cmd_direct() {
+  [[ ${1:-} == -- && $# -ge 2 ]] || { _muc_err 'usage: mihomoctl direct -- command [args...]'; exit 2; }
+  shift
+  _muc_clear_proxy_environment
+  exec -- "$@"
+}
+
+cmd_test_url() {
+  local url= json=0 argument
+  for argument in "$@"; do
+    [[ $argument == --json ]] && json=1
+  done
+  while (( $# )); do
+    case $1 in
+      --json) json=1 ;;
+      --*) (( json )) && json_error test-url invalid-options; _muc_err 'invalid test-url option'; exit 2 ;;
+      *) [[ -z $url ]] || { (( json )) && json_error test-url invalid-options; _muc_err 'test-url accepts one URL'; exit 2; }; url=$1 ;;
+    esac
+    shift
+  done
+  [[ -n $url ]] || { (( json )) && json_error test-url invalid-options; _muc_err 'test-url requires one HTTPS URL'; exit 2; }
+  if ! _muc_load_config || ! _muc_load_credentials; then
+    (( json )) && json_error test-url configuration-or-credentials-invalid
+    exit 2
+  fi
+  require_python_module "$_muc_lib_dir/acceptance.py"
+  export MIHOMO_SERVICE MIHOMO_PORT MIHOMO_READY_URL
+  export MIHOMO_HTTP_PROXY MIHOMO_HTTPS_PROXY MIHOMO_ALL_PROXY
+  local -a options=(--profile test-url --url "$url" --timeout 10)
+  (( json )) && options+=(--json)
+  exec python3 -B "$_muc_lib_dir/acceptance.py" "${options[@]}"
+}
+
+cmd_inspect() {
+  local kind=$1
+  shift
+  require_python_module "$_muc_lib_dir/diagnostics.py"
+  if ! _muc_load_config || ! _muc_load_credentials; then
+    [[ " $* " == *' --json '* ]] && json_error "$kind" configuration-or-credentials-invalid
+    exit 2
+  fi
+  export MIHOMO_HTTP_PROXY MIHOMO_HTTPS_PROXY MIHOMO_ALL_PROXY
+  exec python3 -B "$_muc_lib_dir/diagnostics.py" "$kind" "$@" --port "$MIHOMO_PORT"
+}
+
+cmd_rules() {
+  require_python_module "$_muc_lib_dir/rules.py"
+  local core
+  unset MIHOMO_CORE_BIN
+  if core=$(_muc_find_core); then
+    export MIHOMO_CORE_BIN=$core
+  fi
+  exec python3 -B "$_muc_lib_dir/rules.py" "$@"
 }
 
 cmd_logs() {
@@ -190,11 +333,7 @@ cmd_logs() {
 
 cmd_version() {
   local core=unavailable core_bin=
-  if core_bin=$(command -v mihomo 2>/dev/null); then
-    :
-  elif [[ -f $HOME/.local/bin/mihomo && -x $HOME/.local/bin/mihomo && -O $HOME/.local/bin/mihomo ]]; then
-    core_bin=$HOME/.local/bin/mihomo
-  fi
+  core_bin=$(_muc_find_core 2>/dev/null || true)
   if [[ -n $core_bin ]]; then
     core=$("$core_bin" -v 2>/dev/null | head -n 1 || true)
     [[ -n $core ]] || core=unknown
@@ -209,13 +348,34 @@ case $command_name in
   start) (( $# == 0 )) || { usage >&2; exit 2; }; cmd_start ;;
   stop) (( $# == 0 )) || { usage >&2; exit 2; }; cmd_stop ;;
   restart) (( $# == 0 )) || { usage >&2; exit 2; }; cmd_restart ;;
-  status) (( $# == 0 )) || { usage >&2; exit 2; }; cmd_status ;;
-  ready) (( $# == 0 )) || { usage >&2; exit 2; }; cmd_ready ;;
+  status)
+    if (( $# == 0 )); then cmd_status 0
+    elif (( $# == 1 )) && [[ $1 == --json ]]; then cmd_status 1
+    elif [[ " $* " == *' --json '* ]]; then json_error status invalid-options
+    else usage >&2; exit 2; fi ;;
+  ready)
+    if (( $# == 0 )); then cmd_ready 0
+    elif (( $# == 1 )) && [[ $1 == --json ]]; then cmd_ready 1
+    elif [[ " $* " == *' --json '* ]]; then json_error ready invalid-options
+    else usage >&2; exit 2; fi ;;
   doctor)
-    if (( $# == 0 )); then cmd_doctor
-    elif (( $# == 1 )) && [[ $1 == --offline ]]; then cmd_doctor 1
-    else usage >&2; exit 2; fi
+    offline=0; json=0
+    for option in "$@"; do [[ $option == --json ]] && json=1; done
+    while (( $# )); do
+      case $1 in
+        --offline) offline=1 ;;
+        --json) ;;
+        *) (( json )) && json_error doctor invalid-options; usage >&2; exit 2 ;;
+      esac
+      shift
+    done
+    cmd_doctor "$offline" "$json"
     ;;
+  exec) cmd_exec "$@" ;;
+  direct) cmd_direct "$@" ;;
+  test-url) cmd_test_url "$@" ;;
+  inspect-process|inspect-name) cmd_inspect "$command_name" "$@" ;;
+  rules) cmd_rules "$@" ;;
   logs|log) cmd_logs "$@" ;;
   update)
     _muc_require_safe_module "$_muc_lib_dir/update.py" || exit 2

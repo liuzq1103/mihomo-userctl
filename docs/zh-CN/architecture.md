@@ -40,6 +40,13 @@ direct ── proxy_on  ──> proxied
 proxied ─ proxy_off ──> direct
 ```
 
+`mihomoctl exec -- ...` 复用 `proxy_on` 的同一个校验与导出函数，随后用目标命令替换
+控制器进程；`mihomoctl direct -- ...` 在替换前清除同一组八变量。两者都无法修改父进程环境。
+
+已安装的 `diagnostics.py` 负责稳定 JSON 和同 UID `/proc` 检查，只关联环境变量数量与
+socket inode，不返回环境值、命令行或远端地址。`acceptance.py` 同时提供完整验收和较窄的
+`test-url` profile，使 HTTP/SOCKS 探针只有一套实现。
+
 两者不会隐式联动，唯一例外是兼容包装器 `mihomo_stop` 会先 `proxy_off`，防止
 当前 Shell 留下指向已停止端口的无效环境变量。
 

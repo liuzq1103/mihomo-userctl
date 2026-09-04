@@ -33,6 +33,7 @@ expected=(
   architecture.md
   codex-install-prompt.md
   mihoro-inspiration.md
+  rules.md
   security.md
   setup.md
   troubleshooting.md

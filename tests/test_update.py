@@ -77,6 +77,25 @@ class FakeRelease:
 
 
 class SourceTests(unittest.TestCase):
+    def test_v020_runtime_receipt_is_accepted_only_with_its_exact_known_set(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            generation = root / "generations" / ("a" * 32)
+            generation.mkdir(parents=True)
+            hashes = {}
+            for name in ins.RUNTIME_020:
+                put(generation / name, "v0.2.0 fixture " + name, 0o644)
+                hashes[name] = ins.digest(generation / name)
+            record = {"install_root": str(root), "generation": generation.name,
+                      "version": "0.2.0", "runtime_hashes": hashes,
+                      "bootstrap_hashes": {name: "fixture" for name in
+                                           ("mihomoctl", "common.bash", "shell.bash", "completion.bash")}}
+            ins.verify_generation(record)
+            record["runtime_hashes"] = dict(hashes)
+            record["runtime_hashes"].pop("acceptance.py")
+            with self.assertRaises(ins.InstallError):
+                ins.verify_generation(record)
+
     def test_release_resolves_annotated_tag_and_records_exact_commit(self):
         client = up.GitHub()
         release = dict(tag_name=TAG, draft=False, prerelease=False, published_at="date", id=123)

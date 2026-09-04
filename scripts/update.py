@@ -158,7 +158,7 @@ def validate(source, tag):
             raise UpdateError("target-does-not-support-update-protocol-1", 2)
         required = list(installer.RUNTIME) + ["install.sh", "examples/bashrc-loader.bash",
                     "tests/test.sh", "tests/docs-test.sh", "tests/secret-scan.sh", "tests/audit-test.sh",
-                    "tests/test_acceptance.py"]
+                    "tests/test_acceptance.py", "tests/test_diagnostics.py", "tests/test_rules.py"]
         if any(not (source / name).is_file() for name in required):
             raise UpdateError("target-release-is-incomplete", 2)
         for file, pattern in (("install.sh", r"^VERSION=([^\n]+)$"),
@@ -179,6 +179,8 @@ def validate(source, tag):
                     if p.is_file() and (p.suffix in (".sh", ".bash") or p.name == "mihomoctl")]
         commands += [["bash", "tests/test.sh"],
                      [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_acceptance.py"],
+                     [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_diagnostics.py"],
+                     [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_rules.py"],
                      ["bash", "tests/audit-test.sh"], ["bash", "tests/docs-test.sh"],
                      ["bash", "tests/secret-scan.sh"]]
         for command in commands:

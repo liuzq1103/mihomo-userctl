@@ -37,6 +37,17 @@ Service state and current-Shell state are independent. `mihomoctl start` moves
 the service from down to up; `proxy_on` moves only the current Shell from direct
 to proxied. `with_proxy` changes a child process and then disappears.
 
+`mihomoctl exec -- ...` uses the same validated activation function as
+`proxy_on`, then replaces the controller process with the requested command.
+`mihomoctl direct -- ...` clears the same eight variables before replacement.
+Neither command can mutate its parent process environment.
+
+Machine-readable diagnostics are encoded by the installed `diagnostics.py`
+module. Process inspection correlates only same-user `/proc` environment counts
+and socket inodes; it never returns environment values, command lines, or remote
+addresses. `acceptance.py` supplies both full acceptance and the narrower
+`test-url` probe profile, so HTTP/SOCKS checks have one implementation.
+
 The controller does not generate Mihomo policy and does not contain desktop
 Clash/FlClash rules. That separation prevents server lifecycle code and PC rule
 generation from becoming one coupled deployment.

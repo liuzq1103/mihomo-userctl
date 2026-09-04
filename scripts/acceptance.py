@@ -4,6 +4,8 @@
 import argparse
 from collections import Counter
 from dataclasses import dataclass
+import ipaddress
+import json
 import os
 import re
 import socket
@@ -22,6 +24,9 @@ class Result:
 class Parser(argparse.ArgumentParser):
     def error(self, message):
         # argparse normally echoes invalid argument values, which may be private.
+        if "--json" in sys.argv[1:]:
+            self.exit(2, '{"command":"test-url","error":{"code":"invalid-options"},'
+                      '"overall":"UNVERIFIED","schema":"mihomo-userctl.diagnostics/v1"}\n')
         self.exit(2, "UNVERIFIED\targuments\tinvalid-options-see-help\n")
 
 
@@ -53,6 +58,15 @@ def service_checks(service, timeout, expected_enabled="disabled"):
         else:
             results.append(Result("FAIL", check, "unexpected-service-state"))
     return results
+
+
+def service_active_check(service, timeout):
+    proc = run_command(["systemctl", "--user", "is-active", service], timeout)
+    if proc is None or proc.returncode not in (0, 1, 3, 4):
+        return Result("UNVERIFIED", "service-active", "systemctl-error")
+    if proc.stdout.strip() == "active" and proc.returncode == 0:
+        return Result("PASS", "service-active", "active")
+    return Result("FAIL", "service-active", "unexpected-service-state")
 
 
 def listener_check(port, timeout):
@@ -97,6 +111,25 @@ def curl_check(kind, url, port, timeout, expected, proxy_url=None):
     if kind == "http-auth":
         passed = passed and connect == 200
     return Result("PASS" if passed else "FAIL", kind, evidence)
+
+
+def direct_check(url, timeout, expected):
+    env = clean_environment()
+    args = ["curl", "--disable", "--head", "--globoff", "--proto", "=https",
+            "--silent", "--show-error", "--noproxy", "*", "--max-time", str(timeout),
+            "--output", os.devnull, "--write-out", "%{http_code}\t%{remote_ip}\t%{remote_port}", url]
+    proc = run_command(args, timeout + 2, env)
+    if proc is None:
+        return Result("UNVERIFIED", "direct-target", "curl-unavailable-or-timed-out")
+    fields = proc.stdout.strip().split("\t")
+    if len(fields) != 3 or not re.fullmatch(r"\d{3}", fields[0]) or not fields[2].isdigit():
+        return Result("UNVERIFIED", "direct-target", "curl_rc={};invalid-curl-metrics".format(proc.returncode))
+    status = int(fields[0])
+    status_ok = status == expected if expected is not None else 200 <= status < 300
+    evidence = "curl_rc={};http={};peer={}".format(
+        proc.returncode, status, "listener" if fields[1] == "127.0.0.1" else "non-listener")
+    passed = proc.returncode == 0 and status_ok and fields[1] != "127.0.0.1"
+    return Result("PASS" if passed else "FAIL", "direct-target", evidence)
 
 
 def http_no_auth(url, port, timeout):
@@ -173,6 +206,41 @@ def report(results):
     return 1 if overall == "FAIL" else 2 if overall == "UNVERIFIED" else 0
 
 
+def report_json(results, command="test-url"):
+    counts = Counter(result.status for result in results)
+    overall = ("FAIL" if counts["FAIL"] else "UNVERIFIED"
+               if counts["UNVERIFIED"] or counts["DEFERRED"] else "PASS")
+    print(json.dumps({"schema": "mihomo-userctl.diagnostics/v1", "command": command,
+                      "overall": overall,
+                      "checks": [{"status": row.status, "name": row.check,
+                                  "evidence": row.evidence} for row in results]},
+                     sort_keys=True, separators=(",", ":")))
+    return 1 if overall == "FAIL" else 2 if overall == "UNVERIFIED" else 0
+
+
+def public_https_url(url):
+    try:
+        parsed = urlsplit(url)
+        target_port = parsed.port if parsed.port is not None else 443
+        hostname = parsed.hostname.rstrip(".").lower() if parsed.hostname else ""
+        if (not 1 <= target_port <= 65535 or parsed.scheme != "https" or not hostname
+                or parsed.username is not None or parsed.password is not None
+                or parsed.query or parsed.fragment
+                or hostname == "localhost" or hostname.endswith((".localhost", ".local"))
+                or "." not in hostname
+                or any(ord(char) < 33 or ord(char) == 127 for char in url)):
+            return False
+        try:
+            address = ipaddress.ip_address(parsed.hostname)
+            if not address.is_global:
+                return False
+        except ValueError:
+            pass
+        return True
+    except ValueError:
+        return False
+
+
 def main(argv=None):
     parser = Parser(description="Run via bash scripts/acceptance.sh; never changes service state.")
     parser.add_argument("--url", help="Public HTTPS URL, without userinfo, query, or fragment; default: readiness URL")
@@ -182,20 +250,18 @@ def main(argv=None):
     parser.add_argument("--expect-enabled", default="disabled",
                         choices=("disabled", "enabled", "enabled-runtime", "static", "indirect", "masked", "masked-runtime"),
                         help="Expected existing enablement state; never changes it")
+    parser.add_argument("--profile", choices=("acceptance", "test-url"), default="acceptance",
+                        help=argparse.SUPPRESS)
+    parser.add_argument("--json", action="store_true", help="Emit stable JSON")
     args = parser.parse_args(argv)
     try:
         port = int(os.environ["MIHOMO_PORT"])
         service = os.environ["MIHOMO_SERVICE"]
         url = args.url or os.environ["MIHOMO_READY_URL"]
-        parsed = urlsplit(url)
-        target_port = parsed.port if parsed.port is not None else 443
-        if (not 1 <= target_port <= 65535 or not 1024 <= port <= 65535
+        if (not public_https_url(url) or not 1024 <= port <= 65535
                 or not re.fullmatch(r"[A-Za-z0-9_.@-]+", service)
                 or not 1 <= args.timeout <= 60
-                or (args.expect_status is not None and not 200 <= args.expect_status < 300)
-                or parsed.scheme != "https" or not parsed.hostname or parsed.username is not None
-                or parsed.password is not None or parsed.query or parsed.fragment
-                or any(ord(char) < 33 or ord(char) == 127 for char in url)):
+                or (args.expect_status is not None and not 200 <= args.expect_status < 300)):
             raise ValueError
         # Validation is repeated here to make direct invocation fail safely too.
         for name, scheme in (("MIHOMO_HTTPS_PROXY", "http"), ("MIHOMO_ALL_PROXY", "socks5h")):
@@ -205,10 +271,15 @@ def main(argv=None):
                     or proxy.path not in ("", "/")):
                 raise ValueError
     except (KeyError, ValueError):
-        return report([Result("UNVERIFIED", "inputs", "invalid-options-or-validated-environment-missing")])
-    results = service_checks(service, args.timeout, args.expect_enabled)
-    results.append(listener_check(port, args.timeout))
-    if any(result.status != "PASS" for result in results):
+        invalid = [Result("UNVERIFIED", "inputs", "invalid-options-or-validated-environment-missing")]
+        return report_json(invalid) if args.json else report(invalid)
+    results = ([direct_check(url, args.timeout, args.expect_status)]
+               if args.profile == "test-url" else [])
+    service = ([service_active_check(service, args.timeout)] if args.profile == "test-url"
+               else service_checks(service, args.timeout, args.expect_enabled))
+    preflight = service + [listener_check(port, args.timeout)]
+    results.extend(preflight)
+    if any(result.status != "PASS" for result in preflight):
         results.extend(Result("UNVERIFIED", name, "service-or-binding-preflight-not-passed")
                        for name in ("http-auth", "socks5h-auth", "http-no-auth", "socks5h-no-auth"))
     else:
@@ -220,8 +291,9 @@ def main(argv=None):
             http_no_auth(url, port, args.timeout),
             socks_no_auth(port, args.timeout),
         ])
-    results.extend(pending_checks(args.defer_vscode))
-    return report(results)
+    if args.profile == "acceptance":
+        results.extend(pending_checks(args.defer_vscode))
+    return report_json(results) if args.json else report(results)
 
 
 if __name__ == "__main__":

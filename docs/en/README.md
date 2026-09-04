@@ -18,3 +18,4 @@ Other references:
 
 - [Update and one-time migration](update.md)
 - [Coding-agent update prompt](agent-update-prompt.md)
+- [Private custom-rule contract and read-only checks](rules.md)

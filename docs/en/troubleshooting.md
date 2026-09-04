@@ -117,6 +117,28 @@ the intended extension path.
 
 ## Confirm that `axel` is direct
 
+Use the explicit child boundary when the parent Shell may already be proxied:
+
+```bash
+mihomoctl direct -- axel -n 10 'https://example.org/large-file'
+```
+
+To diagnose a long-lived current-user process without printing its environment:
+
+```bash
+mihomoctl inspect-process PID --json
+mihomoctl inspect-name codex --json
+```
+
+`proxy_state=inconsistent` means some variables are absent or do not match the
+current credential file. Restart or reconnect only that known current-user
+application; the command never kills it.
+
+For custom-rule failures, run `mihomoctl rules status` first, then
+`mihomoctl rules check`. Exit `2` with `config-unsupported-yaml` means the
+custom-provider sections must be expressed in the documented block style; it
+does not prove that the underlying configuration is invalid.
+
 In the exact Shell that launches it:
 
 ```bash

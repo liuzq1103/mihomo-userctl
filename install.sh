@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION=0.2.0
+VERSION=0.2.1
 BEGIN_MARKER='# >>> mihomo-userctl managed loader >>>'
 END_MARKER='# <<< mihomo-userctl managed loader <<<'
 

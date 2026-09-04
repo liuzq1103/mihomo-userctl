@@ -22,8 +22,11 @@ export PATH=$TEST_ROOT/bin:$HOME/.local/bin:/usr/bin:/bin
 mkdir -p "$HOME/.local/bin" "$XDG_DATA_HOME/mihomo-userctl" "$XDG_CONFIG_HOME/mihomo" "$TEST_ROOT/bin"
 chmod 700 "$XDG_DATA_HOME/mihomo-userctl" "$XDG_CONFIG_HOME/mihomo"
 cp "$ROOT/src/common.bash" "$ROOT/src/shell.bash" "$ROOT/completions/mihomoctl.bash" "$XDG_DATA_HOME/mihomo-userctl/"
+cp "$ROOT/scripts/acceptance.py" "$ROOT/scripts/diagnostics.py" "$ROOT/scripts/rules.py" "$XDG_DATA_HOME/mihomo-userctl/"
 mv "$XDG_DATA_HOME/mihomo-userctl/mihomoctl.bash" "$XDG_DATA_HOME/mihomo-userctl/completion.bash"
-chmod 644 "$XDG_DATA_HOME/mihomo-userctl/common.bash" "$XDG_DATA_HOME/mihomo-userctl/shell.bash" "$XDG_DATA_HOME/mihomo-userctl/completion.bash"
+chmod 644 "$XDG_DATA_HOME/mihomo-userctl/common.bash" "$XDG_DATA_HOME/mihomo-userctl/shell.bash" \
+  "$XDG_DATA_HOME/mihomo-userctl/completion.bash" "$XDG_DATA_HOME/mihomo-userctl/acceptance.py" \
+  "$XDG_DATA_HOME/mihomo-userctl/diagnostics.py" "$XDG_DATA_HOME/mihomo-userctl/rules.py"
 cp "$ROOT/src/mihomoctl" "$HOME/.local/bin/mihomoctl"
 chmod 755 "$HOME/.local/bin/mihomoctl"
 printf 'active\n' > "$TEST_ROOT/service-state"
@@ -48,6 +51,7 @@ state_file='$TEST_ROOT/service-state'
 case "\$*" in
   '--user show-environment') exit 0 ;;
   '--user is-active --quiet mihomo') [[ \$(<"\$state_file") == active ]] ;;
+  '--user is-active mihomo') cat "\$state_file"; [[ \$(<"\$state_file") == active ]] ;;
   '--user is-enabled mihomo') printf 'disabled\\n'; exit 1 ;;
   '--user start mihomo'|'--user restart mihomo') printf 'active\\n' > "\$state_file" ;;
   '--user stop mihomo') printf 'inactive\\n' > "\$state_file" ;;
@@ -78,6 +82,12 @@ chmod 755 "$TEST_ROOT/bin/"*
 assert 'doctor accepts secure config and disabled service' "$HOME/.local/bin/mihomoctl" doctor
 assert 'ready validates the authenticated path' "$HOME/.local/bin/mihomoctl" ready
 assert 'status reports active loopback listener' bash -c '[[ $(mihomoctl status) == *"service=up enabled=disabled listener=up endpoint=127.0.0.1:28443"* ]]'
+assert 'status and doctor JSON are stable parseable objects' bash -c '
+  status=$(mihomoctl status --json) || exit
+  doctor=$(mihomoctl doctor --json) || exit
+  python3 -c '\''import json,sys; d=json.loads(sys.argv[1]); assert d["schema"] == "mihomo-userctl.diagnostics/v1" and d["overall"] == "PASS"'\'' "$status" || exit
+  python3 -c '\''import json,sys; d=json.loads(sys.argv[1]); assert d["command"] == "doctor" and d["overall"] == "PASS"'\'' "$doctor"
+'
 
 cat > "$HOME/.local/bin/mihomo" <<'EOF'
 #!/usr/bin/env bash
@@ -107,9 +117,51 @@ assert 'with_proxy without a command returns 2' bash -c '
   set +e; with_proxy >/dev/null 2>&1; rc=$?; [[ $rc == 2 ]]
 '
 
+assert 'mihomoctl exec preserves arguments and exports exactly eight proxy variables' bash -c '
+  marker="$1/exec-args"
+  mihomoctl exec -- bash -c '\''
+    [[ $1 == "argument with spaces" && $2 == "literal;not-shell" ]] || exit 9
+    count=0
+    for name in http_proxy https_proxy all_proxy no_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY; do
+      [[ -n ${!name:-} ]] || exit 8
+      count=$((count + 1))
+    done
+    printf "%s" "$count" > "$3"
+  '\'' _ "argument with spaces" "literal;not-shell" "$marker" || exit
+  [[ $(<"$marker") == 8 ]]
+' _ "$TEST_ROOT"
+
+assert 'mihomoctl direct clears proxy variables only for the child' bash -c '
+  export http_proxy=parent HTTP_PROXY=parent all_proxy=parent ALL_PROXY=parent
+  mihomoctl direct -- bash -c '\''
+    for name in http_proxy https_proxy all_proxy no_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY; do
+      [[ -z ${!name+x} ]] || exit 7
+    done
+  '\'' || exit
+  [[ $http_proxy == parent && $HTTP_PROXY == parent && $all_proxy == parent && $ALL_PROXY == parent ]]
+'
+
+assert 'exec and direct require separator and preserve child status' bash -c '
+  set +e
+  mihomoctl exec bash -c true >/dev/null 2>&1; [[ $? == 2 ]] || exit
+  mihomoctl direct -- bash -c "exit 7"; [[ $? == 7 ]]
+'
+
+assert 'mihomoctl exec fails before launch when readiness fails' bash -c '
+  set +e
+  CURL_FAIL=1 mihomoctl exec -- bash -c "exit 0" >/dev/null 2>&1
+  [[ $? == 1 ]]
+'
+
 cp "$XDG_CONFIG_HOME/mihomo/mihomo-shell.conf" "$TEST_ROOT/good.conf"
 printf 'EVIL=$(touch /tmp/mihomo-userctl-must-not-run)\n' >> "$XDG_CONFIG_HOME/mihomo/mihomo-shell.conf"
 assert 'unknown config syntax is rejected as data' bash -c 'set +e; mihomoctl status >/dev/null 2>&1; [[ $? == 2 && ! -e /tmp/mihomo-userctl-must-not-run ]]'
+assert 'JSON mode returns valid redacted data on configuration errors' bash -c '
+  set +e
+  output=$(mihomoctl status --json 2>/dev/null); rc=$?
+  [[ $rc == 2 ]] || exit
+  python3 -c '\''import json,sys; d=json.loads(sys.argv[1]); assert d["overall"] == "UNVERIFIED" and d["error"]["code"] == "config-invalid"'\'' "$output"
+'
 cp "$TEST_ROOT/good.conf" "$XDG_CONFIG_HOME/mihomo/mihomo-shell.conf"
 chmod 600 "$XDG_CONFIG_HOME/mihomo/mihomo-shell.conf"
 

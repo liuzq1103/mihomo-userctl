@@ -179,6 +179,7 @@ mihomoctl start
 ```bash
 with_proxy curl https://chatgpt.com
 with_proxy git clone https://github.com/example/project.git
+mihomoctl exec -- git fetch
 ```
 
 临时让当前 Shell 的后续命令全部走 Mihomo：
@@ -195,6 +196,7 @@ proxy_off
 
 ```bash
 axel -n 10 '下载地址'
+mihomoctl direct -- axel -n 10 '下载地址'
 ```
 
 只要没有先执行 `proxy_on`，普通 `axel` 不会继承本项目代理变量。
@@ -205,6 +207,12 @@ axel -n 10 '下载地址'
 mihomoctl status
 mihomoctl ready
 mihomoctl doctor
+mihomoctl status --json
+mihomoctl test-url https://example.com/ --json
+mihomoctl inspect-process PID --json
+mihomoctl inspect-name NAME --json
+mihomoctl rules status --json
+mihomoctl rules check
 mihomoctl logs --lines 100
 mihomoctl logs --follow
 ```
@@ -214,7 +222,13 @@ mihomoctl logs --follow
 - `doctor`：检查依赖、权限、配置、服务和 readiness，输出始终脱敏；
 - `logs`：读取用户服务日志。
 
-退出码：`0` 成功，`1` 运行状态失败，`2` 参数、配置、权限或依赖错误。
+退出码：`0` 成功，`1` 表示实际观察到运行、readiness 或验证失败，`2` 表示参数、
+配置、权限、依赖错误或无法可靠验证。`exec/direct` 启动目标程序后原样返回其退出码。
+进程诊断只读取当前用户 PID，仅输出变量数量和连接类别，不输出变量值或远端地址。
+`test-url` 分开报告 direct、Listener、认证和目标请求，但不声称已证明命中某条规则或节点。
+
+个人规则可采用三文件契约和只读 `mihomoctl rules` 检查，详见
+[私有自定义规则](docs/zh-CN/rules.md)。该命令不创建规则、不改写 `config.yaml`、不重启 Mihomo。
 
 ## 安全边界
 
@@ -275,6 +289,7 @@ Machine Settings 中显式配置 `http.proxy`，并将包含认证 URL 的文件
 - [安装验收与证据要求](docs/zh-CN/acceptance.md)
 - [可直接复制的 Coding Agent 安装 Prompt](docs/zh-CN/agent-install-prompt.md)
 - [VS Code Remote 推荐配置](docs/zh-CN/vscode-remote.md)
+- [私有自定义规则契约与只读检查](docs/zh-CN/rules.md)
 - [架构与数据流](docs/zh-CN/architecture.md)
 - [安全模型](docs/zh-CN/security.md)
 - [停电、端口、凭据等排错](docs/zh-CN/troubleshooting.md)
