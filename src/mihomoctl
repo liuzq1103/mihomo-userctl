@@ -254,7 +254,7 @@ cmd_direct() {
 }
 
 cmd_test_url() {
-  local url= json=0 argument
+  local url='' json=0 argument
   for argument in "$@"; do
     [[ $argument == --json ]] && json=1
   done
