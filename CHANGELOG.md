@@ -4,6 +4,29 @@ All notable changes follow a simplified Keep a Changelog format.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-04
+
+### Changed
+
+- Consolidated public diagnostics under `mihomoctl diagnose url|process|name`;
+  the v0.2.1 top-level names remain hidden compatibility aliases.
+- Centralized proxy-variable preparation, service/listener state normalization,
+  process redaction, and public JSON serialization while reusing the existing
+  acceptance probes and transactional installer.
+- Reduced duplicated bilingual guidance and added an explicit responsibility
+  matrix for mihomo-userctl, Mihomo, systemd, and the user.
+
+### Security
+
+- Limited `direct` to clearing the eight documented child proxy variables,
+  removed parent-process names from diagnostics, suppressed raw readiness-tool
+  errors, and rejected additional unsupported custom-rule YAML forms.
+
+### Fixed
+
+- Preserved the exact v0.2.1 runtime receipt set so an installed v0.2.1 can be
+  verified and deterministically upgraded when the new reporting module is added.
+
 ## [0.2.1] - 2026-09-04
 
 ### Added

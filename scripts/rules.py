@@ -4,7 +4,6 @@
 import argparse
 from datetime import datetime, timezone
 import hashlib
-import json
 import os
 from pathlib import Path
 import re
@@ -12,8 +11,13 @@ import stat
 import subprocess
 import sys
 
+try:
+    from . import reporting
+except ImportError:  # Installed modules are executed from one runtime directory.
+    import reporting
 
-SCHEMA = "mihomo-userctl.rules/v1"
+
+SCHEMA = reporting.RULES_SCHEMA
 MAX_FILE = 4 * 1024 * 1024
 MAX_RULES = 100000
 FILES = ("custom-direct.yaml", "custom-proxy.yaml", "custom-reject.yaml")
@@ -91,6 +95,9 @@ def parse_rule_file(path):
             payload += 1
             continue
         if payload == 1 and re.fullmatch(r" {0,8}-[ ]+[^#\s].*", line):
+            item = line.split("-", 1)[1].lstrip()
+            if item.startswith(("[", "{", "&", "*", "!", "<<:")):
+                raise RuleError("rule-file-unsupported-yaml")
             count += 1
             if count > MAX_RULES:
                 raise RuleError("rule-count-limit-exceeded")
@@ -270,8 +277,7 @@ def output_status(files, json_mode):
     overall = ("FAIL" if any(item["status"] == "FAIL" for item in files) else
                "UNVERIFIED" if any(item["status"] == "UNVERIFIED" for item in files) else "PASS")
     if json_mode:
-        print(json.dumps({"schema": SCHEMA, "command": "rules-status", "overall": overall,
-                          "files": files}, sort_keys=True, separators=(",", ":")))
+        reporting.rules("rules-status", overall, {"files": files})
     else:
         for item in files:
             if item["status"] == "PASS":
@@ -314,8 +320,8 @@ def main(argv=None):
         command = "rules-status" if "status" in (argv if argv is not None else sys.argv[1:]) else "rules-check"
         unverified = error.usage or "unsupported" in error.code or "unverified" in error.code
         if json_mode:
-            print(json.dumps({"schema": SCHEMA, "command": command, "overall": "UNVERIFIED" if unverified else "FAIL",
-                              "error": {"code": error.code}}, sort_keys=True, separators=(",", ":")))
+            reporting.rules(command, "UNVERIFIED" if unverified else "FAIL",
+                            error=error.code)
         print("mihomo-userctl: " + error.code, file=sys.stderr)
         return 2 if unverified else 1
 

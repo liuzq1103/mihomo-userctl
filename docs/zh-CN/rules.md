@@ -72,6 +72,10 @@ mihomoctl rules check --home-dir /absolute/mihomo-home --config /absolute/config
 
 `status` 只报告文件名、规则数、SHA-256、修改时间和权限状态，不输出规则原文。`check` 还会核对 provider 引用、目标策略、顺序，并调用已安装的 Mihomo 执行 `-t`。Mihomo 的原始输出会被抑制，因为任意配置错误可能包含私有值。
 
+完整语义验证使用 `mihomo -t -d <HomeDir> -f <config.yaml>`，责任仍属于 Mihomo。
+`rules check` 只验证本项目的窄布局契约，不证明实际路由、provider 下载、策略选择或
+节点使用。
+
 结构检查只支持本文约定的 block-style 相关段落。锚点、merge、flow mapping 或其他无法可靠分类的形式返回 `2`；只需把自定义 provider 相关段落改写为本文形式后重试。缺少最终 `MATCH` 仅报告警告，因为 fallback 应由用户自己决定。
 
 退出 `0` 表示所有必需检查通过，可能同时含 fallback 警告；`1` 表示实际观察到文件、provider、目标、顺序或 Mihomo 配置失败；`2` 表示参数、路径、依赖错误，或结构无法可靠验证。

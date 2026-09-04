@@ -22,11 +22,13 @@ export PATH=$TEST_ROOT/bin:$HOME/.local/bin:/usr/bin:/bin
 mkdir -p "$HOME/.local/bin" "$XDG_DATA_HOME/mihomo-userctl" "$XDG_CONFIG_HOME/mihomo" "$TEST_ROOT/bin"
 chmod 700 "$XDG_DATA_HOME/mihomo-userctl" "$XDG_CONFIG_HOME/mihomo"
 cp "$ROOT/src/common.bash" "$ROOT/src/shell.bash" "$ROOT/completions/mihomoctl.bash" "$XDG_DATA_HOME/mihomo-userctl/"
-cp "$ROOT/scripts/acceptance.py" "$ROOT/scripts/diagnostics.py" "$ROOT/scripts/rules.py" "$XDG_DATA_HOME/mihomo-userctl/"
+cp "$ROOT/scripts/acceptance.py" "$ROOT/scripts/diagnostics.py" "$ROOT/scripts/rules.py" \
+  "$ROOT/scripts/reporting.py" "$XDG_DATA_HOME/mihomo-userctl/"
 mv "$XDG_DATA_HOME/mihomo-userctl/mihomoctl.bash" "$XDG_DATA_HOME/mihomo-userctl/completion.bash"
 chmod 644 "$XDG_DATA_HOME/mihomo-userctl/common.bash" "$XDG_DATA_HOME/mihomo-userctl/shell.bash" \
   "$XDG_DATA_HOME/mihomo-userctl/completion.bash" "$XDG_DATA_HOME/mihomo-userctl/acceptance.py" \
-  "$XDG_DATA_HOME/mihomo-userctl/diagnostics.py" "$XDG_DATA_HOME/mihomo-userctl/rules.py"
+  "$XDG_DATA_HOME/mihomo-userctl/diagnostics.py" "$XDG_DATA_HOME/mihomo-userctl/rules.py" \
+  "$XDG_DATA_HOME/mihomo-userctl/reporting.py"
 cp "$ROOT/src/mihomoctl" "$HOME/.local/bin/mihomoctl"
 chmod 755 "$HOME/.local/bin/mihomoctl"
 printf 'active\n' > "$TEST_ROOT/service-state"
@@ -147,6 +149,64 @@ assert 'exec and direct require separator and preserve child status' bash -c '
   mihomoctl direct -- bash -c "exit 7"; [[ $? == 7 ]]
 '
 
+hostile_arguments_are_literal() {
+  local marker=$TEST_ROOT/must-not-exist literal first output
+  literal="\$(touch $marker)"
+  first=$'space \'single\' "double" * ; semicolon'
+  output=$(mihomoctl direct -- bash -c 'printf "%s\n%s" "$1" "$2"' _ \
+    "$first" "$literal") || return
+  [[ $output == "$first"$'\n'"$literal" && ! -e $marker ]]
+}
+assert 'exec and direct preserve literal hostile-looking arguments' \
+  hostile_arguments_are_literal
+
+assert 'direct clears only eight child proxy variables and preserves its parent bytes' bash -c '
+  names=(http_proxy https_proxy all_proxy no_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY)
+  for name in "${names[@]}"; do printf -v "$name" "%s" "parent value $name"; export "$name"; done
+  export MIHOMO_HTTP_PROXY=internal-sentinel
+  before=$(declare -p "${names[@]}") || exit
+  mihomoctl direct -- bash -c '\''
+    for name in http_proxy https_proxy all_proxy no_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY; do
+      [[ -z ${!name+x} ]] || exit 7
+    done
+    [[ $MIHOMO_HTTP_PROXY == internal-sentinel ]]
+  '\'' || exit
+  after=$(declare -p "${names[@]}") || exit
+  [[ $before == "$after" ]]
+'
+
+assert 'canonical diagnose commands replace legacy names in help' bash -c '
+  help=$(mihomoctl help) || exit
+  [[ $help == *"diagnose url"* && $help == *"diagnose process"* && $help == *"diagnose name"* ]] || exit
+  [[ $help != *"test-url"* && $help != *"inspect-process"* && $help != *"inspect-name"* ]]
+'
+
+diagnostic_command_is_stable() {
+  local expected=$1 output rc=0
+  shift
+  output=$(mihomoctl "$@" --json 2>/dev/null) || rc=$?
+  [[ $rc == 2 ]] || return
+  python3 -c 'import json,sys; assert json.loads(sys.argv[1])["command"] == sys.argv[2]' \
+    "$output" "$expected"
+}
+diagnostic_names_are_compatible() {
+  diagnostic_command_is_stable diagnose-url diagnose url || return
+  diagnostic_command_is_stable test-url test-url || return
+  diagnostic_command_is_stable diagnose-process diagnose process 0 || return
+  diagnostic_command_is_stable inspect-process inspect-process 0 || return
+  diagnostic_command_is_stable diagnose-name diagnose name / || return
+  diagnostic_command_is_stable inspect-name inspect-name /
+}
+assert 'canonical diagnostics and v0.2.1 aliases retain versioned JSON names' \
+  diagnostic_names_are_compatible
+
+assert 'diagnose reports a JSON argument error when the subcommand is missing' bash -c '
+  set +e
+  output=$(mihomoctl diagnose --json 2>/dev/null); rc=$?
+  [[ $rc == 2 ]] || exit
+  python3 -c '\''import json,sys; data=json.loads(sys.argv[1]); assert data["command"] == "diagnose" and data["error"]["code"] == "invalid-options"'\'' "$output"
+'
+
 assert 'mihomoctl exec fails before launch when readiness fails' bash -c '
   set +e
   CURL_FAIL=1 mihomoctl exec -- bash -c "exit 0" >/dev/null 2>&1
@@ -189,6 +249,11 @@ assert 'first installation still requires an explicit port' bash -c 'set +e; HOM
 assert 'installer appends its loader and preserves unrelated bashrc lines' env HOME="$INSTALL_HOME" XDG_CONFIG_HOME="$INSTALL_HOME/.config" XDG_DATA_HOME="$INSTALL_HOME/.local/share" PATH="$PATH" bash "$ROOT/install.sh" --port 28443 --bashrc "$INSTALL_HOME/.bashrc"
 assert 'loader markers and unrelated bashrc lines are preserved' bash -c 'grep -Fqx "before=yes" "$1" && grep -Fqx "after=yes" "$1" && [[ $(grep -c "mihomo-userctl managed loader" "$1") == 2 ]]' _ "$INSTALL_HOME/.bashrc"
 assert 'installer is idempotent' env HOME="$INSTALL_HOME" XDG_CONFIG_HOME="$INSTALL_HOME/.config" XDG_DATA_HOME="$INSTALL_HOME/.local/share" PATH="$PATH" bash "$ROOT/install.sh" --port 28443 --bashrc "$INSTALL_HOME/.bashrc"
+assert 'installation metadata hashes every runtime module including reporting' bash -c '
+  root="$1/.local/share/mihomo-userctl"
+  generation=$(readlink "$root/current") || exit
+  python3 -c '\''import json,pathlib,sys; root=pathlib.Path(sys.argv[1]); record=json.loads((root/sys.argv[2]/"installation.json").read_text()); assert "reporting.py" in record["runtime_hashes"] and (root/sys.argv[2]/"reporting.py").is_file()'\'' "$root" "$generation"
+' _ "$INSTALL_HOME"
 
 # Ubuntu returns from .bashrc before non-interactive launchers reach content
 # appended at the end. The installer must place and, on upgrade, relocate its

@@ -28,44 +28,23 @@ fi
 unset _muc_completion
 
 proxy_off() {
-  _muc_clear_proxy_environment
+  _muc_clear_proxy_variables
 }
 
 proxy_on() {
-  _muc_enable_proxy_environment
-}
-
-_muc_environment_matches() {
-  local actual_http=${http_proxy-} actual_https=${https_proxy-}
-  local actual_HTTP=${HTTP_PROXY-} actual_HTTPS=${HTTPS_PROXY-}
-  local actual_all=${all_proxy-} actual_ALL=${ALL_PROXY-}
-  local actual_no=${no_proxy-} actual_NO=${NO_PROXY-}
-  local expected_http expected_https expected_socks
-  _muc_load_credentials || return 2
-  expected_http=$MIHOMO_HTTP_PROXY
-  expected_https=$MIHOMO_HTTPS_PROXY
-  expected_socks=$MIHOMO_ALL_PROXY
-  unset MIHOMO_HTTP_PROXY MIHOMO_HTTPS_PROXY MIHOMO_ALL_PROXY
-  [[ $actual_http == "$expected_http" &&
-     $actual_https == "$expected_https" &&
-     $actual_HTTP == "$expected_http" &&
-     $actual_HTTPS == "$expected_https" &&
-     $actual_all == "$expected_socks" &&
-     $actual_ALL == "$expected_socks" &&
-     $actual_no == 'localhost,127.0.0.1,::1' &&
-     $actual_NO == 'localhost,127.0.0.1,::1' ]]
+  _muc_prepare_proxy_environment
 }
 
 proxy_status() {
   local service=down state=direct count=0 name
   _muc_load_config || return 2
   _muc_service_active && service=up
-  for name in http_proxy https_proxy all_proxy no_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY; do
+  for name in "${_MUC_PROXY_NAMES[@]}"; do
     [[ -n ${!name:-} ]] && count=$((count + 1))
   done
   if (( count == 0 )); then
     state=direct
-  elif (( count == 8 )) && [[ $service == up ]] && _muc_listening && _muc_environment_matches; then
+  elif (( count == 8 )) && [[ $service == up ]] && _muc_listening && _muc_proxy_environment_matches; then
     state=proxied
   else
     state=inconsistent
@@ -79,7 +58,7 @@ with_proxy() (
     printf 'Usage: with_proxy command [args ...]\n' >&2
     return 2
   fi
-  proxy_on || return $?
+  _muc_prepare_proxy_environment || return $?
   "$@"
 )
 
@@ -101,6 +80,7 @@ mihomo_logs() { _muc_controller logs "$@"; }
 # A sourced ordinary shell always starts direct, even if its parent exported
 # proxy variables. Codex's remote launcher is the only opt-in automatic hook.
 proxy_off
+_muc_clear_credentials
 if [[ -n ${CODEX_REMOTE_PAYLOAD:-} ]]; then
   proxy_on || exit 1
 fi

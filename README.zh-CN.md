@@ -1,300 +1,152 @@
 # mihomo-userctl
 
-`mihomo-userctl` 是面向 Linux 共享服务器的 Mihomo 用户级控制器和 Bash
-集成层。它不替代 Mihomo，也不接管订阅或节点；它解决的是“怎样安全、清晰地
-启动服务，以及怎样只让明确选择的 Shell 或命令使用代理”。
+`mihomo-userctl` 是现有 Linux 用户级
+[Mihomo](https://github.com/MetaCubeX/mihomo) 服务之上的轻量控制、进程接入和
+验收层，面向共享服务器、远程开发与科研计算：普通 Shell 默认直连，只有用户
+明确选择的命令或进程才进入带认证的本地 Listener。
+
+它不是另一个 Mihomo 客户端，不管理订阅、节点、DNS、通用路由配置或运行时流量；
+不需要 root 权限，也不修改其他用户或系统全局网络。
 
 > 本项目是独立、非官方项目，与 MetaCubeX、Mihomo 和 Mihoro 均无隶属关系。
 
 [English](README.md) · [文档语言导航](docs/README.md)
 
-## 解决什么问题
-
-多人共享服务器中的某一个普通用户，可能只希望让自己的 Codex Remote、
-VS Code Remote、Git 或少量命令使用个人代理；同时不能让自己的大型下载悄悄
-进入代理，不能影响其他账户，也不应依赖管理员权限。全局导出代理变量或透明
-代理对这个场景都过于宽泛。
-
-`mihomo-userctl` 把“用户服务是否运行”和“当前 Shell 是否使用代理”明确拆开，
-并把可测试、可审计的实现放在 `.bashrc` 之外。
-
-## 核心原则
+## 边界
 
 ```text
-普通登录 / 新 Shell / axel / 大文件下载
-                    │
-                    └── 默认服务器直连
+普通 Shell / 大型下载 ───────────────────────> 服务器直连
 
-with_proxy command / proxy_on / Codex 专用启动环境
-                    │
-                    └── 认证的 127.0.0.1:<用户端口> → Mihomo
+mihomoctl exec -- COMMAND / with_proxy COMMAND
+        │
+        └─ 经验证的八变量子进程环境
+             └─ 带认证的 127.0.0.1:<每用户端口>
+                  └─ Mihomo ──> 用户自有路由策略
 ```
 
-启动 Mihomo 服务不等于开启当前 Shell 代理。代理环境和服务生命周期是两个
-明确分离的状态：
+启动 Mihomo 不会代理当前 Shell。环境变量也不会追溯修改已运行进程：Codex、
+VS Code Remote、Notebook、tmux 等长期进程可能需要用户主动重连或重启。
 
-- `mihomoctl start` 只启动服务；
-- `proxy_on` 只改变当前 Shell；
-- `with_proxy` 只改变一个子 Shell；
-- `proxy_off` 不停止服务；
-- 普通新 Shell 总是先清空代理变量。
+每个 Linux 账户使用独立的 XDG 路径、服务设置、凭据和唯一端口。Listener 必须
+认证；配置文件按数据解析，并采用固定键白名单。
 
-## 项目边界
+## 条件与安装
 
-本仓库只包含服务器端用户级控制器和 Shell 集成。PC 端 Clash/FlClash Merge、
-规则脚本和 server-policy 生成器属于另一个独立项目，不应放入本仓库，也不能
-把两个项目的安装或维护步骤混在一起。
+需要 Linux、Bash 5+、Python 3.8+、可用的 `systemd --user` 管理器、`curl`、
+`ss`、`journalctl`，以及用户已有的 Mihomo 服务；其 Mixed Listener 必须带认证，
+且只绑定 `127.0.0.1`。
 
-## 适用范围
+本项目不安装或升级 Mihomo 核心。需要时先阅读[完整安装指南](docs/zh-CN/setup.md)。
 
-最典型的场景是：多人共享 Linux 服务器中的某一个普通用户，希望只让自己的
-Codex Remote、VS Code Remote、Git 或少量指定命令使用个人代理订阅，同时不改
-其他用户环境，并让自己运行的 `axel`、S3 和大型科研数据继续服务器直连。
-
-单用户服务器如果也希望“默认直连、按需代理”，同样适用。以下需求不适合：
-
-- 给整台服务器部署透明代理或单位统一网关；
-- 仅靠本工具实现 Linux UID 之间的严格端口隔离；严格隔离还需管理员防火墙；
-- 没有 Bash 或可用 systemd 用户管理器的环境；
-- 管理 PC 端 Clash/FlClash Merge、TUN、系统代理或路由；
-- 要求无人值守自动启动、自动升级 Mihomo 或自动管理订阅生命周期。
-
-本工具的操作范围只有安装者自己的 Home 文件和 `systemctl --user` 服务。其他
-账户、归属不明的监听和无关 SSH 会话都不在范围内。
-
-## 如何实现
-
-1. Mihomo 以当前 Linux 用户身份运行，只创建一个带认证的
-   `127.0.0.1:<每用户端口>` Mixed Listener。
-2. `mihomoctl` 把配置当数据校验，只控制指定用户服务；检查监听、执行认证
-   readiness，并只读取该用户 unit 的 journal。
-3. `shell.bash` 加载时先清空大小写八个代理变量。`proxy_on` 只有在权限、端点、
-   服务、监听和认证都通过后才导出变量；`with_proxy` 在子 Shell 中完成同样
-   操作，不污染父 Shell。
-4. `.bashrc` 只保留短 managed loader，在 source 前检查模块所有者和权限。
-   普通 Shell 加载失败时保持直连；明确配置的 Codex 兼容路径则 fail closed。
-5. 程序进入 Mihomo 后，由用户自己的规则决定 `DIRECT` 或代理节点；控制器不
-   改写规则、订阅或节点。
-
-更完整的数据流和信任边界见[架构文档](docs/zh-CN/architecture.md)。
-
-## 适用条件
-
-- Linux、Bash 5 或更高版本；
-- 可用的 `systemd --user`；
-- 已存在的 `mihomo.service`；
-- Mihomo 只在 `127.0.0.1` 创建带认证的 Mixed Listener；
-- 系统具备 `curl`、`ss`、`journalctl`、`stat`、`awk`、`grep`。
-
-本项目不下载或更新 Mihomo、不接管订阅、不安装面板、不启用 TUN。尚未安装
-Mihomo 的用户应从[安装 Mihomo 开始的完整教程](docs/zh-CN/setup.md)阅读。
-
-本项目也不生成 PC 端 Clash/FlClash Merge、路由规则或服务器策略 YAML。规则
-生成器应保留在独立仓库；`mihomo-userctl` 只负责服务器用户现有服务与 Shell。
-
-## 安装
-
-### 最省脑：复制 Prompt 交给 Coding Agent
-
-全新服务器可以把[通用 Coding Agent 安装 Prompt](docs/zh-CN/agent-install-prompt.md)
-复制给能够读取文件、执行终端命令、在需要时使用 SSH，并能暂停等待你批准的
-Agent。只有普通聊天能力的模型不能代替你安装，只能解释人工步骤。Prompt 要求
-先完成只读审计和完整计划，取得明确批准后才允许修改；敏感信息始终保留在目标
-机器本地，不进入聊天。安装执行者改为通用 Agent 不会改变安装任务本身；Prompt
-仍要求配置并验收下文所述的 Codex Remote 兼容钩子。
-
-Prompt 是编排入口，不是安装程序本身。这样既容易使用，也避免把不可审计的
-`curl | bash` 当成“一键安装”。
-
-### 可审计的命令行安装
-
-项目没有默认端口。配置 Mihomo 前，先取得一个当时未监听的候选端口并人工
-确认：
+选择并确认当前未占用的每用户端口，在 Mihomo 与 `client.env` 中配置同一端口，
+再安装控制层：
 
 ```bash
 PROXY_PORT=$(./install.sh --suggest-port)
-printf '候选端口=%s\n' "$PROXY_PORT"
 ss -lnt "sport = :$PROXY_PORT"
-```
-
-建议器从 `20000–29999` 中、以当前 UID 推导的位置为起点寻找空闲候选值，但
-不会预留端口。同一台服务器的用户共享回环网络命名空间，因此必须使用不同
-端口，并在绑定前再次检查、与同机用户协调。认证只能减少误用，不能让两个
-进程同时绑定相同地址和端口。
-
-将同一个端口写入 Mihomo 和 `client.env` 后，再显式安装：
-
-```bash
 ./install.sh --dry-run --port "$PROXY_PORT"
 ./install.sh --port "$PROXY_PORT" --bashrc "$HOME/.bashrc"
 ```
 
-安装器会：
+安装过程使用事务、记录不可变运行模块摘要与来源、保留凭据和 Mihomo 数据，并且
+不会启动或 enable 服务。
 
-1. 检查依赖和 systemd 用户管理器；
-2. 原子安装程序文件；
-3. 创建权限 `600` 的非敏感配置；
-4. 保留已有 `client.env`；
-5. 在权限 `700` 的事务备份中记录所有受管文件；
-6. 追加或精确更新本项目自己的 managed loader；
-7. 执行不泄露敏感信息的 `mihomoctl doctor`；
-8. `doctor` 失败时自动恢复原有活动文件；
-9. 不启动、不 enable 服务。
-
-## 更新控制层
-
-Git 与 ZIP 安装共用已安装的更新命令，不依赖原源码目录；元数据记录原路径和来源。
+## 更新
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version vX.Y.Z --dry-run
-mihomoctl update --version vX.Y.Z
+mihomoctl update --version v0.2.2 --dry-run
+mihomoctl update --version v0.2.2
 ```
 
-`vX.Y.Z` 必须替换为实际发布且兼容的正式版本。
-[v0.2.0](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v0.2.0) 是首个支持此流程的
-正式版本，旧版安装需要先按指南完成一次性迁移。
-只更新 mihomo-userctl，保留个人设置和服务状态。退出 0 是查询/预演成功；3 是文件已安装但
-验收未完成；5 是文件已安装但 Listener 验收失败。完整退出码、旧版迁移及精确回滚见
-[更新指南](docs/zh-CN/update.md)，可复制[更新 Prompt](docs/zh-CN/agent-update-prompt.md)。
-安装、更新和验收需要 Python 3.8+。更新后适时重新打开终端并重连长期运行客户端。
+更新只改变 `mihomo-userctl`，不等于 Mihomo 核心升级。它复用同一事务安装器，
+保留配置、凭据、端口、loader 和 active/enabled 状态，并记录精确发布 commit。
+退出码与恢复方式见[更新与回滚](docs/zh-CN/update.md)。
 
-## 日常使用
+## 日常命令
 
-连接服务器后：
-
-```bash
-proxy_status
-# shell=direct service=up endpoint=127.0.0.1:<已选择端口>
-```
-
-服务没有运行时：
-
-```bash
+```text
 mihomoctl start
+mihomoctl stop
+mihomoctl restart
+
+mihomoctl status [--json]
+mihomoctl ready [--json]
+mihomoctl doctor [--offline] [--json]
+
+mihomoctl exec -- COMMAND [ARGS...]
+mihomoctl direct -- COMMAND [ARGS...]
+
+mihomoctl diagnose url URL [--json]
+mihomoctl diagnose process PID [--json]
+mihomoctl diagnose name NAME [--json]
+
+mihomoctl rules status [--json] [--home-dir PATH] [--config PATH]
+mihomoctl rules check [--home-dir PATH] [--config PATH]
+
+mihomoctl logs [--lines N] [--follow]
+mihomoctl version
+mihomoctl update --check | --version TAG [--dry-run]
 ```
 
-该命令成功后当前 Shell 仍然直连。只代理一条命令：
+`mihomoctl exec` 是脚本、IDE 启动器和非交互程序的统一入口。`direct` 只在子进程
+清除大小写八个代理变量。两者都强制要求 `--`，按参数数组启动命令，不修改父
+Shell，并在成功启动后透传目标命令退出码。
 
-```bash
-with_proxy curl https://chatgpt.com
-with_proxy git clone https://github.com/example/project.git
-mihomoctl exec -- git fetch
+`diagnose url` 分别报告 direct、Listener、认证和目标请求。Listener readiness
+不等于请求命中代理节点，该命令也不证明选择了哪个节点。
+
+退出码 `0` 表示成功或检查通过，`1` 表示实际观察到运行状态、readiness 或目标
+检查失败，`2` 表示参数、配置、权限、依赖或无法可靠验证的错误。`diagnose name`
+没有匹配当前用户的精确进程名时返回 `1`。带版本号的 JSON 在成功和正常失败时都
+只向 stdout 写入一个对象，人工说明写入 stderr。
+
+## Shell 兼容入口
+
+已经发布的 Shell 函数保持可用：
+
+```text
+proxy_on  proxy_off  proxy_status  with_proxy
+mihomo_start  mihomo_stop  mihomo_restart  mihomo_status  mihomo_logs
 ```
 
-临时让当前 Shell 的后续命令全部走 Mihomo：
+`with_proxy` 是现有交互式 Shell 兼容入口；`proxy_on` 明确改变当前 Shell，
+`proxy_off` 恢复直连。普通新 Shell 加载后默认直连。
 
-```bash
-proxy_on
-proxy_status
-# shell=proxied service=up endpoint=127.0.0.1:<已选择端口>
+v0.2.1 顶层 `test-url`、`inspect-process` 和 `inspect-name` 仍作为隐藏兼容别名
+存在；新脚本统一使用 `diagnose`。
 
-proxy_off
-```
+## 范围与证据
 
-大型数据保持普通运行：
+`status` 只报告 service active/enabled、Listener 和本地 endpoint；`ready` 只
+通过认证路径检查固定 readiness URL；`doctor` 检查依赖、配置、权限与运行状态。
+进程诊断只读取当前 UID 的 `/proc` 数据，只返回计数与分类，不返回环境变量值、
+完整命令行或远端地址。
 
-```bash
-axel -n 10 '下载地址'
-mihomoctl direct -- axel -n 10 '下载地址'
-```
+`rules status/check` 只是本文档三文件自定义规则契约的只读检查器。它不创建规则、
+不改 `config.yaml`、不下载 provider、不调用 Controller，也不改变服务状态。
+`rules check` 不等于完整路由行为验收；完整配置语义仍由用户自己的 `mihomo -t`
+负责。详见[私有自定义规则](docs/zh-CN/rules.md)。
 
-只要没有先执行 `proxy_on`，普通 `axel` 不会继承本项目代理变量。
+PASS、FAIL、UNVERIFIED 和 DEFERRED 的证据定义见[验收指南](docs/zh-CN/acceptance.md)；
+所有权与安全边界见[架构](docs/zh-CN/architecture.md)和
+[安全模型](docs/zh-CN/security.md)。
 
-## 状态和排错
+## 文档
 
-```bash
-mihomoctl status
-mihomoctl ready
-mihomoctl doctor
-mihomoctl status --json
-mihomoctl test-url https://example.com/ --json
-mihomoctl inspect-process PID --json
-mihomoctl inspect-name NAME --json
-mihomoctl rules status --json
-mihomoctl rules check
-mihomoctl logs --lines 100
-mihomoctl logs --follow
-```
-
-- `status`：快速检查 service、enable 状态和 loopback listener；
-- `ready`：额外读取凭据并发起认证 HTTP 请求；
-- `doctor`：检查依赖、权限、配置、服务和 readiness，输出始终脱敏；
-- `logs`：读取用户服务日志。
-
-退出码：`0` 成功，`1` 表示实际观察到运行、readiness 或验证失败，`2` 表示参数、
-配置、权限、依赖错误或无法可靠验证。`exec/direct` 启动目标程序后原样返回其退出码。
-进程诊断只读取当前用户 PID，仅输出变量数量和连接类别，不输出变量值或远端地址。
-`test-url` 分开报告 direct、Listener、认证和目标请求，但不声称已证明命中某条规则或节点。
-
-个人规则可采用三文件契约和只读 `mihomoctl rules` 检查，详见
-[私有自定义规则](docs/zh-CN/rules.md)。该命令不创建规则、不改写 `config.yaml`、不重启 Mihomo。
-
-## 安全边界
-
-- 配置与凭据按数据解析，绝不 `source`、`eval`；
-- `client.env` 和 `mihomo-shell.conf` 必须属于当前用户且为 `600`；
-- 代码模块和目录不得被 group/other 写入；
-- 只接受配置端口上的 `127.0.0.1` HTTP/SOCKS5H URL；
-- 凭据通过子进程环境传递，不出现在命令参数；
-- 不使用 sudo、root service、linger、cron、TUN、controller 或系统代理；
-- `stop` 只停止指定用户服务，端口不释放时只报告，绝不杀进程；
-- 不处理其他用户的配置、进程、服务或端口。
-
-完整说明见[安全模型](docs/zh-CN/security.md)。
-
-## Codex Remote
-
-项目保留一个经过本地验证的兼容钩子：加载 `shell.bash` 时，如果发现
-`CODEX_REMOTE_PAYLOAD`，则自动执行 `proxy_on`；服务或认证不可用时明确失败。
-
-该变量不是公开、稳定的 Codex API，因此升级 Codex 后应重新做连接验收。普通
-SSH 不设置该变量，仍然默认直连。
-
-安装器会把 managed loader 放在 Ubuntu 常见的非交互 Shell 提前 `return` 之前。
-升级时也会自动纠正旧版本中 loader 位于该 guard 之后的情况。代理环境只在进程
-启动时继承；安装或修改代理后，必须正常重连当前用户自己的 Codex 客户端，避免
-继续复用安装前启动的旧 App Server。
-
-## VS Code Remote
-
-VS Code Remote 的 Extension Host 不执行 `with_proxy`，也不应假定它会提供
-`CODEX_REMOTE_PAYLOAD`。如果远程 Codex 扩展需要代理，请在服务器侧的 VS Code
-Machine Settings 中显式配置 `http.proxy`，并将包含认证 URL 的文件权限收紧为
-`600`。这项设置可能同时影响其他遵循 VS Code 代理设置的远程扩展，但不会让
-普通 SSH Shell、`axel` 或 S3 下载自动走代理。
-
-完整配置、验收、影响范围和回滚见
-[VS Code Remote 推荐配置](docs/zh-CN/vscode-remote.md)。
-
-## 卸载
-
-```bash
-./uninstall.sh --dry-run
-./uninstall.sh
-```
-
-卸载只移除 `mihomoctl`、项目模块、补全和 `.bashrc` managed loader。它保留：
-
-- Mihomo 二进制；
-- `mihomo.service`；
-- `config.yaml`；
-- `client.env`；
-- 订阅/provider 缓存；
-- 文档和备份。
-
-## 进一步阅读
-
-- [从安装 Mihomo 开始配置完整环境](docs/zh-CN/setup.md)
-- [安装验收与证据要求](docs/zh-CN/acceptance.md)
-- [可直接复制的 Coding Agent 安装 Prompt](docs/zh-CN/agent-install-prompt.md)
-- [VS Code Remote 推荐配置](docs/zh-CN/vscode-remote.md)
-- [私有自定义规则契约与只读检查](docs/zh-CN/rules.md)
-- [架构与数据流](docs/zh-CN/architecture.md)
+- [完整安装](docs/zh-CN/setup.md)
+- [可复制的 Coding Agent 安装 Prompt](docs/zh-CN/agent-install-prompt.md)
+- [架构与责任矩阵](docs/zh-CN/architecture.md)
 - [安全模型](docs/zh-CN/security.md)
-- [停电、端口、凭据等排错](docs/zh-CN/troubleshooting.md)
-- [借鉴 Mihoro 的范围](docs/zh-CN/mihoro-inspiration.md)
+- [验收与证据](docs/zh-CN/acceptance.md)
+- [故障排查](docs/zh-CN/troubleshooting.md)
+- [私有自定义规则](docs/zh-CN/rules.md)
+- [VS Code Remote](docs/zh-CN/vscode-remote.md)
+- [更新与回滚](docs/zh-CN/update.md)
+- [可复制的 Coding Agent 更新 Prompt](docs/zh-CN/agent-update-prompt.md)
 
-## 许可证
+## 卸载与许可证
 
-MIT
+`./uninstall.sh --dry-run` 预览删除内容；`./uninstall.sh` 只删除项目自有代码与
+managed loader，保留 Mihomo、用户服务、配置、凭据、订阅、provider、缓存和
+备份。项目使用 [MIT License](LICENSE)。

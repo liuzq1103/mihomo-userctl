@@ -91,25 +91,9 @@ for language in en zh-CN; do
       'Sensitive information'
       'rollback'
       'final acceptance'
-      'CODEX_REMOTE_PAYLOAD'
-      'proxy_on || exit 1'
-      'must never start Mihomo automatically'
-      '127.0.0.1:7890'
-      'libc compatibility'
-      'current proxy variables'
-      'active downloads'
-      'ssh/sshd processes'
-      'existing policy rules'
       'redacted diff'
       'complete test suite'
-      'service name'
-      'subscription integration method'
-      'preserve/merge strategy'
-      'MATCH,DIRECT'
       'systemctl --user'
-      'is-enabled mihomo remains'
-      'official release source'
-      'published checksum'
       'VS Code Remote'
       'http.proxy'
     )
@@ -122,31 +106,17 @@ for language in en zh-CN; do
       '敏感信息'
       '回滚'
       '最终验收'
-      'CODEX_REMOTE_PAYLOAD'
-      'proxy_on || exit 1'
-      '绝不自动'
-      '127.0.0.1:7890'
-      'libc 兼容性'
-      '当前代理变量'
-      '正在运行的下载'
-      'ssh/sshd 进程'
-      '已有策略规则'
       '脱敏 diff'
       '完整测试套件'
-      '服务名'
-      '订阅接入方式'
-      '保留/合并方案'
-      'MATCH,DIRECT'
       'systemctl --user'
-      'disabled'
-      '官方 Release'
-      '官方摘要'
       'VS Code Remote'
       'http.proxy'
     )
   fi
 
-  required+=('scripts/acceptance.sh' 'PASS' 'FAIL' 'UNVERIFIED' 'DEFERRED' '--expect-status' 'PIPESTATUS' 'SHA256')
+  required+=('setup.md' 'architecture.md' 'security.md' 'acceptance.md'
+             'scripts/acceptance.sh' 'PASS' 'FAIL' 'UNVERIFIED' 'DEFERRED'
+             '--expect-status' 'PIPESTATUS' 'SHA256')
   if checked_grep -Ein \
     'Plan mode|Plan 模式|request_user_input|interactive popup|交互弹窗|Codex client|Codex 客户端|Skills?' \
     "$prompt"; then
@@ -159,6 +129,10 @@ for language in en zh-CN; do
       failed=1
     fi
   done
+  if (( $(wc -l < "$prompt") > 90 )); then
+    printf 'generic installation prompt duplicates too much normative detail: %s\n' "$language" >&2
+    failed=1
+  fi
   if ! checked_grep -Fq '](agent-install-prompt.md)' "$compatibility"; then
     printf 'legacy prompt page does not point to the generic prompt: %s\n' "$language" >&2
     failed=1

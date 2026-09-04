@@ -4,6 +4,12 @@ Listener baseline checks and end-to-end usage checks are separate. Installation
 success, a successful doctor, and application connectivity are different claims.
 Report only what the evidence establishes.
 
+`mihomoctl ready` tests the fixed readiness URL through the authenticated
+listener. `mihomoctl diagnose url` adds a caller-selected target and separates
+direct, listener, authentication, and target-request observations. Neither one
+identifies a selected node. `mihomoctl rules check` is a structural contract
+check, not complete routing acceptance.
+
 ## 1. Four result states
 
 | State | Meaning |
@@ -86,10 +92,9 @@ edit the script output to turn pending rows into PASS.
 | Logs and checkout | Scan a declared local scope for sensitive values, share counts only, and record tool exit codes. Do not guarantee absence of all leaks |
 | Baseline | Compare before/after config, listeners, and service state in the current user's scope. A port set alone does not prove every other user was unaffected |
 
-In the default example, `gstatic.com` and `example.com` fall through to
-`MATCH,DIRECT`; a `google.com` suffix rule does not include `gstatic.com`.
-Therefore successful readiness/authentication probes only prove this request
-through the listener, not proxy-node or OpenAI end-to-end connectivity.
+In the fictional examples, `example.com` and `example.net` may use different
+policies. Successful readiness/authentication probes only prove the measured
+request through the listener, not proxy-node or application end-to-end connectivity.
 Provider/url-test health checks are not application routing evidence either.
 
 Never stop a busy service just to test it. Run isolated regression checks and

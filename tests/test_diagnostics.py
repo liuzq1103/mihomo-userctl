@@ -64,6 +64,7 @@ class DiagnosticTests(unittest.TestCase):
             item = d.inspect(root, 42, 28443, uid=1000)
             self.assertEqual(item["proxy_environment"]["classification"], "proxied")
             self.assertTrue(item["parent"]["same_user"])
+            self.assertEqual(item["parent"], {"pid": 7, "same_user": True})
             self.assertNotIn("private-value", repr(item))
             with self.assertRaises(d.DiagnosticError) as caught:
                 d.inspect(root, 42, 28443, uid=2000)
@@ -83,7 +84,8 @@ class DiagnosticTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
                 "MIHOMO_HTTP_PROXY": HTTP, "MIHOMO_HTTPS_PROXY": HTTP,
                 "MIHOMO_ALL_PROXY": SOCKS}, clear=False):
-            args = type("Args", (), {"target": "codex", "port": 28443, "json": True})()
+            args = type("Args", (), {"target": "codex", "port": 28443, "json": True,
+                                      "report_command": "diagnose-name"})()
             output = io.StringIO()
             with contextlib.redirect_stdout(output), \
                     patch.object(d.os, "getuid", return_value=1000, create=True):
@@ -105,11 +107,33 @@ class DiagnosticTests(unittest.TestCase):
             proc = root / "42"
             proc.mkdir()
             (proc / "status").write_text("Uid:\t2000 2000 2000 2000\nPPid:\t1\n")
-            args = type("Args", (), {"target": "foreign", "port": 28443, "json": True})()
+            args = type("Args", (), {"target": "foreign", "port": 28443, "json": True,
+                                      "report_command": "diagnose-name"})()
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 self.assertEqual(d.handle_name(args, root), 1)
             self.assertFalse((proc / "comm").exists())
+
+    def test_canonical_and_legacy_report_commands_are_versioned(self):
+        for command in ("diagnose-process", "inspect-process"):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                d.emit_json(command, "FAIL", {"process": None})
+            document = json.loads(output.getvalue())
+            self.assertEqual(document["schema"], d.SCHEMA)
+            self.assertEqual(document["command"], command)
+
+    def test_disappeared_and_unreadable_processes_are_unverified_errors(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            with self.assertRaises(d.DiagnosticError) as caught:
+                d.read_status(root, 999)
+            self.assertEqual(caught.exception.code, "process-unreadable")
+            proc = root / "42"
+            proc.mkdir()
+            with self.assertRaises(d.DiagnosticError) as caught:
+                d.read_environment(root, 42)
+            self.assertEqual(caught.exception.code, "process-environment-unreadable")
 
 
 if __name__ == "__main__":

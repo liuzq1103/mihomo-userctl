@@ -5,13 +5,17 @@ import argparse
 from collections import Counter
 from dataclasses import dataclass
 import ipaddress
-import json
 import os
 import re
 import socket
 import subprocess
 import sys
 from urllib.parse import urlsplit
+
+try:
+    from . import reporting
+except ImportError:  # Installed modules are executed from one runtime directory.
+    import reporting
 
 
 @dataclass
@@ -25,9 +29,18 @@ class Parser(argparse.ArgumentParser):
     def error(self, message):
         # argparse normally echoes invalid argument values, which may be private.
         if "--json" in sys.argv[1:]:
-            self.exit(2, '{"command":"test-url","error":{"code":"invalid-options"},'
-                      '"overall":"UNVERIFIED","schema":"mihomo-userctl.diagnostics/v1"}\n')
+            command = requested_report_command(sys.argv[1:])
+            reporting.diagnostics(command, "UNVERIFIED", error="invalid-options")
+            self.exit(2)
         self.exit(2, "UNVERIFIED\targuments\tinvalid-options-see-help\n")
+
+
+def requested_report_command(values):
+    try:
+        candidate = values[values.index("--report-command") + 1]
+    except (ValueError, IndexError):
+        return "test-url"
+    return candidate if candidate in ("test-url", "diagnose-url") else "test-url"
 
 
 def clean_environment():
@@ -210,11 +223,9 @@ def report_json(results, command="test-url"):
     counts = Counter(result.status for result in results)
     overall = ("FAIL" if counts["FAIL"] else "UNVERIFIED"
                if counts["UNVERIFIED"] or counts["DEFERRED"] else "PASS")
-    print(json.dumps({"schema": "mihomo-userctl.diagnostics/v1", "command": command,
-                      "overall": overall,
-                      "checks": [{"status": row.status, "name": row.check,
-                                  "evidence": row.evidence} for row in results]},
-                     sort_keys=True, separators=(",", ":")))
+    reporting.diagnostics(command, overall,
+                          {"checks": [{"status": row.status, "name": row.check,
+                                       "evidence": row.evidence} for row in results]})
     return 1 if overall == "FAIL" else 2 if overall == "UNVERIFIED" else 0
 
 
@@ -252,6 +263,8 @@ def main(argv=None):
                         help="Expected existing enablement state; never changes it")
     parser.add_argument("--profile", choices=("acceptance", "test-url"), default="acceptance",
                         help=argparse.SUPPRESS)
+    parser.add_argument("--report-command", choices=("test-url", "diagnose-url"),
+                        default="test-url", help=argparse.SUPPRESS)
     parser.add_argument("--json", action="store_true", help="Emit stable JSON")
     args = parser.parse_args(argv)
     try:
@@ -272,7 +285,7 @@ def main(argv=None):
                 raise ValueError
     except (KeyError, ValueError):
         invalid = [Result("UNVERIFIED", "inputs", "invalid-options-or-validated-environment-missing")]
-        return report_json(invalid) if args.json else report(invalid)
+        return report_json(invalid, args.report_command) if args.json else report(invalid)
     results = ([direct_check(url, args.timeout, args.expect_status)]
                if args.profile == "test-url" else [])
     service = ([service_active_check(service, args.timeout)] if args.profile == "test-url"
@@ -293,7 +306,7 @@ def main(argv=None):
         ])
     if args.profile == "acceptance":
         results.extend(pending_checks(args.defer_vscode))
-    return report_json(results) if args.json else report(results)
+    return report_json(results, args.report_command) if args.json else report(results)
 
 
 if __name__ == "__main__":

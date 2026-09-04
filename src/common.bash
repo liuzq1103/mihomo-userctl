@@ -6,7 +6,12 @@
 
 # Used by src/mihomoctl after this shared module is sourced.
 # shellcheck disable=SC2034
-MIHOMO_USERCTL_VERSION="0.2.1"
+MIHOMO_USERCTL_VERSION="0.2.2"
+
+_MUC_PROXY_NAMES=(
+  http_proxy https_proxy all_proxy no_proxy
+  HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY
+)
 
 _muc_err() {
   printf 'mihomo-userctl: %s\n' "$*" >&2
@@ -28,9 +33,12 @@ _muc_credentials_file() {
   printf '%s' "${MIHOMO_USERCTL_CREDENTIALS:-$(_muc_config_home)/mihomo/client.env}"
 }
 
-_muc_clear_proxy_environment() {
+_muc_clear_proxy_variables() {
   unset http_proxy https_proxy all_proxy no_proxy
   unset HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY
+}
+
+_muc_clear_credentials() {
   unset MIHOMO_HTTP_PROXY MIHOMO_HTTPS_PROXY MIHOMO_ALL_PROXY
 }
 
@@ -178,25 +186,29 @@ _muc_load_config() {
 
 _muc_load_credentials() {
   local path
+  _muc_clear_credentials
   path=$(_muc_credentials_file)
   _muc_require_owned_file "$path" 600 || return 2
   MIHOMO_HTTP_PROXY=
   MIHOMO_HTTPS_PROXY=
   MIHOMO_ALL_PROXY=
-  _muc_parse_file "$path" credentials || return 2
+  _muc_parse_file "$path" credentials || {
+    _muc_clear_credentials
+    return 2
+  }
   [[ $MIHOMO_HTTP_PROXY =~ ^http://[^/@[:space:]]+@127\.0\.0\.1:${MIHOMO_PORT}/?$ ]] || {
     _muc_err "invalid HTTP proxy endpoint in client.env"
-    _muc_clear_proxy_environment
+    _muc_clear_credentials
     return 2
   }
   [[ $MIHOMO_HTTPS_PROXY =~ ^http://[^/@[:space:]]+@127\.0\.0\.1:${MIHOMO_PORT}/?$ ]] || {
     _muc_err "invalid HTTPS proxy endpoint in client.env"
-    _muc_clear_proxy_environment
+    _muc_clear_credentials
     return 2
   }
   [[ $MIHOMO_ALL_PROXY =~ ^socks5h://[^/@[:space:]]+@127\.0\.0\.1:${MIHOMO_PORT}/?$ ]] || {
     _muc_err "invalid SOCKS proxy endpoint in client.env"
-    _muc_clear_proxy_environment
+    _muc_clear_credentials
     return 2
   }
 }
@@ -206,7 +218,16 @@ _muc_service_active() {
 }
 
 _muc_service_enabled_state() {
-  systemctl --user is-enabled "$MIHOMO_SERVICE" 2>/dev/null || true
+  local enabled
+  enabled=$(systemctl --user is-enabled "$MIHOMO_SERVICE" 2>/dev/null || true)
+  case $enabled in
+    enabled|enabled-runtime|disabled|static|indirect|masked|masked-runtime)
+      printf '%s' "$enabled"
+      ;;
+    *)
+      printf 'unknown'
+      ;;
+  esac
 }
 
 _muc_listening() {
@@ -223,13 +244,14 @@ _muc_probe() (
     http_proxy="$MIHOMO_HTTP_PROXY" \
     https_proxy="$MIHOMO_HTTPS_PROXY" \
     all_proxy= no_proxy= \
-    curl --fail --silent --show-error --max-time 5 \
-      --output /dev/null "$MIHOMO_READY_URL"
+    curl --fail --silent --max-time 5 --output /dev/null "$MIHOMO_READY_URL" \
+      2>/dev/null
 )
 
-_muc_enable_proxy_environment() {
+_muc_prepare_proxy_environment() {
   local proxy_http proxy_https proxy_socks
-  _muc_clear_proxy_environment
+  _muc_clear_proxy_variables
+  _muc_clear_credentials
   _muc_load_config || return 2
   _muc_service_active || {
     _muc_err "Mihomo user service is not running; run: mihomoctl start"
@@ -243,10 +265,11 @@ _muc_enable_proxy_environment() {
   proxy_http=$MIHOMO_HTTP_PROXY
   proxy_https=$MIHOMO_HTTPS_PROXY
   proxy_socks=$MIHOMO_ALL_PROXY
-  unset MIHOMO_HTTP_PROXY MIHOMO_HTTPS_PROXY MIHOMO_ALL_PROXY
+  _muc_clear_credentials
   if ! env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY \
     http_proxy="$proxy_http" https_proxy="$proxy_https" all_proxy= no_proxy= \
-    curl --fail --silent --show-error --max-time 5 --output /dev/null "$MIHOMO_READY_URL"; then
+    curl --fail --silent --max-time 5 --output /dev/null "$MIHOMO_READY_URL" \
+      2>/dev/null; then
     _muc_err "authenticated Mihomo readiness check failed"
     return 1
   fi
@@ -255,6 +278,27 @@ _muc_enable_proxy_environment() {
   export all_proxy=$proxy_socks ALL_PROXY=$proxy_socks
   export no_proxy='localhost,127.0.0.1,::1'
   export NO_PROXY=$no_proxy
+}
+
+_muc_proxy_environment_matches() {
+  local actual_http=${http_proxy-} actual_https=${https_proxy-}
+  local actual_HTTP=${HTTP_PROXY-} actual_HTTPS=${HTTPS_PROXY-}
+  local actual_all=${all_proxy-} actual_ALL=${ALL_PROXY-}
+  local actual_no=${no_proxy-} actual_NO=${NO_PROXY-}
+  local expected_http expected_https expected_socks
+  _muc_load_credentials || return 2
+  expected_http=$MIHOMO_HTTP_PROXY
+  expected_https=$MIHOMO_HTTPS_PROXY
+  expected_socks=$MIHOMO_ALL_PROXY
+  _muc_clear_credentials
+  [[ $actual_http == "$expected_http" &&
+     $actual_https == "$expected_https" &&
+     $actual_HTTP == "$expected_http" &&
+     $actual_HTTPS == "$expected_https" &&
+     $actual_all == "$expected_socks" &&
+     $actual_ALL == "$expected_socks" &&
+     $actual_no == 'localhost,127.0.0.1,::1' &&
+     $actual_NO == 'localhost,127.0.0.1,::1' ]]
 }
 
 _muc_find_core() {

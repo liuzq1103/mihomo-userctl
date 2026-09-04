@@ -15,7 +15,8 @@ fi
 
 # shellcheck source=../src/common.bash
 source "$root/src/common.bash"
-_muc_clear_proxy_environment
+_muc_clear_proxy_variables
+_muc_clear_credentials
 if ! _muc_load_config 2>/dev/null || ! _muc_load_credentials 2>/dev/null; then
   printf 'FAIL\tconfiguration\towner-mode-or-content-invalid\n' >&2
   exit 1

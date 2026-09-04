@@ -72,6 +72,11 @@ mihomoctl rules check --home-dir /absolute/mihomo-home --config /absolute/config
 
 `status` reports only filenames, counts, SHA-256 digests, modification times and permission status. It never prints rule entries. `check` also validates provider references, target groups, ordering, and runs the installed Mihomo binary with `-t`; all Mihomo output is suppressed because arbitrary configuration errors can contain private values.
 
+The exact semantic validation command is `mihomo -t -d <HomeDir> -f
+<config.yaml>`. This remains Mihomo's responsibility. `rules check` verifies
+only this project's narrow layout contract; it does not prove actual routing,
+provider downloads, policy selection, or node use.
+
 The structural check intentionally supports the documented block-style sections. Anchors, merges, flow mappings or other forms that it cannot classify safely produce exit `2`; rewrite only the relevant custom-provider sections into the documented form and run the check again. A missing final `MATCH` is a warning because the desired fallback remains the user's decision.
 
 Exit `0` means every required check passed, possibly with the documented fallback warning. Exit `1` means an observed file, provider, target, ordering or Mihomo configuration failure. Exit `2` means invalid arguments, unsafe paths, missing dependencies or an unsupported structure that could not be verified.

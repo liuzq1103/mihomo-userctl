@@ -1,5 +1,33 @@
 # 架构与数据流
 
+## 问题模型
+
+```text
+共享服务器普通用户
+  ├─ 普通 Shell 与大型下载继续服务器直连
+  └─ 明确选择的工具进入该用户本地代理
+```
+
+本项目不透明截获流量：
+
+```text
+普通进程 -> 服务器直连网络
+选择代理的进程 -> 127.0.0.1:<端口> -> 用户 Mihomo -> 路由策略
+```
+
+## 责任矩阵
+
+| 主体 | 责任 |
+| --- | --- |
+| `mihomo-userctl` | 用户服务的安全入口；service、Listener 和认证 readiness；当前 Shell 与单个子进程的环境边界；当前 UID 的脱敏进程诊断；自身文件的确定性更新与回滚；文档约定自定义规则布局的只读检查；安装和更新后的证据化检查 |
+| Mihomo | 代理协议、节点连接、DNS、路由匹配、provider 加载、策略组与节点选择、完整 `config.yaml` 语义、Controller API 和运行时流量 |
+| systemd | 用户服务生命周期、active/enabled 状态、日志和进程监督 |
+| 用户 | Mihomo 核心版本；订阅、节点、provider 与私有规则；是否启动或 enable 服务；是否重开终端或重连长期客户端；是否修改或应用 `config.yaml` |
+
+控制器不实现 Controller 客户端、Dashboard、订阅管理、provider 下载、通用 YAML
+编辑器、TUN、透明/系统代理、UID 防火墙隔离、system service、linger、cron、sudo、
+自动核心升级、进程终止或私有规则生成。
+
 ## 组件职责
 
 ```text
@@ -43,9 +71,10 @@ proxied ─ proxy_off ──> direct
 `mihomoctl exec -- ...` 复用 `proxy_on` 的同一个校验与导出函数，随后用目标命令替换
 控制器进程；`mihomoctl direct -- ...` 在替换前清除同一组八变量。两者都无法修改父进程环境。
 
-已安装的 `diagnostics.py` 负责稳定 JSON 和同 UID `/proc` 检查，只关联环境变量数量与
+已安装的 `reporting.py` 集中序列化机器输出，`diagnostics.py` 提供报告数据与同 UID
+`/proc` 检查，只关联环境变量数量与
 socket inode，不返回环境值、命令行或远端地址。`acceptance.py` 同时提供完整验收和较窄的
-`test-url` profile，使 HTTP/SOCKS 探针只有一套实现。
+`diagnose url` 探针路径，使 HTTP/SOCKS 探针只有一套实现。
 
 两者不会隐式联动，唯一例外是兼容包装器 `mihomo_stop` 会先 `proxy_off`，防止
 当前 Shell 留下指向已停止端口的无效环境变量。

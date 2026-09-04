@@ -191,6 +191,22 @@ class AcceptanceTests(unittest.TestCase):
         self.assertNotIn(SECRET, output.getvalue())
         self.assertNotIn("proxy-route", output.getvalue())
 
+    def test_canonical_url_diagnostic_uses_canonical_command_name(self):
+        env = {"MIHOMO_SERVICE": "mihomo", "MIHOMO_PORT": str(PORT), "MIHOMO_READY_URL": URL,
+               "MIHOMO_HTTPS_PROXY": HTTP_PROXY, "MIHOMO_ALL_PROXY": SOCKS_PROXY}
+        passing = a.Result("PASS", "measured", "ok")
+        output = io.StringIO()
+        with patch.dict(os.environ, env), contextlib.redirect_stdout(output), \
+                patch.object(a, "direct_check", return_value=passing), \
+                patch.object(a, "service_active_check", return_value=passing), \
+                patch.object(a, "listener_check", return_value=passing), \
+                patch.object(a, "curl_check", return_value=passing), \
+                patch.object(a, "http_no_auth", return_value=passing), \
+                patch.object(a, "socks_no_auth", return_value=passing):
+            self.assertEqual(a.main(["--profile", "test-url", "--report-command",
+                                     "diagnose-url", "--url", URL, "--json"]), 0)
+        self.assertEqual(json.loads(output.getvalue())["command"], "diagnose-url")
+
     def test_direct_failure_does_not_skip_independent_proxy_checks(self):
         env = {"MIHOMO_SERVICE": "mihomo", "MIHOMO_PORT": str(PORT), "MIHOMO_READY_URL": URL,
                "MIHOMO_HTTPS_PROXY": HTTP_PROXY, "MIHOMO_ALL_PROXY": SOCKS_PROXY}

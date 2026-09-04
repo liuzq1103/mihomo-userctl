@@ -77,7 +77,7 @@ backups may contain personal startup settings. See [update provenance and recove
 
 ## Redacted process and rule inspection
 
-`inspect-process` and `inspect-name` refuse processes not owned by the current
+`diagnose process` and `diagnose name` refuse processes not owned by the current
 UID. They expose only process relationships, the count/classification of eight
 known proxy variables, and connection categories. They do not print values,
 command arguments, or remote endpoints and never terminate a process.
@@ -87,3 +87,8 @@ It reports rule counts and digests rather than entries. Full Mihomo test output
 is suppressed because configuration diagnostics may include subscriptions,
 nodes, domains, or credentials. These commands never edit configuration or
 change service state.
+
+`diagnose url` never prints the complete target URL and does not identify a
+selected node. JSON serialization is centralized in the installed reporting
+module; ordinary failures still produce one parseable object on stdout while
+stderr receives stable diagnostics without raw external-tool messages.

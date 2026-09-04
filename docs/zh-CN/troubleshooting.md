@@ -133,16 +133,20 @@ mihomoctl direct -- axel -n 10 'https://example.org/large-file'
 诊断当前用户的长期运行进程时无需打印环境值：
 
 ```bash
-mihomoctl inspect-process PID --json
-mihomoctl inspect-name codex --json
+mihomoctl diagnose process PID --json
+mihomoctl diagnose name codex --json
 ```
 
 `proxy_state=inconsistent` 表示部分变量缺失或与当前凭据文件不一致。只正常重连或重启
 已经确认的当前用户应用；检查命令不会结束进程。
 
+修复 loader、凭据文件或 IDE 设置后，如果报告的 PID 早于改动，应由用户正常重连
+自己的客户端。环境变量无法注入已经运行的进程。
+
 自定义规则失败时先运行 `mihomoctl rules status`，再运行 `mihomoctl rules check`。
 退出 `2` 并报告 `config-unsupported-yaml` 表示相关 provider 段落需要改成文档约定的
 block style，并不等于 Mihomo 配置本身一定无效。
+该命令只检查本项目窄契约；完整路由行为仍需用户自己的 Mihomo 与端到端证据验证。
 
 在运行下载的同一个 Shell：
 

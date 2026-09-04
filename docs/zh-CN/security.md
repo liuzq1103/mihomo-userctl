@@ -96,9 +96,13 @@ systemctl --user stop <白名单校验后的服务名>
 
 ## 脱敏进程与规则检查
 
-`inspect-process` 和 `inspect-name` 拒绝非当前 UID 的进程，只输出进程关系、八个已知
+`diagnose process` 和 `diagnose name` 拒绝非当前 UID 的进程，只输出进程关系、八个已知
 代理变量的数量/分类和连接类别，不打印变量值、命令参数或远端 endpoint，也不结束进程。
 
 `rules status/check` 只接受当前用户的显式安全路径并拒绝符号链接，只报告规则数量和
 摘要，不输出条目。完整 Mihomo 测试的原始输出会被抑制，因为配置诊断可能包含订阅、
 节点、域名或凭据。这些命令不编辑配置，也不改变服务状态。
+
+`diagnose url` 不打印完整目标 URL，也不识别所选节点。JSON 由已安装的统一报告模块
+集中序列化；正常失败仍在 stdout 生成一个可解析对象，stderr 只给稳定诊断，不转发
+外部工具原始错误。

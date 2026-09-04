@@ -2,14 +2,18 @@
 """Redacted JSON formatting and same-user Linux process inspection."""
 
 import argparse
-import json
 import os
 from pathlib import Path
 import re
 import sys
 
+try:
+    from . import reporting
+except ImportError:  # Installed modules are executed from one runtime directory.
+    import reporting
 
-SCHEMA = "mihomo-userctl.diagnostics/v1"
+
+SCHEMA = reporting.DIAGNOSTICS_SCHEMA
 PROXY_NAMES = ("http_proxy", "https_proxy", "all_proxy", "no_proxy",
                "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
 SOCKET = re.compile(r"socket:\[([0-9]+)\]$")
@@ -28,12 +32,7 @@ class Parser(argparse.ArgumentParser):
 
 
 def emit_json(command, overall, payload=None, error=None):
-    document = {"schema": SCHEMA, "command": command, "overall": overall}
-    if payload:
-        document.update(payload)
-    if error:
-        document["error"] = {"code": error}
-    print(json.dumps(document, sort_keys=True, separators=(",", ":")))
+    reporting.diagnostics(command, overall, payload, error)
 
 
 def safe_name(raw):
@@ -166,14 +165,13 @@ def inspect(root, pid, port, uid=None):
         name = safe_name((root / str(pid) / "comm").read_text(errors="strict"))
     except (OSError, UnicodeError):
         raise DiagnosticError("process-name-unreadable") from None
-    parent = {"pid": ppid, "same_user": False, "name": None}
+    parent = {"pid": ppid, "same_user": False}
     if ppid > 0:
         try:
             parent_uid, _ = read_status(root, ppid)
             if parent_uid == uid:
                 parent["same_user"] = True
-                parent["name"] = safe_name((root / str(ppid) / "comm").read_text(errors="strict"))
-        except (DiagnosticError, OSError, UnicodeError):
+        except DiagnosticError:
             pass
     return {"pid": pid, "name": name, "parent": parent,
             "proxy_environment": proxy_environment(read_environment(root, pid), expected_environment()),
@@ -196,7 +194,7 @@ def handle_process(args, root=Path("/proc")):
         raise DiagnosticError("invalid-pid")
     item = inspect(root, int(args.target), args.port)
     if args.json:
-        emit_json("inspect-process", "PASS", {"process": item})
+        emit_json(args.report_command, "PASS", {"process": item})
     else:
         text_process(item)
     return 0
@@ -229,8 +227,8 @@ def handle_name(args, root=Path("/proc")):
             continue
     if args.json:
         overall = "UNVERIFIED" if unverified else "PASS" if matches else "FAIL"
-        emit_json("inspect-name", overall, {"processes": matches,
-                                            "unverified_matches": unverified})
+        emit_json(args.report_command, overall, {"processes": matches,
+                                                 "unverified_matches": unverified})
     else:
         for item in matches:
             text_process(item)
@@ -279,24 +277,27 @@ def parser():
     fmt.add_argument("--port", type=int)
     fmt.add_argument("--check", action="append", default=[])
     error = sub.add_parser("error")
-    error.add_argument("kind", choices=("status", "ready", "doctor", "test-url",
-                                        "inspect-process", "inspect-name"))
+    error.add_argument("kind", choices=("status", "ready", "doctor", "diagnose",
+                                        "diagnose-url", "diagnose-process", "diagnose-name",
+                                        "test-url", "inspect-process", "inspect-name"))
     error.add_argument("code")
-    for name in ("inspect-process", "inspect-name"):
+    for name, canonical, legacy in (("process", "diagnose-process", "inspect-process"),
+                                    ("name", "diagnose-name", "inspect-name")):
         child = sub.add_parser(name)
         child.add_argument("target")
         child.add_argument("--port", required=True, type=int)
         child.add_argument("--json", action="store_true")
+        child.add_argument("--report-command", choices=(canonical, legacy), default=canonical)
     return root
 
 
 def main(argv=None):
     values = list(argv if argv is not None else sys.argv[1:])
-    command = values[0] if values and values[0] in (
-        "inspect-process", "inspect-name") else "diagnostics"
+    command = ("diagnose-" + values[0] if values and values[0] in ("process", "name")
+               else "diagnostics")
     try:
         args = parser().parse_args(argv)
-        command = args.command
+        command = getattr(args, "report_command", args.command)
         if args.command == "error":
             if not re.fullmatch(r"[a-z0-9-]+", args.code):
                 raise DiagnosticError("invalid-internal-error")
@@ -308,7 +309,7 @@ def main(argv=None):
             return handle_format(args)
         if not 1024 <= args.port <= 65535:
             raise DiagnosticError("invalid-port")
-        return handle_process(args) if args.command == "inspect-process" else handle_name(args)
+        return handle_process(args) if args.command == "process" else handle_name(args)
     except DiagnosticError as error:
         wants_json = "--json" in (argv if argv is not None else sys.argv[1:])
         if wants_json:

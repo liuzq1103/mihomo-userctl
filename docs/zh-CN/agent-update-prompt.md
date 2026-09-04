@@ -1,60 +1,37 @@
-# 交给编码 Agent 的更新 Prompt
+# 交给 Coding Agent 的更新 Prompt
 
-[English](../en/agent-update-prompt.md) · [更新指南](update.md) · [安装 Prompt](agent-install-prompt.md)
+[English](../en/agent-update-prompt.md) · [更新指南](update.md) · [验收](acceptance.md) · [架构](architecture.md)
 
-替换目标标签后，将以下内容交给能在目标 Linux 账号执行命令、读写文件的 Agent。
-纯聊天模型无法执行更新。不要把凭据或订阅 URL 填入 Prompt。
+替换目标标签后，把下列 Prompt 交给能访问已安装 Linux 账号终端与文件的 Agent。
+不要在 Prompt 中粘贴凭据。
 
 ```text
-请把我已有的 mihomo-userctl 更新到这个明确的、已发布的正式版本：<vX.Y.Z>。
-直接完成工作并报告证据，不要只给方案。
+只把当前账号已有的 mihomo-userctl 更新到精确的正式版本 <vX.Y.Z>。
+直接完成更新并报告证据。
 
-写入前阅读仓库约束、docs/zh-CN/update.md、docs/zh-CN/acceptance.md 和现有安装元数据。
-保留无关工作与未提交修改。核实当前账号、已安装命令、版本、来源记录、原 XDG_CONFIG_HOME、
-XDG_DATA_HOME 和 Shell 启动文件。敏感文件只在本机读取，不引用内容。历史来源未知就写未知；
-不能虚构 commit、摘要、签名验证、测试通过、回滚成功、新 Shell 或客户端已重连。
+写入前阅读仓库约束、docs/zh-CN/update.md、acceptance.md、architecture.md、
+security.md 和当前安装元数据。以这些内容为规范，不得复制或另建安装、更新、
+验证和回滚逻辑。
 
-授权范围仅是当前账号的 mihomo-userctl 代码与托管加载块。保留原端口、服务名、
-mihomo-shell.conf、client.env、Listener 凭据、Mihomo 核心/config.yaml、订阅、provider、
-节点、路由、启动文件非托管内容和 active/enabled 状态。禁止 sudo、配置 linger、启用/启动/
-重启/停止服务、修改系统代理、终止进程、升级 Mihomo 核心或影响其他用户。停止的服务保持停止。
+审计当前安装版本与不可变来源、原 HOME/XDG 和启动文件路径、受管文件完整性、
+备份状态、服务 active/enabled 状态及无关工作。敏感值只留在本机，不得引用。
+保留配置、凭据、端口、服务名、Mihomo 核心与数据、启动文件非托管内容，以及
+全部无关文件与进程。禁止 sudo、改变服务状态、升级 Mihomo 或重连/结束客户端。
 
-使用已安装的确定性入口：
+实际运行并记录真实退出码：
   mihomoctl update --check
   mihomoctl update --version <vX.Y.Z> --dry-run
   mihomoctl update --version <vX.Y.Z>
-使用从当前安装核实的可执行文件与路径。将占位符替换为我指定的目标；不能改成 main/latest，
-不能降级、接受被移动的标签或静默换版本。核对官方发布及协议兼容性；目标未发布或不兼容时，
-说明具体阻塞。查询成功但有更新时退出码为 0，不应当作失败。
 
-若旧安装缺少 update 命令/元数据，遵循 update.md 的一次性迁移章节。取得并审查包含
-scripts/migrate.py 的官方源码副本，显式核实所有原路径，检查旧托管代码的本地定制，
-再对我的目标运行迁移脚本的 --dry-run 和实际迁移。generations 元数据损坏时按文档恢复备份，
-不能当作旧式平铺安装迁移。不要猜测路径、伪造来源、删除哈希或临时编写替代更新/安装/回滚流程。
-证据缺失或范围发生实质变化时提出具体问题，不要自创默认值。
+只有安装元数据确实属于文档所述旧式布局时才使用 scripts/migrate.py。不得改用
+main/latest、接受移动标签、静默降级、逐个复制模块或伪造来源。恢复时复用现有
+事务和本次精确的私有备份。
 
-复用安装器的事务备份与原子版本切换，不要逐个覆盖新模块。备份保持私有。失败或中断时检查
-本次事务/result，在需要恢复时使用它准确的恢复命令。不要覆盖更新后的个人编辑，也不能用过期
-备份覆盖后续更新。记录每条命令实际退出码；管道最终状态或转述摘要不能代替执行证据。
-禁止粘贴原始下载错误、凭据、完整代理 URL、订阅 URL、完整私有日志或配置。
+不启动原本停止的服务，按文档运行完整测试与验收。每个已选项目使用 PASS、FAIL、
+UNVERIFIED 或 DEFERRED，包括版本/来源、运行模块完整性、设置保持、active/enabled、
+Listener/认证、目标路由、新 Shell 和长期客户端。Listener readiness 不是节点选择。
+新 Shell 与客户端重连在用户执行并验证前保持 DEFERRED。
 
-以下项目分别使用 PASS、FAIL、UNVERIFIED、DEFERRED：
-1. 目标与实际安装版本、不可变源码标识。
-2. 文件安装及本地完整性检查。
-3. 设置、凭据、端口、服务名、启动内容及服务状态保持。
-4. Listener 绑定、HTTP/SOCKS5H 带认证成功和无认证被拒绝。
-5. 实际目标命中预期代理规则/节点，而非仅连接到本地 Listener。
-6. 新 Shell 加载了新模块及所需兼容 hook。
-7. 长期运行的 Codex/VS Code 已重连，并检查相应新进程。
-
-复用项目验收能力，不为验收启动原本停止的服务；跳过的探测不能标通过。带认证 Listener
-可用不能证明目标走代理节点。只计算了本地摘要而未核对独立官方摘要/签名时，该验证必须为
-UNVERIFIED。新终端和客户端重连在亲眼验证前保持 DEFERRED，不终止客户端强迫重连。
-即使文件安装成功，也必须报告所有失败项。退出 3 表示文件已安装、验收未完成；退出 5 表示
-文件已安装，但验收器有 FAIL。
-
-最后给出简洁证据表：实际命令及退出码、请求与实际版本、commit/归档身份和实际摘要、真正完成
-的验证、修改范围、保留的基线、私有备份路径、准确回滚命令/结果、剩余失败和用户重开终端/
-重连操作。区分代码测试、安装检查、Listener 检查、目标路由和长期进程检查。任何必需项仍为
-FAIL、UNVERIFIED、DEFERRED、跳过或未运行，都不能写“全部通过”。
+最后报告精确命令与退出码、请求/安装版本、commit 与归档身份、实际摘要、变更与
+保留范围、备份、准确回滚命令、剩余失败和用户动作。跳过或未运行的项目不得写通过。
 ```

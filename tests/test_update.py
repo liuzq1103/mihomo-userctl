@@ -96,6 +96,24 @@ class SourceTests(unittest.TestCase):
             with self.assertRaises(ins.InstallError):
                 ins.verify_generation(record)
 
+    def test_v021_runtime_receipt_remains_valid_for_deterministic_update(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            generation = root / "generations" / ("b" * 32)
+            generation.mkdir(parents=True)
+            hashes = {}
+            for name in ins.RUNTIME_021:
+                put(generation / name, "v0.2.1 fixture " + name, 0o644)
+                hashes[name] = ins.digest(generation / name)
+            record = {"install_root": str(root), "generation": generation.name,
+                      "version": "0.2.1", "runtime_hashes": hashes,
+                      "bootstrap_hashes": {name: "fixture" for name in
+                                           ("mihomoctl", "common.bash", "shell.bash", "completion.bash")}}
+            ins.verify_generation(record)
+            record["runtime_hashes"] = dict(hashes, **{"reporting.py": "unexpected"})
+            with self.assertRaises(ins.InstallError):
+                ins.verify_generation(record)
+
     def test_release_resolves_annotated_tag_and_records_exact_commit(self):
         client = up.GitHub()
         release = dict(tag_name=TAG, draft=False, prerelease=False, published_at="date", id=123)
@@ -322,6 +340,27 @@ esac
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertIn("with_proxy", proc.stdout)
         self.assertIn(NEXT, proc.stdout)
+
+    def test_v021_receipt_updates_deterministically_to_v022(self):
+        record = ins.metadata(self.root)
+        generation = self.root / "generations" / record["generation"]
+        record["version"] = "0.2.1"
+        record["runtime_hashes"].pop("reporting.py")
+        (generation / "reporting.py").unlink()
+        ins.write_json(generation / "installation.json", record)
+        ins.verify_installed(record)
+
+        rc, output = self.run_update("--version", "v0.2.2",
+                                     client=FakeRelease(self.source))
+        self.assertEqual(rc, 3, output)
+        updated = ins.metadata(self.root)
+        self.assertEqual(updated["version"], "0.2.2")
+        self.assertIn("reporting.py", updated["runtime_hashes"])
+        self.assertTrue((self.root / "generations" / updated["generation"] /
+                         "reporting.py").is_file())
+        proc = subprocess.run([str(self.bin), "version"], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("0.2.2", proc.stdout)
 
     def test_git_checkout_commit_is_recorded_and_deleted_checkout_not_needed(self):
         source = self.base / "git-source"

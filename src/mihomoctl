@@ -36,10 +36,11 @@ Commands:
                         Run one command with validated proxy variables
   direct -- COMMAND [ARGS...]
                         Run one command with all proxy variables removed
-  test-url URL [--json] Test direct, listener, authentication, and target paths
-  inspect-process PID [--json]
+  diagnose url URL [--json]
+                        Test direct, listener, authentication, and target paths
+  diagnose process PID [--json]
                         Inspect one current-user process without exposing values
-  inspect-name NAME [--json]
+  diagnose name NAME [--json]
                         Inspect current-user processes with an exact name
   rules status [OPTIONS] | rules check [OPTIONS]
                         Inspect the documented custom-rule contract without changes
@@ -117,8 +118,6 @@ cmd_status() {
   _muc_service_active && service=up
   _muc_listening && listener=up
   enabled=$(_muc_service_enabled_state)
-  [[ -n $enabled ]] || enabled=unknown
-  case $enabled in enabled|enabled-runtime|disabled|static|indirect|masked|masked-runtime) ;; *) enabled=unknown ;; esac
   if (( json )); then
     require_python_module "$_muc_lib_dir/diagnostics.py"
     python3 -B "$_muc_lib_dir/diagnostics.py" format status --service "$service" \
@@ -195,10 +194,8 @@ cmd_doctor() {
     doctor_line credentials invalid
     exit 2
   fi
-  unset MIHOMO_HTTP_PROXY MIHOMO_HTTPS_PROXY MIHOMO_ALL_PROXY
+  _muc_clear_credentials
   enabled=$(_muc_service_enabled_state)
-  [[ -n $enabled ]] || enabled=unknown
-  case $enabled in enabled|enabled-runtime|disabled|static|indirect|masked|masked-runtime) ;; *) enabled=unknown ;; esac
   (( json )) || doctor_line enabled "$enabled"
   if [[ $enabled == disabled || $offline == 1 ]]; then
     checks+=(--check enabled-policy=PASS)
@@ -242,53 +239,73 @@ cmd_doctor() {
 cmd_exec() {
   [[ ${1:-} == -- && $# -ge 2 ]] || { _muc_err 'usage: mihomoctl exec -- command [args...]'; exit 2; }
   shift
-  _muc_enable_proxy_environment || exit $?
+  _muc_prepare_proxy_environment || exit $?
   exec -- "$@"
 }
 
 cmd_direct() {
   [[ ${1:-} == -- && $# -ge 2 ]] || { _muc_err 'usage: mihomoctl direct -- command [args...]'; exit 2; }
   shift
-  _muc_clear_proxy_environment
+  _muc_clear_proxy_variables
   exec -- "$@"
 }
 
-cmd_test_url() {
-  local url='' json=0 argument
+cmd_diagnose_url() {
+  local report_command=$1 url='' json=0 argument
+  shift
   for argument in "$@"; do
     [[ $argument == --json ]] && json=1
   done
   while (( $# )); do
     case $1 in
       --json) json=1 ;;
-      --*) (( json )) && json_error test-url invalid-options; _muc_err 'invalid test-url option'; exit 2 ;;
-      *) [[ -z $url ]] || { (( json )) && json_error test-url invalid-options; _muc_err 'test-url accepts one URL'; exit 2; }; url=$1 ;;
+      --*) (( json )) && json_error "$report_command" invalid-options; _muc_err 'invalid diagnose url option'; exit 2 ;;
+      *) [[ -z $url ]] || { (( json )) && json_error "$report_command" invalid-options; _muc_err 'diagnose url accepts one URL'; exit 2; }; url=$1 ;;
     esac
     shift
   done
-  [[ -n $url ]] || { (( json )) && json_error test-url invalid-options; _muc_err 'test-url requires one HTTPS URL'; exit 2; }
+  [[ -n $url ]] || { (( json )) && json_error "$report_command" invalid-options; _muc_err 'diagnose url requires one HTTPS URL'; exit 2; }
   if ! _muc_load_config || ! _muc_load_credentials; then
-    (( json )) && json_error test-url configuration-or-credentials-invalid
+    (( json )) && json_error "$report_command" configuration-or-credentials-invalid
     exit 2
   fi
   require_python_module "$_muc_lib_dir/acceptance.py"
   export MIHOMO_SERVICE MIHOMO_PORT MIHOMO_READY_URL
   export MIHOMO_HTTP_PROXY MIHOMO_HTTPS_PROXY MIHOMO_ALL_PROXY
-  local -a options=(--profile test-url --url "$url" --timeout 10)
+  local -a options=(--profile test-url --report-command "$report_command" --url "$url" --timeout 10)
   (( json )) && options+=(--json)
   exec python3 -B "$_muc_lib_dir/acceptance.py" "${options[@]}"
 }
 
-cmd_inspect() {
-  local kind=$1
-  shift
+cmd_diagnose_process() {
+  local kind=$1 report_command=$2
+  shift 2
   require_python_module "$_muc_lib_dir/diagnostics.py"
   if ! _muc_load_config || ! _muc_load_credentials; then
-    [[ " $* " == *' --json '* ]] && json_error "$kind" configuration-or-credentials-invalid
+    [[ " $* " == *' --json '* ]] && json_error "$report_command" configuration-or-credentials-invalid
     exit 2
   fi
   export MIHOMO_HTTP_PROXY MIHOMO_HTTPS_PROXY MIHOMO_ALL_PROXY
-  exec python3 -B "$_muc_lib_dir/diagnostics.py" "$kind" "$@" --port "$MIHOMO_PORT"
+  exec python3 -B "$_muc_lib_dir/diagnostics.py" "$kind" "$@" --port "$MIHOMO_PORT" \
+    --report-command "$report_command"
+}
+
+cmd_diagnose() {
+  local kind=${1:-}
+  (( $# > 0 )) && shift
+  case $kind in
+    url) cmd_diagnose_url diagnose-url "$@" ;;
+    process) cmd_diagnose_process process diagnose-process "$@" ;;
+    name) cmd_diagnose_process name diagnose-name "$@" ;;
+    '') _muc_err 'usage: mihomoctl diagnose {url|process|name} ...'; exit 2 ;;
+    *)
+      if [[ $kind == --json || " $* " == *' --json '* ]]; then
+        json_error diagnose invalid-options
+      fi
+      _muc_err 'unknown diagnose command'
+      exit 2
+      ;;
+  esac
 }
 
 cmd_rules() {
@@ -373,8 +390,11 @@ case $command_name in
     ;;
   exec) cmd_exec "$@" ;;
   direct) cmd_direct "$@" ;;
-  test-url) cmd_test_url "$@" ;;
-  inspect-process|inspect-name) cmd_inspect "$command_name" "$@" ;;
+  diagnose) cmd_diagnose "$@" ;;
+  # v0.2.1 compatibility aliases; intentionally omitted from help/completion/docs.
+  test-url) cmd_diagnose_url test-url "$@" ;;
+  inspect-process) cmd_diagnose_process process inspect-process "$@" ;;
+  inspect-name) cmd_diagnose_process name inspect-name "$@" ;;
   rules) cmd_rules "$@" ;;
   logs|log) cmd_logs "$@" ;;
   update)

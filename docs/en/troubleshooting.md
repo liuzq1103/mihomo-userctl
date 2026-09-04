@@ -126,18 +126,24 @@ mihomoctl direct -- axel -n 10 'https://example.org/large-file'
 To diagnose a long-lived current-user process without printing its environment:
 
 ```bash
-mihomoctl inspect-process PID --json
-mihomoctl inspect-name codex --json
+mihomoctl diagnose process PID --json
+mihomoctl diagnose name codex --json
 ```
 
 `proxy_state=inconsistent` means some variables are absent or do not match the
 current credential file. Restart or reconnect only that known current-user
 application; the command never kills it.
 
+After repairing a loader, credential file, or IDE setting, reconnect the
+current-user client when the reported PID predates the change. Environment
+variables cannot be injected into an already running process.
+
 For custom-rule failures, run `mihomoctl rules status` first, then
 `mihomoctl rules check`. Exit `2` with `config-unsupported-yaml` means the
 custom-provider sections must be expressed in the documented block style; it
 does not prove that the underlying configuration is invalid.
+The command checks only the project contract; use the user's own Mihomo and
+end-to-end evidence for complete routing behavior.
 
 In the exact Shell that launches it:
 

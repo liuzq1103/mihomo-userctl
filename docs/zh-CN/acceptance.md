@@ -3,6 +3,11 @@
 验收分为 Listener 基线和端到端使用验证。安装成功、`doctor` 成功、目标网站
 可访问，是不同的结论；每项只报告实际取得的证据。
 
+`mihomoctl ready` 通过认证 Listener 检查固定 readiness URL；
+`mihomoctl diagnose url` 增加用户指定目标，并分开报告 direct、Listener、认证和
+目标请求。两者都不识别所选节点。`mihomoctl rules check` 是结构契约检查，不是
+完整路由验收。
+
 ## 1. 四种结果
 
 | 状态 | 含义 |
@@ -72,9 +77,8 @@ printf 'acceptance_rc=%s\n' "$acceptance_rc"
 | 日志与源码 | 在本地按明确范围检查敏感值，仅分享计数；记录检查范围与工具退出码，不保证“绝无泄漏” |
 | 基线变化 | 对照安装前后当前用户范围内的配置、监听及服务状态；单独的端口集合不能证明所有其他用户均未受影响 |
 
-默认示例的 `gstatic.com` 和 `example.com` 会落到 `MATCH,DIRECT`。
-`google.com` 后缀规则不包含 `gstatic.com`。因此上述 readiness/认证请求通过
-只证明 Listener 上的这条请求可用，不证明 Proxy 节点或 OpenAI 端到端可用。
+虚构示例中的 `example.com` 与 `example.net` 可以使用不同策略。readiness/认证
+请求通过只证明 Listener 上实际测量的请求可用，不证明代理节点或应用端到端可用。
 provider/url-test 的健康检查也不能代替应用请求的规则命中证据。
 
 若服务已在使用，禁止为验收随意停服。运行以下隔离回归检查，并在报告中区分
