@@ -84,8 +84,8 @@ preserves credentials and Mihomo data, and never starts or enables the service.
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version v0.3.0 --dry-run
-mihomoctl update --version v0.3.0
+mihomoctl update --version v0.3.1 --dry-run
+mihomoctl update --version v0.3.1
 ```
 
 An update changes only `mihomo-userctl`; it is not a Mihomo core upgrade. It

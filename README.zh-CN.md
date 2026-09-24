@@ -74,8 +74,8 @@ ss -lnt "sport = :$PROXY_PORT"
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version v0.3.0 --dry-run
-mihomoctl update --version v0.3.0
+mihomoctl update --version v0.3.1 --dry-run
+mihomoctl update --version v0.3.1
 ```
 
 更新只改变 `mihomo-userctl`，不等于 Mihomo 核心升级。它复用同一事务安装器，

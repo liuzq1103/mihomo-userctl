@@ -82,6 +82,13 @@ edit the script output to turn pending rows into PASS.
 
 ## 3. End-to-end evidence
 
+For a selected Codex delivery goal, follow the [deployment contract](deployment-contract.md):
+record the actual executable, new-process UID/proxy classification, Listener connection and
+proxy-egress evidence, and an authorized minimal model request separately. The user handles login.
+Version output, successful startup or proxy variables do not establish real request success.
+Limit isolation claims to recorded operations and comparisons; never inspect another user's
+private data to prove that they were unaffected.
+
 | Item | Required evidence and limits |
 | --- | --- |
 | Proxy egress | Request an approved public target routed to Proxy; correlate time, target, rule, and actual proxy egress. Inspect node details locally; report only whether a proxy node was selected |

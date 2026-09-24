@@ -231,6 +231,11 @@ UMask=0077
 WantedBy=default.target
 ```
 
+Run the startup steps below only when the user explicitly selected installation and startup for
+acceptance. Install-only preserves existing runtime state without starting or stopping services.
+Configuration validation must pass and the port must be checked again. Report and clarify an
+existing enabled state instead of silently disabling it. See the [deployment contract](deployment-contract.md).
+
 ```bash
 chmod 644 "$HOME/.config/systemd/user/mihomo.service"
 systemctl --user daemon-reload

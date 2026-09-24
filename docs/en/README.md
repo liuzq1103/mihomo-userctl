@@ -1,5 +1,7 @@
 # English documentation
 
+[Deployment parameters, authorization and delivery contract](deployment-contract.md)
+
 For pre-downloaded shared packages, start with [local installation](offline-install.md)
 and the [local installation prompt](agent-local-install-prompt.md).
 

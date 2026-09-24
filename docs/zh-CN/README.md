@@ -1,5 +1,7 @@
 # 简体中文文档
 
+[安装参数、授权与交付约定](deployment-contract.md)
+
 共享服务器已提前备包时，直接阅读[本地安装与下载清单](offline-install.md)和
 [本地安装 Prompt](agent-local-install-prompt.md)。
 

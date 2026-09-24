@@ -4,6 +4,17 @@ All notable changes follow a simplified Keep a Changelog format.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-24
+
+### Changed
+
+- Added shared bilingual deployment parameters and delivery contracts for online
+  and local installation prompts, including existing-tool reuse and bounded authorization.
+- Distinguished install-only behavior from explicitly authorized service startup,
+  redacted audit output, and separate executable/process/routing/model-request evidence.
+- Clarified secret handoff, scoped isolation claims and UNVERIFIED versus explicitly
+  DEFERRED checks. Runtime installation behavior and dependency pins are unchanged.
+
 ## [0.3.0] - 2026-09-24
 
 ### Added

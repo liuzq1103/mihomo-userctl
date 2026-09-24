@@ -228,6 +228,10 @@ UMask=0077
 WantedBy=default.target
 ```
 
+以下启动步骤仅适用于用户明确选择“安装并启动验收”的情况。默认只安装并保留已有运行
+状态；不启动、不停止已有服务。启动前配置测试必须通过，且重新确认端口。已有 enabled
+状态先报告并澄清，不擅自禁用；完整授权和验收边界见[交付约定](deployment-contract.md)。
+
 ```bash
 chmod 644 "$HOME/.config/systemd/user/mihomo.service"
 systemctl --user daemon-reload

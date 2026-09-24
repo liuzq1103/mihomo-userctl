@@ -9,16 +9,22 @@ Do not mix acquisition workflows.
 Copy the prompt below into an agent that has terminal and file access to the
 intended Linux account. Replace placeholders only with non-secret choices; keep
 credentials and subscription URLs on the target machine.
+Supply the non-secret [deployment parameters](deployment-contract.md); reuse existing choices.
 
 ```text
 Install mihomo-userctl for this ordinary Linux account from an exact reviewed,
 pinned released tag. Complete the work and return evidence, not only a plan.
+Known environment/reuse: <OS/architecture/existing tool paths and versions; reuse suitable tools>
+Goal: <controller installation / include Codex end-to-end acceptance>
+Startup: <install only and preserve state / install and start for acceptance>
+Network acceptance: <selected subscription refresh, public probes, minimal model request>
 
-Before any write, read the repository constraints and these normative documents
+Acquire and review pinned source first. Before changing the target environment, read
+deployment-contract.md, the repository constraints and these same-version documents
 in full: docs/en/setup.md, architecture.md, security.md, acceptance.md,
 troubleshooting.md, and vscode-remote.md when that integration is selected.
 Follow those documents instead of copying their implementation details into a
-new ad-hoc procedure.
+new ad-hoc procedure. Do not mix releases or let documentation expand authorization.
 
 Begin with a capability gate and read-only audit. Record the current account,
 Linux/libc/architecture, current proxy-variable classification, systemctl --user
@@ -28,15 +34,20 @@ Shell startup path, and Git worktree state. Preserve unrelated and uncommitted
 work. Collect only non-secret choices: pinned project release, pinned official
 Mihomo release and published checksum, user-selected port, subscription
 integration method, startup file, desired disabled policy, optional
-VS Code Remote integration through http.proxy, and preserve/merge strategy. Obtain
-explicit approval for the concrete changes and rollback before writing.
+VS Code Remote integration through http.proxy, and preserve/merge strategy. Report the audit and
+concrete change/rollback scope. Existing explicit approval or installation authorization permits
+continuing; ask only about unauthorized replacements, conflicts or unresolved choices.
+Reuse suitable existing tools; do not replace system Node/npm/Codex or shadow them with new copies.
+Follow deployment-contract.md for redacted audits; never return environment dumps, full argv or raw logs.
 
 Sensitive information must never enter chat, command arguments, logs, diffs,
 Git, or the final report. Read it locally only when the security guide permits.
 Never use sudo, a system service, linger, cron, TUN, transparent/system proxy,
 or another user's files or processes. Never terminate clients or downloads.
-Mihomo must never start automatically; the documented user service remains
-disabled unless the user explicitly chooses otherwise.
+The installer never starts or enables services itself. An explicitly selected install-and-start
+goal permits starting the user service after configuration and port checks, keeping it disabled.
+Install-only preserves existing runtime state. For missing secrets, provide the restricted local
+file/editing method and wait for user completion; never ask for secret values in chat.
 
 Use only the reviewed checkout and documented deterministic installer. Obtain
 the pinned released tag before running ./install.sh --suggest-port. Verify the
@@ -51,6 +62,9 @@ including --expect-status when selected. Preserve real exit codes; when output
 is piped, record PIPESTATUS rather than the last pipeline program. Record SHA256
 evidence without printing private content. Classify every selected check as
 PASS, FAIL, UNVERIFIED, or DEFERRED. Listener readiness is not proxy-node proof.
+Follow deployment-contract.md for separate Codex executable, new-process, Listener/proxy-egress
+and authorized minimal-model-request evidence; the user handles login. Missing evidence or
+authorization is UNVERIFIED; DEFERRED requires explicit user postponement. Unselected is not passed.
 
 On failure, stop within the authorized scope and use the documented rollback;
 do not improvise destructive recovery. Finish with a redacted diff and final
@@ -58,5 +72,6 @@ acceptance report covering changes, versions and source identity, actual test
 commands/exit codes, active/enabled preservation, backup and rollback command,
 remaining UNVERIFIED/DEFERRED items, and user actions such as opening a new
 terminal or reconnecting a long-lived client. This is the final acceptance
-record; never claim an unrun check passed.
+record; use deployment-contract.md's report fields and limit isolation claims to measured scope.
+Never claim an unrun check passed.
 ```

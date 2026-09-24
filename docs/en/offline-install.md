@@ -25,7 +25,7 @@ manifest itself: replacing both the manifest and an archive defeats a checksum-o
 Also obtain a reviewed fixed [controller release](https://github.com/liuzq1103/mihomo-userctl/releases).
 Record its tag, full commit, archive hash and review in SOURCE.txt. Locally computing the source
 archive hash proves transfer consistency, not publisher identity. Use the fixed
-[v0.3.0 source ZIP](https://github.com/liuzq1103/mihomo-userctl/archive/refs/tags/v0.3.0.zip),
+[v0.3.1 source ZIP](https://github.com/liuzq1103/mihomo-userctl/archive/refs/tags/v0.3.1.zip),
 which includes the helper, manifest and bilingual documentation. Ubuntu 22.04 x86_64 servers
 use the x86_64 entries regardless of the download computer's operating system. Target dependency
 and runtime compatibility checks are still required.
@@ -104,5 +104,6 @@ merge `"autoupdate": false` into personal OpenCode configuration using the
 [official guidance](https://opencode.ai/docs/config/#autoupdate), preserving existing settings.
 Plugins, LSP, MCP, Geo data and other remotely referenced resources need separate preparation
 when selected; private subscriptions belong only in personal directories. Report local checks
-separately from network-dependent checks (DEFERRED without authorization); untested target
-runtime compatibility remains UNVERIFIED.
+separately from network-dependent checks (UNVERIFIED without authorization; DEFERRED only when
+explicitly postponed). Untested target runtime compatibility remains UNVERIFIED. Follow the
+[deployment contract](deployment-contract.md) for reuse, startup authorization and Codex evidence.
