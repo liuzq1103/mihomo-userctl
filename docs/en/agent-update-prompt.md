@@ -1,5 +1,8 @@
 # Coding-agent update prompt
 
+This prompt uses online GitHub releases, even for update checks. For a local-only deployment,
+use the reviewed-source refresh procedure in [local installation](offline-install.md) instead.
+
 [中文](../zh-CN/agent-update-prompt.md) · [Update guide](update.md) · [Acceptance](acceptance.md) · [Architecture](architecture.md)
 
 Replace the target tag and give this prompt to an agent with terminal and file

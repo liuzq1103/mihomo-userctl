@@ -1,5 +1,9 @@
 # Coding-agent installation prompt
 
+This is the public **official online-source** workflow. For packages already downloaded
+to a shared directory, use the [local installation prompt](agent-local-install-prompt.md).
+Do not mix acquisition workflows.
+
 [中文](../zh-CN/agent-install-prompt.md) · [Setup](setup.md) · [Architecture](architecture.md) · [Security](security.md) · [Acceptance](acceptance.md)
 
 Copy the prompt below into an agent that has terminal and file access to the

@@ -1,5 +1,20 @@
 # mihomo-userctl
 
+**一句话，让远程服务器连上 Codex。**
+
+把[安装 Prompt](docs/zh-CN/agent-install-prompt.md)交给能操作远程 Linux 终端的 Coding Agent，
+完成用户级代理配置与验收。服务器无法方便访问 GitHub？先备好软件包，再用
+[本地安装 Prompt](docs/zh-CN/agent-local-install-prompt.md)。
+
+首次安装完成、Mihomo 已启动且节点可用、Codex 已安装并完成认证后，只需：
+
+```bash
+with_proxy codex
+```
+
+只让这次 Codex 进程使用代理，普通 Shell 和其他下载任务保持原来的网络设置。
+本项目帮助接通网络；模型账号、服务访问权限和可用的代理节点需要自行准备。
+
 `mihomo-userctl` 是现有 Linux 用户级
 [Mihomo](https://github.com/MetaCubeX/mihomo) 服务之上的轻量控制、进程接入和
 验收层，面向共享服务器、远程开发与科研计算：普通 Shell 默认直连，只有用户
@@ -38,6 +53,10 @@ VS Code Remote、Notebook、tmux 等长期进程可能需要用户主动重连�
 
 本项目不安装或升级 Mihomo 核心。需要时先阅读[完整安装指南](docs/zh-CN/setup.md)。
 
+服务器不方便联网时，可选用[共享目录本地安装](docs/zh-CN/offline-install.md)：
+维护者先下载固定软件包，用户按[本地安装 Prompt](docs/zh-CN/agent-local-install-prompt.md)
+安装。独立辅助入口支持 Mihomo、Node.js、Codex CLI、OpenCode，不改变控制层安装器的职责。
+
 选择并确认当前未占用的每用户端口，在 Mihomo 与 `client.env` 中配置同一端口，
 再安装控制层：
 
@@ -55,8 +74,8 @@ ss -lnt "sport = :$PROXY_PORT"
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version v0.2.2 --dry-run
-mihomoctl update --version v0.2.2
+mihomoctl update --version v0.3.0 --dry-run
+mihomoctl update --version v0.3.0
 ```
 
 更新只改变 `mihomo-userctl`，不等于 Mihomo 核心升级。它复用同一事务安装器，

@@ -1,5 +1,28 @@
 # mihomo-userctl
 
+**Get Codex connected on your remote server with one prompt.**
+
+Give the [installation prompt](docs/en/agent-install-prompt.md) to a coding agent with access
+to your remote Linux terminal. It guides per-user proxy setup and verification. If the server
+cannot easily reach GitHub, pre-download the packages and use the
+[local installation prompt](docs/en/agent-local-install-prompt.md).
+
+Once setup is complete, Mihomo is running with a working proxy node, and Codex is installed
+and authenticated, launch it with:
+
+```bash
+with_proxy codex
+```
+
+Only this Codex process uses the proxy; ordinary shells and unrelated downloads keep their
+existing network settings. Bring your own model account, service access and proxy provider.
+
+For servers with limited internet access, see the optional
+[shared-directory installation](docs/en/offline-install.md) and
+[local installation prompt](docs/en/agent-local-install-prompt.md).
+The separate helper installs pre-downloaded Mihomo, Node.js, Codex CLI and OpenCode packages;
+the controller installer retains its original responsibility.
+
 `mihomo-userctl` is a small control, process-entry, and acceptance layer for an
 existing per-user [Mihomo](https://github.com/MetaCubeX/mihomo) service on Linux.
 It is built for shared servers, remote development, and research computing:
@@ -61,8 +84,8 @@ preserves credentials and Mihomo data, and never starts or enables the service.
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version v0.2.2 --dry-run
-mihomoctl update --version v0.2.2
+mihomoctl update --version v0.3.0 --dry-run
+mihomoctl update --version v0.3.0
 ```
 
 An update changes only `mihomo-userctl`; it is not a Mihomo core upgrade. It

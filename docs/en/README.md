@@ -1,5 +1,8 @@
 # English documentation
 
+For pre-downloaded shared packages, start with [local installation](offline-install.md)
+and the [local installation prompt](agent-local-install-prompt.md).
+
 If starting on a new server, read these in order:
 
 1. [Install Mihomo and configure the full stack](setup.md)

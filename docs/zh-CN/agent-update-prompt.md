@@ -1,5 +1,8 @@
 # 交给 Coding Agent 的更新 Prompt
 
+本 Prompt 使用 GitHub 在线发布源，检查更新也会联网。本地部署请改用
+[共享目录安装文档](offline-install.md)中的源码刷新流程。
+
 [English](../en/agent-update-prompt.md) · [更新指南](update.md) · [验收](acceptance.md) · [架构](architecture.md)
 
 替换目标标签后，把下列 Prompt 交给能访问已安装 Linux 账号终端与文件的 Agent。

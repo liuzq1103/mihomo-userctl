@@ -341,7 +341,7 @@ esac
         self.assertIn("with_proxy", proc.stdout)
         self.assertIn(NEXT, proc.stdout)
 
-    def test_v021_receipt_updates_deterministically_to_v022(self):
+    def test_v021_receipt_updates_deterministically_to_current_release(self):
         record = ins.metadata(self.root)
         generation = self.root / "generations" / record["generation"]
         record["version"] = "0.2.1"
@@ -350,17 +350,17 @@ esac
         ins.write_json(generation / "installation.json", record)
         ins.verify_installed(record)
 
-        rc, output = self.run_update("--version", "v0.2.2",
+        rc, output = self.run_update("--version", "v" + BASE,
                                      client=FakeRelease(self.source))
         self.assertEqual(rc, 3, output)
         updated = ins.metadata(self.root)
-        self.assertEqual(updated["version"], "0.2.2")
+        self.assertEqual(updated["version"], BASE)
         self.assertIn("reporting.py", updated["runtime_hashes"])
         self.assertTrue((self.root / "generations" / updated["generation"] /
                          "reporting.py").is_file())
         proc = subprocess.run([str(self.bin), "version"], capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertIn("0.2.2", proc.stdout)
+        self.assertIn(BASE, proc.stdout)
 
     def test_git_checkout_commit_is_recorded_and_deleted_checkout_not_needed(self):
         source = self.base / "git-source"

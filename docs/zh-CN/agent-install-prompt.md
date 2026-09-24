@@ -1,5 +1,8 @@
 # 交给 Coding Agent 的安装 Prompt
 
+这是面向公开仓库用户的**官方在线来源版**。已提前下载软件到共享目录的课题组用户请改用
+[本地安装 Prompt](agent-local-install-prompt.md)，不要混用两套获取流程。
+
 [English](../en/agent-install-prompt.md) · [安装](setup.md) · [架构](architecture.md) · [安全](security.md) · [验收](acceptance.md)
 
 把下列 Prompt 交给能访问目标 Linux 账号终端和文件的 Agent。占位符只填写非敏感

@@ -1,0 +1,114 @@
+{
+  "format": 1,
+  "checked_at": "2026-09-24",
+  "packages": [
+    {
+      "name": "mihomo",
+      "version": "1.19.31",
+      "arch": "x86_64",
+      "file": "mihomo-linux-amd64-compatible-v1.19.31.gz",
+      "archive": "gzip",
+      "sha256": "04cf9f09671704f839ddbee2e93069dc831a4123a75281e725d1d96ab9ac1afc",
+      "commands": {
+        "mihomo": "mihomo"
+      },
+      "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.31/mihomo-linux-amd64-compatible-v1.19.31.gz",
+      "checksum_source": "https://api.github.com/repos/MetaCubeX/mihomo/releases/tags/v1.19.31"
+    },
+    {
+      "name": "mihomo",
+      "version": "1.19.31",
+      "arch": "arm64",
+      "file": "mihomo-linux-arm64-v1.19.31.gz",
+      "archive": "gzip",
+      "sha256": "9e0f11afbf38426b8bd88fdc594678f8161c57eccb4e1b77acb12b493904f1d4",
+      "commands": {
+        "mihomo": "mihomo"
+      },
+      "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.31/mihomo-linux-arm64-v1.19.31.gz",
+      "checksum_source": "https://api.github.com/repos/MetaCubeX/mihomo/releases/tags/v1.19.31"
+    },
+    {
+      "name": "codex",
+      "version": "0.156.1",
+      "arch": "x86_64",
+      "file": "codex-x86_64-unknown-linux-musl.tar.gz",
+      "archive": "tar",
+      "sha256": "aff46539a83aff86e3c62c592bce2c50d95391f9df289afaf03a50c01d14533d",
+      "commands": {
+        "codex": "codex-x86_64-unknown-linux-musl"
+      },
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.156.1/codex-x86_64-unknown-linux-musl.tar.gz",
+      "checksum_source": "https://api.github.com/repos/openai/codex/releases/tags/rust-v0.156.1"
+    },
+    {
+      "name": "codex",
+      "version": "0.156.1",
+      "arch": "arm64",
+      "file": "codex-aarch64-unknown-linux-musl.tar.gz",
+      "archive": "tar",
+      "sha256": "558e12aaa6dacb335ec47240bf9721db8a54746806d64f01185a403f44f79b72",
+      "commands": {
+        "codex": "codex-aarch64-unknown-linux-musl"
+      },
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.156.1/codex-aarch64-unknown-linux-musl.tar.gz",
+      "checksum_source": "https://api.github.com/repos/openai/codex/releases/tags/rust-v0.156.1"
+    },
+    {
+      "name": "opencode",
+      "version": "1.18.32",
+      "arch": "x86_64",
+      "file": "opencode-linux-x64-baseline.tar.gz",
+      "archive": "tar",
+      "sha256": "763af386ef88a8cab18df00fcf055690e5a55e31a7088beabe02307142a6adce",
+      "commands": {
+        "opencode": "opencode"
+      },
+      "url": "https://github.com/anomalyco/opencode/releases/download/v1.18.32/opencode-linux-x64-baseline.tar.gz",
+      "checksum_source": "https://api.github.com/repos/anomalyco/opencode/releases/tags/v1.18.32"
+    },
+    {
+      "name": "opencode",
+      "version": "1.18.32",
+      "arch": "arm64",
+      "file": "opencode-linux-arm64.tar.gz",
+      "archive": "tar",
+      "sha256": "568461b7d4d8c19865c97e9a1102e613049c6039d01fe772154de873c1865840",
+      "commands": {
+        "opencode": "opencode"
+      },
+      "url": "https://github.com/anomalyco/opencode/releases/download/v1.18.32/opencode-linux-arm64.tar.gz",
+      "checksum_source": "https://api.github.com/repos/anomalyco/opencode/releases/tags/v1.18.32"
+    },
+    {
+      "name": "node",
+      "version": "24.21.0",
+      "arch": "x86_64",
+      "file": "node-v24.21.0-linux-x64.tar.xz",
+      "archive": "tar",
+      "sha256": "fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6",
+      "commands": {
+        "node": "node-v24.21.0-linux-x64/bin/node",
+        "npm": "node-v24.21.0-linux-x64/bin/npm",
+        "npx": "node-v24.21.0-linux-x64/bin/npx"
+      },
+      "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.xz",
+      "checksum_source": "https://nodejs.org/dist/v24.21.0/SHASUMS256.txt"
+    },
+    {
+      "name": "node",
+      "version": "24.21.0",
+      "arch": "arm64",
+      "file": "node-v24.21.0-linux-arm64.tar.xz",
+      "archive": "tar",
+      "sha256": "6ad1325edbdb5649c379b75a237147a666c95d4f9ae8d340fef2d1575d289ad2",
+      "commands": {
+        "node": "node-v24.21.0-linux-arm64/bin/node",
+        "npm": "node-v24.21.0-linux-arm64/bin/npm",
+        "npx": "node-v24.21.0-linux-arm64/bin/npx"
+      },
+      "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-arm64.tar.xz",
+      "checksum_source": "https://nodejs.org/dist/v24.21.0/SHASUMS256.txt"
+    }
+  ]
+}

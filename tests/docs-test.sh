@@ -29,6 +29,8 @@ expected=(
   README.md
   acceptance.md
   agent-install-prompt.md
+  agent-local-install-prompt.md
+  offline-install.md
   agent-update-prompt.md
   architecture.md
   codex-install-prompt.md

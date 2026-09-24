@@ -1,5 +1,8 @@
 # Install Mihomo and configure the complete stack
 
+This is the official online-source workflow. For pre-downloaded lab packages, use
+[shared-directory installation](offline-install.md) in place of the download/clone steps below.
+
 This tutorial starts with a new Linux account: install Mihomo, create an
 authenticated listener and personal routing policy, create a user service and
 credential file, then install `mihomo-userctl`. The controller does not download

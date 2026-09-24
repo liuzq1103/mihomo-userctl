@@ -4,6 +4,15 @@ All notable changes follow a simplified Keep a Changelog format.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-24
+
+### Added
+
+- Optional local-only installer for pre-downloaded Mihomo, Node.js, Codex CLI and
+  OpenCode archives, with pinned per-architecture checksums and private per-user installs.
+- Bilingual shared-directory setup, official download links, and a separate local
+  installation prompt; public online installation and update prompts remain distinct.
+
 ## [0.2.2] - 2026-09-04
 
 ### Changed
