@@ -17,8 +17,10 @@ and authenticated, launch it with:
 with_proxy codex
 ```
 
-Only this Codex process uses the proxy; ordinary shells and unrelated downloads keep their
-existing network settings. Bring your own model account, service access and proxy provider.
+This injects proxy variables into the new child; ordinary shells and unrelated downloads keep
+their settings. A reused persistent app-server retains its own environment: verify the
+[Remote hook and server-reuse path](docs/en/shared-runtime.md).
+Bring your own model account, service access and proxy provider.
 
 For servers with limited internet access, see the optional
 [shared-directory installation](docs/en/offline-install.md) and
@@ -87,8 +89,8 @@ preserves credentials and Mihomo data, and never starts or enables the service.
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version v0.3.2 --dry-run
-mihomoctl update --version v0.3.2
+mihomoctl update --version v0.3.3 --dry-run
+mihomoctl update --version v0.3.3
 ```
 
 An update changes only `mihomo-userctl`; it is not a Mihomo core upgrade. It

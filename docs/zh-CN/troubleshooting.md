@@ -90,6 +90,14 @@ grep -nE 'mihomo-userctl managed loader|case \$-|(^|[;[:space:]])return([;[:spac
 
 ### 终端已代理，但仍复用旧 App Server
 
+反向情况也可能出现：CLI 无代理变量，却通过 Unix socket 复用已代理的服务。
+两种方向都需检查，见[长期 app-server 规范](shared-runtime.md)。先使用
+`mihomoctl diagnose name codex --json`、`mihomoctl diagnose process PID --json` 核对当前 UID
+的候选进程（PID 使用实测值），再在本地结合 `ss -xnp` 的当前用户进程/socket 信息关联 CLI
+与服务。用实际出站服务的 Listener 连接及同一请求时段/目标的脱敏路由证据补齐链路。
+仅分享必要 PID/分类/关联结论，不回传完整列表、参数、认证 URL 或原始日志。
+工具权限不足、请求空闲或关联不完整时记 UNVERIFIED；diagnose 不自动解析 Unix 对端或最终节点。
+
 环境变量不会注入已运行进程。安装前启动的 Codex App Server 即使在新终端执行
 `with_proxy codex` 后也可能保持 `0/8`，并让新 CLI 通过本地 socket 复用它。
 典型证据是新 CLI 连接本地 Listener，而旧 app-server 仍对公网 `:443` 发起

@@ -80,3 +80,36 @@ actual Node interpreter where applicable, UID, private state path and migration 
 the final report. Continue separate Listener, proxy-egress and model-request [acceptance](acceptance.md).
 Shared programs do not imply shared accounts; paths or distinct ports alone do not prove complete
 isolation. Administrator/root access is outside the ordinary-user isolation threat boundary.
+
+## Remote hook and persistent app-server
+
+This project's `src/shell.bash` first calls `proxy_off`, then `proxy_on` only when the launcher
+supplies nonempty `CODEX_REMOTE_PAYLOAD`; failed readiness exits. This is a locally verified
+compatibility hook, not a stable public Codex API. Do not assume every Remote, code-mode or VS Code
+launch supplies it. Verify the actual shell loads the managed loader; never persist the variable.
+
+Distinguish ordinary default-direct shells, explicit terminal `with_proxy`/`mihomoctl exec`, and
+verified Remote launch via the hook. Mihomo rules select egress after traffic enters, not transparent
+interception. VS Code Extension Host retains its [separate integration](vscode-remote.md).
+
+Some versions/launch modes permit this path; measure it rather than assuming it for all users:
+
+```text
+CLI (possibly no proxy variables) -> current-user Unix socket -> persistent app-server
+  -> personal Mihomo listener -> routing rule -> actual egress
+```
+
+CLI `0/8` does not prove direct model traffic; CLI `8/8` does not prove an old server is proxied.
+`mihomoctl direct` also changes only the new child, not a reused server. Shared program upgrades or
+PATH fixes do not replace an existing server's version/environment. Record the actual outbound
+process, not just the new CLI.
+
+Use [troubleshooting](troubleshooting.md) to correlate CLI, any bridge and app-server UID/PID,
+runtime identity, start time, environment classification, Unix socket, Listener connection and
+same-request time/target/redacted routing evidence. Current diagnose output does not automatically
+establish Unix peers or the full causal chain. Socket paths depend on version/state directory;
+PPID=1, `8/8` or routing logs alone do not prove hook provenance or CLI linkage. Idle connections
+may be absent; insufficient evidence is UNVERIFIED. Never return raw arguments, environments or logs.
+Coordinate current-user session reconnect/restart; never automatically kill processes or delete
+sockets/private state. New users still need their own authorized startup and login acceptance;
+another user's working plain codex is not proof that proxy entry is unnecessary.

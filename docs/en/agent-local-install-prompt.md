@@ -32,6 +32,8 @@ Read shared-runtime.md in shared mode: missing public tools go to the administra
 fallback. Verify fresh-login/proxy Node/npm/Codex resolution, npm-launcher interpreter and private
 CODEX_HOME. Preserve authentication, sessions, NVM and old installs; migration/uninstallation needs
 explicit selection, never cleanup commands copied from deployment notes.
+Follow shared-runtime.md for Remote hook, CLI/persistent-server Unix-socket and egress evidence;
+0/8 or 8/8 alone is insufficient. Never persist CODEX_REMOTE_PAYLOAD or automatically restart old servers.
 
 Use only documented offline_install.py check/install for selected tools. Never run npm install,
 download through npx, or execute archive install scripts. Preserve conflicting existing commands;

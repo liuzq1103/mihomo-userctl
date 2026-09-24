@@ -90,6 +90,15 @@ a non-sensitive value to one child process; the parent must remain direct.
 
 ### A proxied terminal still reuses a stale App Server
 
+The reverse is also possible: a CLI without proxy variables reuses a proxied server through a Unix
+socket. Check both directions using the [persistent app-server contract](shared-runtime.md).
+Start with `mihomoctl diagnose name codex --json` and `mihomoctl diagnose process PID --json`
+(use a measured PID). Correlate current-user CLI/server sockets locally with `ss -xnp`, then the
+actual outbound server's Listener connection and same-request time/target/redacted routing evidence.
+Share only necessary PID/classification/linkage conclusions, never complete listings, arguments,
+authenticated URLs or raw logs. Missing permissions, idle requests or incomplete linkage are
+UNVERIFIED. Diagnose does not automatically establish Unix peers or the final proxy node.
+
 Environment changes do not alter an existing process. A Codex App Server that
 predates installation can retain `0/8` proxy variables even when a new
 `with_proxy codex` CLI has `8/8`, and the new CLI may reuse that server through

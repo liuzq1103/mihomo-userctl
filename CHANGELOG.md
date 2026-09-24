@@ -4,6 +4,18 @@ All notable changes follow a simplified Keep a Changelog format.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-09-24
+
+### Changed
+
+- Clarified ordinary-shell, explicit terminal and verified Remote-hook proxy entry paths.
+- Documented both directions of persistent app-server reuse, with separate CLI/bridge/server
+  environments, Unix-socket linkage and correlated outbound evidence.
+- Corrected README implications that new-child proxy variables determine all Codex traffic;
+  retained compatibility-hook limits, redaction and user-coordinated reconnect boundaries.
+- Runtime behavior and diagnostic output schemas are unchanged; Unix peer correlation remains
+  a deployment audit, not a new automatic diagnostic capability.
+
 ## [0.3.2] - 2026-09-24
 
 ### Changed

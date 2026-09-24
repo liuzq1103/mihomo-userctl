@@ -31,6 +31,8 @@ setup.md 中获取 Mihomo/Git 源码的联网步骤由本地流程替代，不�
 共享模式读取 shared-runtime.md：公共依赖缺失交管理员，不以个人包补齐；只装个人 Mihomo/控制层。
 核对新登录与代理子进程的 Node/npm/Codex 路径、npm 启动器解释器和私有 CODEX_HOME。
 保留认证、会话、NVM 和既有个人安装；默认值迁移/卸载需明确选择，不照搬笔记清理命令。
+按 shared-runtime.md 分别检查 Remote hook、新 CLI 与长期 app-server 的 Unix socket/出站关联；
+不以 0/8 或 8/8 单独判断模型请求路径，不持久设置 CODEX_REMOTE_PAYLOAD，不自动重启旧服务。
 遵循 deployment-contract.md 的脱敏审计，只报告必要分类和状态，不回传环境、完整参数或原始日志。
 
 使用文档化 offline_install.py check/install，仅安装我选择的软件；不运行 npm install、

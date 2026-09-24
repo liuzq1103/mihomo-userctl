@@ -35,6 +35,8 @@ VS Code Remote http.proxy，以及保留/合并方案。给出简短审计及变
 共享模式必须读取 shared-runtime.md：只装个人 Mihomo/控制层，公共依赖缺失交管理员，
 不自行补装 Node/Codex；核对正常与代理子进程的 PATH、npm 启动器所用 Node 和私有 CODEX_HOME。
 保留个人认证、会话和 NVM；迁移默认值或旧程序需明确选择，禁止照搬其他机器的清理命令。
+同时按 shared-runtime.md 核对 Remote hook、CLI/桥接/app-server 和 Unix socket 复用链路；
+0/8 或 8/8 不单独证明模型请求路径，不持久设置 CODEX_REMOTE_PAYLOAD，不自动停止旧服务。
 审计遵循 deployment-contract.md 的脱敏要求，不回传环境转储、完整进程参数或原始日志。
 
 敏感信息不得进入聊天、命令参数、日志、diff、Git 或最终报告；只能按安全文档在

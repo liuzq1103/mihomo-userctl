@@ -1,5 +1,10 @@
 # Architecture and data flow
 
+Ordinary shells, explicit terminal proxy entry and a verified CODEX_REMOTE_PAYLOAD hook are distinct
+paths; rules select egress after traffic enters Mihomo. Some versions/launch modes reuse persistent
+servers: follow [shared-runtime guidance](shared-runtime.md) for Unix sockets and the actual request
+process instead of inferring routing from the new CLI environment alone.
+
 The [shared-runtime mode](shared-runtime.md) separates administrator-managed Node/npm/Codex from
 per-user identity and Mihomo. Program installation location does not select a user's proxy;
 the opted-in process environment and Mihomo routing determine the network path.

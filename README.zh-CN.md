@@ -15,7 +15,9 @@
 with_proxy codex
 ```
 
-只让这次 Codex 进程使用代理，普通 Shell 和其他下载任务保持原来的网络设置。
+这会给新启动的子进程注入代理环境，普通 Shell 和其他下载任务保持原来的网络设置。
+若 CLI 复用长期 app-server，实际请求取决于该服务的环境；还需核对
+[Remote hook 与服务复用链路](docs/zh-CN/shared-runtime.md)。
 本项目帮助接通网络；模型账号、服务访问权限和可用的代理节点需要自行准备。
 
 `mihomo-userctl` 是现有 Linux 用户级
@@ -77,8 +79,8 @@ ss -lnt "sport = :$PROXY_PORT"
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version v0.3.2 --dry-run
-mihomoctl update --version v0.3.2
+mihomoctl update --version v0.3.3 --dry-run
+mihomoctl update --version v0.3.3
 ```
 
 更新只改变 `mihomo-userctl`，不等于 Mihomo 核心升级。它复用同一事务安装器，

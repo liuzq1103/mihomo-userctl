@@ -82,6 +82,11 @@ edit the script output to turn pending rows into PASS.
 
 ## 3. End-to-end evidence
 
+When a persistent app-server is reused, record CLI, bridge and outbound server environments and
+linkage separately. A direct shell/CLI classification is not a whole-request conclusion. Follow
+[shared-runtime guidance](shared-runtime.md) for Unix peers and same-request Listener/routing
+evidence; missing pieces remain UNVERIFIED and raw logs must not replace redacted reports.
+
 For [shared-runtime mode](shared-runtime.md), also audit common entrypoints/targets, normal/proxy
 Node/npm/Codex resolution, actual npm-launcher Node where applicable, process UID and private state.
 These are deployment audit items, not guarantees automatically established by the current acceptance

@@ -71,3 +71,33 @@ Codex 状态目录默认是 `~/.codex`；`CODEX_HOME` 可覆盖它。核对当�
 Node 实际解释器（适用时）、当前 UID、私有状态路径、迁移前后默认值及回滚方式。
 仍按[验收规范](acceptance.md)分别证明 Listener、代理出站和模型请求；程序共享不等于
 账号共享，也不单凭程序路径或不同端口声称完整隔离。管理员/root 不在普通用户隔离威胁边界内。
+
+## Remote hook 与长期 app-server
+
+本项目 `src/shell.bash` 加载时先执行 `proxy_off`；远程启动器提供非空
+`CODEX_REMOTE_PAYLOAD` 时才调用 `proxy_on`，就绪失败则退出。它是本地验证的兼容 hook，
+不是公开稳定的 Codex API，不能假定所有 Remote、code-mode 或 VS Code 启动路径都有它。
+实际 Shell 是否加载托管 loader 必须验证；禁止在启动文件或全局环境中持久设置该变量。
+
+区分普通 Shell 默认不注入、终端 `with_proxy`/`mihomoctl exec` 显式注入、经验证 Remote
+路径通过 hook 注入。Mihomo 规则在流量进入后决定出口，不透明截获普通进程。
+VS Code Extension Host 仍遵循[独立集成指南](vscode-remote.md)。
+
+某些版本/启动方式可出现以下链路，必须实测，不能推广为所有用户的默认行为：
+
+```text
+CLI（可能无代理变量）→ 当前用户 Unix socket → 长期 app-server
+  → 当前用户 Mihomo Listener → 规则 → 实际出站
+```
+
+CLI `0/8` 不证明模型请求直连；CLI `8/8` 也不证明旧服务已代理。`mihomoctl direct`
+同样只控制新子进程环境，不能把复用的旧服务变成直连。公共程序升级/PATH 修正不会替换
+已运行服务的版本或环境。记录实际出站进程，而不只记录新 CLI。
+
+按[排障流程](troubleshooting.md)关联 CLI、桥接进程（若有）和 app-server 的 UID/PID、
+运行身份、启动时间、环境分类、Unix socket、Listener 连接、同一请求时段/目标与脱敏路由证据。
+当前 diagnose 不自动证明 Unix 对端或完整因果链。socket 路径随版本/状态目录变化；
+PPID=1、`8/8` 或节点日志单独都不能证明 hook 来源或 CLI 关联。空闲时无连接不等于失败，
+证据不足记 UNVERIFIED。只输出脱敏分类，不回传完整参数、环境或日志。
+重连/重启需先协调当前用户的会话，不自动 kill 或删除 socket/私有状态。新用户仍需自己的
+授权启动与登录验收，不能因另一用户 plain codex 可用就认定无需代理接入。

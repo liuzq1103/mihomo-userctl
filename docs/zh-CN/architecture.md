@@ -1,5 +1,9 @@
 # 架构与数据流
 
+普通 Shell、显式终端代理和经验证的 CODEX_REMOTE_PAYLOAD hook 是不同入口；规则仅决定
+进入 Mihomo 后的出站。CLI 可在某些版本/启动方式下复用长期服务，应按
+[共享运行时规范](shared-runtime.md)追踪 Unix socket 与实际请求进程，不能只看新 CLI 的环境。
+
 多用户部署可采用[共享运行时规范](shared-runtime.md)：管理员维护公共 Node/npm/Codex，
 每个用户独立维护身份状态与 Mihomo。程序安装位置不决定请求使用哪个用户的代理；
 当前用户选择的子进程环境及 Mihomo 路由共同决定网络路径。

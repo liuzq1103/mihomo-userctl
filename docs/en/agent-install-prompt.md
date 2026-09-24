@@ -43,6 +43,8 @@ In shared mode read shared-runtime.md: install only personal Mihomo/controller; 
 go to the administrator, not a Node/Codex fallback. Verify normal/proxy PATH, the npm launcher's Node
 and private CODEX_HOME. Preserve authentication, sessions and NVM; migrating defaults or old tools
 requires explicit selection, never removal commands copied from another machine.
+Also follow shared-runtime.md for Remote hook and CLI/bridge/app-server Unix-socket linkage;
+0/8 or 8/8 alone does not prove request routing. Never persist CODEX_REMOTE_PAYLOAD or stop old servers automatically.
 Follow deployment-contract.md for redacted audits; never return environment dumps, full argv or raw logs.
 
 Sensitive information must never enter chat, command arguments, logs, diffs,

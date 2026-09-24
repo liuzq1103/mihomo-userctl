@@ -67,6 +67,10 @@ printf 'acceptance_rc=%s\n' "$acceptance_rc"
 
 ## 3. 端到端证据
 
+若存在 app-server 复用，分别记录 CLI、桥接进程与实际出站服务的环境及关联证据；普通
+Shell/新 CLI 的 direct 分类不是整个请求链路的结论。按[共享运行时规范](shared-runtime.md)
+检查 Unix socket 与同一请求的 Listener/路由证据，缺失部分保持 UNVERIFIED，不用原始日志代替脱敏报告。
+
 共享模式还按[共享运行时规范](shared-runtime.md)核对公共入口与真实目标、普通/代理 Shell
 的 Node/npm/Codex 解析、npm 启动器实际 Node（适用时）、进程 UID 和私有状态路径。
 这些是部署审计项，现有 acceptance 脚本不会自动证明全部共享运行时条件；未测项保持 UNVERIFIED。
