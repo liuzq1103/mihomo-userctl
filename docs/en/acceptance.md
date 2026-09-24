@@ -82,6 +82,11 @@ edit the script output to turn pending rows into PASS.
 
 ## 3. End-to-end evidence
 
+For [shared-runtime mode](shared-runtime.md), also audit common entrypoints/targets, normal/proxy
+Node/npm/Codex resolution, actual npm-launcher Node where applicable, process UID and private state.
+These are deployment audit items, not guarantees automatically established by the current acceptance
+script. Untested conditions remain UNVERIFIED.
+
 For a selected Codex delivery goal, follow the [deployment contract](deployment-contract.md):
 record the actual executable, new-process UID/proxy classification, Listener connection and
 proxy-egress evidence, and an authorized minimal model request separately. The user handles login.

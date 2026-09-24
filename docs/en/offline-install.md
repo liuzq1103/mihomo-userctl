@@ -4,8 +4,11 @@
 
 This optional deployment is for a lab that downloads packages once and shares them read-only.
 The public repository keeps official online installation as its default. No lab path is hardcoded,
-and binary packages must not be committed to Git. Each account installs its own tools and keeps
-its own ports, credentials, subscriptions and services.
+and binary packages must not be committed to Git. Each account keeps its own ports, credentials,
+subscriptions and services. On servers with administrator-provided Node/npm/Codex, use
+[shared-runtime mode](shared-runtime.md): install only personal Mihomo/controller by default.
+The table retains optional Node/Codex packages for explicitly selected personal mode. Missing shared
+dependencies are administrator actions, never an automatic personal-install fallback.
 
 ## Downloads and preparation
 
@@ -25,7 +28,7 @@ manifest itself: replacing both the manifest and an archive defeats a checksum-o
 Also obtain a reviewed fixed [controller release](https://github.com/liuzq1103/mihomo-userctl/releases).
 Record its tag, full commit, archive hash and review in SOURCE.txt. Locally computing the source
 archive hash proves transfer consistency, not publisher identity. Use the fixed
-[v0.3.1 source ZIP](https://github.com/liuzq1103/mihomo-userctl/archive/refs/tags/v0.3.1.zip),
+[v0.3.2 source ZIP](https://github.com/liuzq1103/mihomo-userctl/archive/refs/tags/v0.3.2.zip),
 which includes the helper, manifest and bilingual documentation. Ubuntu 22.04 x86_64 servers
 use the x86_64 entries regardless of the download computer's operating system. Target dependency
 and runtime compatibility checks are still required.
@@ -57,14 +60,15 @@ PUBLIC='/replace/with/shared/public'
 BUNDLE="$PUBLIC/mihomo-offline"
 python3 "$BUNDLE/offline_install.py" check \
   --bundle-dir "$BUNDLE/packages" --manifest "$BUNDLE/offline-packages.json" \
-  --packages mihomo node codex opencode
+  --packages mihomo
 python3 "$BUNDLE/offline_install.py" install \
   --bundle-dir "$BUNDLE/packages" --manifest "$BUNDLE/offline-packages.json" \
-  --packages mihomo node codex opencode
+  --packages mihomo
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Select only requested tools, e.g. `--packages mihomo`. `check` verifies bytes only and writes
+The examples use shared mode. Add tools to `--packages` only when explicitly selected; Node/Codex
+require personal mode. `check` verifies bytes only and writes
 nothing. Missing files, digest mismatches and unsupported architectures fail with exit code 2;
 there is no network fallback. `install` verifies private copies before bounded extraction,
 then exclusively creates command links in `~/.local/bin`. All archives are staged before any
@@ -80,7 +84,7 @@ substituting local packages and source for all download/clone steps. Use the ori
 with the confirmed value. The original installer owns controller transactions and rollback.
 Do not run write-producing tests or installation inside shared source.
 
-Check only selected tools: `mihomo -v`, `node --version`, `npm --version`, `codex --version`,
+Check selected tools, including reused shared ones: `mihomo -v`, `node --version`, `npm --version`, `codex --version`,
 `opencode --version`. Record real exit codes; run controller regression tests and acceptance.
 CPU/libc/runtime compatibility must be checked on the actual host. Hash checks do not establish
 compatibility; version output does not establish model or proxy connectivity.

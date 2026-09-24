@@ -32,6 +32,7 @@ expected=(
   agent-local-install-prompt.md
   offline-install.md
   deployment-contract.md
+  shared-runtime.md
   agent-update-prompt.md
   architecture.md
   codex-install-prompt.md

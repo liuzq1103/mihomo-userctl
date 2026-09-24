@@ -67,6 +67,10 @@ printf 'acceptance_rc=%s\n' "$acceptance_rc"
 
 ## 3. 端到端证据
 
+共享模式还按[共享运行时规范](shared-runtime.md)核对公共入口与真实目标、普通/代理 Shell
+的 Node/npm/Codex 解析、npm 启动器实际 Node（适用时）、进程 UID 和私有状态路径。
+这些是部署审计项，现有 acceptance 脚本不会自动证明全部共享运行时条件；未测项保持 UNVERIFIED。
+
 选择 Codex 交付目标时，按[交付约定](deployment-contract.md)分别记录实际可执行程序、
 新进程 UID/代理分类、Listener 连接与请求的代理出站证据，以及经授权的最小模型请求。
 登录由用户完成；不能用版本输出、成功启动或环境变量存在代替真实请求成功。

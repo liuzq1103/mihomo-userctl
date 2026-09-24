@@ -8,6 +8,8 @@ verify stated environment facts read-only. Keep personal host/account details ou
 | Parameter | Choices and defaults |
 | --- | --- |
 | Source | A pinned published online release, or a shared local directory with pinned source identity |
+| Runtime mode | Shared on servers with administrator-provided Node/npm/Codex; personal mode requires explicit selection, never a fallback for missing shared tools |
+| Shared tools | Administrator-confirmed entrypoints, resolved targets and pinned versions; example paths are not mandatory |
 | Known environment | OS, architecture and existing Mihomo/Node/npm/Codex/OpenCode paths and versions; audit unknowns |
 | Software | Reuse suitable existing installations by default; install only explicitly selected missing tools |
 | Delivery goal | Controller installation, or installation plus Codex end-to-end acceptance; do not assume Codex acceptance |
@@ -19,6 +21,8 @@ Local acquisition forbids fallback downloads, including GitHub/npm/apt and `miho
 Authorization for a network acceptance check does not authorize online installation. Online acquisition
 allows documented source/package retrieval, not automatic login or paid model requests. Report missing
 or unsuitable tools if their installation/replacement is not authorized.
+Follow the [shared-runtime contract](shared-runtime.md): administrators own common programs; users
+configure private identity, Mihomo and controller state. Node/Codex offline archives are for personal mode.
 
 ## Execution and authorization
 
@@ -55,6 +59,9 @@ copy that changes command precedence. For a Codex goal, separately record the ex
 new process UID/proxy classification, Listener connection and intended proxy-egress evidence, and
 one authorized minimal model request. The user completes login. Version output, successful startup,
 proxy variables and Listener readiness do not prove model-request success or proxy routing.
+Shared-mode acceptance also checks fresh-login/proxy-child Node/npm/Codex resolution, the launcher's
+actual Node when applicable, private CODEX_HOME/credential storage and NVM defaults. Migration is
+explicit; never automatically remove personal installations or state.
 
 Preserve real exit codes and PASS/FAIL/UNVERIFIED/DEFERRED labels. Checks lacking authorization or
 evidence are UNVERIFIED; use DEFERRED only when the user explicitly postpones them, with reason and

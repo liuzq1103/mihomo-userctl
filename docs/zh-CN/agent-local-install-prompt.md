@@ -8,7 +8,8 @@
 ```text
 请为当前普通 Ubuntu 用户从已有共享目录安装环境，直接完成授权范围内的工作并返回证据。
 共享部署目录：<PUBLIC/mihomo-offline 的实际绝对路径>
-选择软件：<mihomo，以及可选 node、codex、opencode>
+运行时模式：<管理员公共 Node/npm/Codex / 明确选择个人安装；公共入口及版本>
+选择软件：<共享模式默认仅 mihomo；个人模式才按需选择 node/codex；opencode 单独选择>
 控制层：<是否安装 mihomo-userctl>
 专属端口：<已确认端口，或先只读建议再向我确认>
 已知环境与软件复用：<已有软件路径版本；默认复用满足要求的软件>
@@ -27,6 +28,9 @@ setup.md 中获取 Mihomo/Git 源码的联网步骤由本地流程替代，不�
 审阅固定软件包清单、SOURCE.txt 和源码。缺包、摘要不符或依赖不满足就报告具体缺项并停止，
 不得降级为联网安装。不要把安装器的 check 成功说成运行兼容性已经验证。
 先报告简短审计与变更/回滚范围；复用适用的系统 Node/npm/Codex，不另装同名程序改变 PATH。
+共享模式读取 shared-runtime.md：公共依赖缺失交管理员，不以个人包补齐；只装个人 Mihomo/控制层。
+核对新登录与代理子进程的 Node/npm/Codex 路径、npm 启动器解释器和私有 CODEX_HOME。
+保留认证、会话、NVM 和既有个人安装；默认值迁移/卸载需明确选择，不照搬笔记清理命令。
 遵循 deployment-contract.md 的脱敏审计，只报告必要分类和状态，不回传环境、完整参数或原始日志。
 
 使用文档化 offline_install.py check/install，仅安装我选择的软件；不运行 npm install、

@@ -6,6 +6,10 @@
 来源为默认入口；此流程是可选部署方式，不写死服务器路径，也不向 Git 提交安装包。
 下文的 `PUBLIC` 必须替换为实际共享目录。共享的是程序包，不是账号、订阅或配置。
 
+管理员已提供公共 Node/npm/Codex 时采用[共享运行时模式](shared-runtime.md)：普通用户
+默认只取 Mihomo 包和本项目源码，不重复下载/安装 Node 或 Codex。下表仍保留个人模式的
+可选包；公共依赖缺失应交管理员处理，不能自动切换个人安装。
+
 ## 下载清单
 
 先在服务器运行 `uname -m`、`ldd --version`，再在联网电脑下载。`x86_64` 选 x64，
@@ -18,7 +22,7 @@
 | Codex CLI 0.156.1 | [x86_64 musl .tar.gz](https://github.com/openai/codex/releases/download/rust-v0.156.1/codex-x86_64-unknown-linux-musl.tar.gz) | [aarch64 musl .tar.gz](https://github.com/openai/codex/releases/download/rust-v0.156.1/codex-aarch64-unknown-linux-musl.tar.gz) |
 | OpenCode 1.18.32 | [x64 baseline .tar.gz](https://github.com/anomalyco/opencode/releases/download/v1.18.32/opencode-linux-x64-baseline.tar.gz) | [arm64 .tar.gz](https://github.com/anomalyco/opencode/releases/download/v1.18.32/opencode-linux-arm64.tar.gz) |
 | Node.js 24.21.0 LTS（含 npm/npx） | [x64 .tar.xz](https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.xz) | [arm64 .tar.xz](https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-arm64.tar.xz) |
-| mihomo-userctl 源码 | [v0.3.1 ZIP（架构通用）](https://github.com/liuzq1103/mihomo-userctl/archive/refs/tags/v0.3.1.zip) | 同左 |
+| mihomo-userctl 源码 | [v0.3.2 ZIP（架构通用）](https://github.com/liuzq1103/mihomo-userctl/archive/refs/tags/v0.3.2.zip) | 同左 |
 
 Mihomo 和本项目构成代理控制环境；Codex、OpenCode、Node 均为可选工具。选用独立
 Codex/OpenCode 程序包，无需通过 npm 安装它们。Node 为其他 JS 工具准备，不是
@@ -33,7 +37,7 @@ Codex/OpenCode 程序包，无需通过 npm 安装它们。Node 为其他 JS 工
 
 源码 ZIP 没有在这份二进制清单中：维护者应在联网电脑核对标签对应 commit、审阅源码，
 记录归档 SHA256 和来源，再解压为下面的 `source/`。自算摘要只用于传输一致性。
-v0.3.1 包含离线入口、清单及双语文档，直接从同一份审核后的源码复制即可。
+v0.3.2 包含离线入口、清单及双语文档，直接从同一份审核后的源码复制即可。
 Ubuntu 22.04 x86_64 服务器使用表中 x86_64 一列；不要根据下载电脑的 Windows 架构
 选择 Windows 包。安装前仍需检查目标服务器的基础依赖和实际运行兼容性。
 
@@ -62,7 +66,7 @@ PUBLIC='/replace/with/shared/public'
 BUNDLE="$PUBLIC/mihomo-offline"
 python3 "$BUNDLE/offline_install.py" check \
   --bundle-dir "$BUNDLE/packages" --manifest "$BUNDLE/offline-packages.json" \
-  --packages mihomo node codex opencode
+  --packages mihomo
 ```
 
 `check` 只读校验文件与摘要，不执行程序、不解压、不声称兼容性已验证。缺包、摘要不符、
@@ -77,7 +81,7 @@ apt，不会安装系统依赖。基础工具缺失时由管理员另行准备�
 ```bash
 python3 "$BUNDLE/offline_install.py" install \
   --bundle-dir "$BUNDLE/packages" --manifest "$BUNDLE/offline-packages.json" \
-  --packages mihomo node codex opencode
+  --packages mihomo
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
@@ -94,7 +98,8 @@ export PATH="$HOME/.local/bin:$PATH"
 普通用户不得在共享源码中运行会写文件的检查或安装操作。
 
 安装后逐项运行并记录退出码：`mihomo -v`、`node --version`、`npm --version`、
-`codex --version`、`opencode --version`；只检查实际选择的软件。还需运行源码的测试
+`codex --version`、`opencode --version`；检查实际选择的软件，包括复用的公共运行时。
+个人模式需额外工具时才显式扩展 `--packages`；不要在共享模式追加 node/codex。还需运行源码的测试
 和原验收脚本。glibc、CPU 指令集和动态库兼容性必须以目标机器实际结果为准；版本命令
 成功也不等于模型调用或代理节点已经验收。新包尚未在目标服务器运行时应标为 UNVERIFIED。
 

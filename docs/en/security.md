@@ -1,5 +1,9 @@
 # Security model
 
+In [shared-runtime mode](shared-runtime.md), common programs/npm directories must not be writable
+by ordinary users. Keep credentials/sessions private and check effective CODEX_HOME. User workflows
+never change public-directory permissions, log in as another user or delete `.codex`/`.nvm` to migrate.
+
 ## Terminology
 
 - **Sensitive information** includes subscription URLs, usernames, passwords,

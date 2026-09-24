@@ -2,6 +2,9 @@
 
 **Get Codex connected on your remote server with one prompt.**
 
+For managed multi-user servers, [share administrator-owned Node/npm/Codex while keeping identity
+and Mihomo private per user](docs/en/shared-runtime.md). Users need not install another Codex copy.
+
 Give the [installation prompt](docs/en/agent-install-prompt.md) to a coding agent with access
 to your remote Linux terminal. It guides per-user proxy setup and verification. If the server
 cannot easily reach GitHub, pre-download the packages and use the
@@ -84,8 +87,8 @@ preserves credentials and Mihomo data, and never starts or enables the service.
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version v0.3.1 --dry-run
-mihomoctl update --version v0.3.1
+mihomoctl update --version v0.3.2 --dry-run
+mihomoctl update --version v0.3.2
 ```
 
 An update changes only `mihomo-userctl`; it is not a Mihomo core upgrade. It

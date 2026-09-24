@@ -1,5 +1,7 @@
 # English documentation
 
+[Shared Node/Codex on multi-user servers](shared-runtime.md)
+
 [Deployment parameters, authorization and delivery contract](deployment-contract.md)
 
 For pre-downloaded shared packages, start with [local installation](offline-install.md)

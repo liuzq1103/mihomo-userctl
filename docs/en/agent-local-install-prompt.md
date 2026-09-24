@@ -7,7 +7,8 @@ Use the shared [deployment parameters and delivery contract](deployment-contract
 ```text
 Install the requested tools for this ordinary Ubuntu account from pre-downloaded local material.
 Shared deployment directory: <absolute PUBLIC/mihomo-offline path>
-Selected tools: <mihomo and optional node, codex, opencode>
+Runtime: <administrator-shared Node/npm/Codex / explicitly selected personal install; shared paths/versions>
+Selected tools: <shared mode: mihomo; personal mode may add node/codex; opencode separately selected>
 Install mihomo-userctl controller: <yes/no>
 Personal port: <confirmed value, or obtain a read-only suggestion for my confirmation>
 Known environment/reuse: <existing tool paths/versions; reuse suitable installations>
@@ -27,6 +28,10 @@ Review shared-directory trust/permissions, pinned manifest, SOURCE.txt and sourc
 Missing packages, checksum mismatches or dependencies must stop the workflow with a specific report.
 Report the audit and concrete change/rollback scope. Reuse suitable system Node/npm/Codex without
 shadowing them. Follow the contract's redacted audit: no environment dumps, full argv or raw logs.
+Read shared-runtime.md in shared mode: missing public tools go to the administrator, never a personal
+fallback. Verify fresh-login/proxy Node/npm/Codex resolution, npm-launcher interpreter and private
+CODEX_HOME. Preserve authentication, sessions, NVM and old installs; migration/uninstallation needs
+explicit selection, never cleanup commands copied from deployment notes.
 
 Use only documented offline_install.py check/install for selected tools. Never run npm install,
 download through npx, or execute archive install scripts. Preserve conflicting existing commands;

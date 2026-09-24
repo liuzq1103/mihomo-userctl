@@ -15,6 +15,7 @@ Supply the non-secret [deployment parameters](deployment-contract.md); reuse exi
 Install mihomo-userctl for this ordinary Linux account from an exact reviewed,
 pinned released tag. Complete the work and return evidence, not only a plan.
 Known environment/reuse: <OS/architecture/existing tool paths and versions; reuse suitable tools>
+Runtime: <administrator-shared Node/npm/Codex / explicitly selected personal install; shared paths/versions>
 Goal: <controller installation / include Codex end-to-end acceptance>
 Startup: <install only and preserve state / install and start for acceptance>
 Network acceptance: <selected subscription refresh, public probes, minimal model request>
@@ -38,6 +39,10 @@ VS Code Remote integration through http.proxy, and preserve/merge strategy. Repo
 concrete change/rollback scope. Existing explicit approval or installation authorization permits
 continuing; ask only about unauthorized replacements, conflicts or unresolved choices.
 Reuse suitable existing tools; do not replace system Node/npm/Codex or shadow them with new copies.
+In shared mode read shared-runtime.md: install only personal Mihomo/controller; missing shared tools
+go to the administrator, not a Node/Codex fallback. Verify normal/proxy PATH, the npm launcher's Node
+and private CODEX_HOME. Preserve authentication, sessions and NVM; migrating defaults or old tools
+requires explicit selection, never removal commands copied from another machine.
 Follow deployment-contract.md for redacted audits; never return environment dumps, full argv or raw logs.
 
 Sensitive information must never enter chat, command arguments, logs, diffs,

@@ -4,6 +4,17 @@ All notable changes follow a simplified Keep a Changelog format.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-24
+
+### Changed
+
+- Documented administrator-shared Node/npm/Codex with private per-user identity,
+  Mihomo and controller state, without changing runtime installation behavior.
+- Updated both acquisition prompts and offline examples to avoid duplicate Node/Codex
+  installs in shared mode; missing shared dependencies remain administrator actions.
+- Added PATH/interpreter and private CODEX_HOME audits, explicit NVM migration boundaries,
+  preservation of personal credentials/sessions and scoped shared-runtime acceptance.
+
 ## [0.3.1] - 2026-09-24
 
 ### Changed

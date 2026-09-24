@@ -1,5 +1,9 @@
 # Architecture and data flow
 
+The [shared-runtime mode](shared-runtime.md) separates administrator-managed Node/npm/Codex from
+per-user identity and Mihomo. Program installation location does not select a user's proxy;
+the opted-in process environment and Mihomo routing determine the network path.
+
 ## Problem model
 
 ```text

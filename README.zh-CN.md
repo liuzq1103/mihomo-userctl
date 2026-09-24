@@ -2,6 +2,9 @@
 
 **一句话，让远程服务器连上 Codex。**
 
+多用户服务器推荐：[管理员共用一份 Node/npm/Codex，各用户独立身份与 Mihomo](docs/zh-CN/shared-runtime.md)。
+普通用户无需重复安装 Codex；公共软件维护与个人代理配置分别处理。
+
 把[安装 Prompt](docs/zh-CN/agent-install-prompt.md)交给能操作远程 Linux 终端的 Coding Agent，
 完成用户级代理配置与验收。服务器无法方便访问 GitHub？先备好软件包，再用
 [本地安装 Prompt](docs/zh-CN/agent-local-install-prompt.md)。
@@ -74,8 +77,8 @@ ss -lnt "sport = :$PROXY_PORT"
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version v0.3.1 --dry-run
-mihomoctl update --version v0.3.1
+mihomoctl update --version v0.3.2 --dry-run
+mihomoctl update --version v0.3.2
 ```
 
 更新只改变 `mihomo-userctl`，不等于 Mihomo 核心升级。它复用同一事务安装器，

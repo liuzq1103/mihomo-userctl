@@ -1,5 +1,7 @@
 # 简体中文文档
 
+[多用户共享 Node/Codex 规范](shared-runtime.md)
+
 [安装参数、授权与交付约定](deployment-contract.md)
 
 共享服务器已提前备包时，直接阅读[本地安装与下载清单](offline-install.md)和
