@@ -81,4 +81,7 @@ remaining UNVERIFIED/DEFERRED items, and user actions such as opening a new
 terminal or reconnecting a long-lived client. This is the final acceptance
 record; use deployment-contract.md's report fields and limit isolation claims to measured scope.
 Never claim an unrun check passed.
+Finish with the subscription handoff in deployment-contract.md: actual absolute config path and
+proxy-providers.<actual-name>.url, local-only entry, pending acceptance and follow-up checks.
+Preserve existing subscriptions; give the actual import location for file providers. Do not equate missing setup with success.
 ```

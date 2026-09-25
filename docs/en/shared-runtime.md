@@ -83,6 +83,12 @@ isolation. Administrator/root access is outside the ordinary-user isolation thre
 
 ## Remote hook and persistent app-server
 
+Whether `with_proxy codex` is necessary depends on the actual launch path. A verified Remote hook
+with accepted outbound-server proxy behavior needs no additional wrapper. Merely configuring the
+hook does not make plain terminal `codex` trigger it; explicit terminal entry remains recommended.
+A plain CLI reusing a verified proxied server may also need no wrapper, but that is current service
+state to recheck after reconnect/upgrade, not a guarantee for new users.
+
 This project's `src/shell.bash` first calls `proxy_off`, then `proxy_on` only when the launcher
 supplies nonempty `CODEX_REMOTE_PAYLOAD`; failed readiness exits. This is a locally verified
 compatibility hook, not a stable public Codex API. Do not assume every Remote, code-mode or VS Code

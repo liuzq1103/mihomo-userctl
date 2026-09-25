@@ -73,3 +73,32 @@ tools; changed files; port/authentication conclusion without credentials; servic
 checks and exit codes; layered Codex evidence; backups/rollback; and remaining user actions. Limit
 isolation claims to the recorded operations and comparisons. Do not claim that every other user was
 proven unaffected, or inspect private user data to establish isolation.
+
+## Mandatory subscription handoff at completion
+
+The final response must state subscription status, not just installation success. The default HTTP
+example uses `~/.config/mihomo/config.yaml` at `proxy-providers.subscription.url`, not the health-check
+URL, client.env or provider cache. Resolve the actual service `-f`/selected configuration path and
+provider name, then report an absolute current-user file path and exact key. Do not assume the default
+when XDG/custom paths differ. Show only a secret-free structure; never show existing URLs or put new
+subscription values in command arguments.
+
+If software installation succeeded but the HTTP subscription is missing, finish with this handoff,
+replacing every descriptive placeholder:
+
+> Software installation is complete; subscription setup and network acceptance are still pending.
+> Edit [actual absolute config path] locally on the server and put your subscription link inside the
+> quotes at [actual proxy-providers.<name>.url]. Preserve YAML indentation and mode 600. Do not send
+> the link to chat. Reply "filled in" when ready for configuration checks and authorized acceptance.
+
+If preparation/installation is incomplete, report the actual partial state instead of claiming software
+installation completed. Never fabricate nodes, start placeholder configurations or declare all checks
+passed. Use DEFERRED only for explicit user postponement; otherwise pending acceptance is UNVERIFIED.
+For an existing valid subscription, say it was preserved and no re-entry is needed. File providers and
+other acquisition methods receive their actual import location, not a forced HTTP URL migration.
+
+After entry, run the documented `mihomo -t` against the actual configuration with redacted output.
+Configuration validation/provider fetching can need network access and remains subject to authorization.
+Then, only when authorized, start or coordinate restart/reconnect of the current user's service/client
+and perform acceptance. Report software installation, subscription usability and Codex request success
+separately; never automatically interrupt working processes.

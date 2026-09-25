@@ -28,7 +28,7 @@ manifest itself: replacing both the manifest and an archive defeats a checksum-o
 Also obtain a reviewed fixed [controller release](https://github.com/liuzq1103/mihomo-userctl/releases).
 Record its tag, full commit, archive hash and review in SOURCE.txt. Locally computing the source
 archive hash proves transfer consistency, not publisher identity. Use the fixed
-[v0.3.3 source ZIP](https://github.com/liuzq1103/mihomo-userctl/archive/refs/tags/v0.3.3.zip),
+[v0.3.4 source ZIP](https://github.com/liuzq1103/mihomo-userctl/archive/refs/tags/v0.3.4.zip),
 which includes the helper, manifest and bilingual documentation. Ubuntu 22.04 x86_64 servers
 use the x86_64 entries regardless of the download computer's operating system. Target dependency
 and runtime compatibility checks are still required.

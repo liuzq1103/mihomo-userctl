@@ -63,4 +63,7 @@ Listener readiness 不等于代理节点证据。按 deployment-contract.md 分�
 保持、备份及回滚命令、剩余 UNVERIFIED/DEFERRED，以及重开终端或重连长期客户端
 等用户动作。使用 deployment-contract.md 的固定报告字段，隔离结论限于实际操作与检查范围。
 未运行的检查不得报告为通过。
+结尾必须按 deployment-contract.md 交接订阅：给出实际绝对配置路径和
+proxy-providers.<实际名称>.url 的准确位置，提醒仅在服务器本地填写。订阅未填不等于完整可用；
+已存在则说明保留，file provider 则给实际导入位置，并列出填写后的检查与授权验收步骤。
 ```

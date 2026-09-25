@@ -74,6 +74,11 @@ Node 实际解释器（适用时）、当前 UID、私有状态路径、迁移�
 
 ## Remote hook 与长期 app-server
 
+是否需要 `with_proxy codex` 取决于实际启动路径：已确认触发 hook 且实际出站服务已完成
+代理验收的 Remote 路径，无需再额外套 `with_proxy`。仅配置了 hook 不代表普通终端输入
+`codex` 也会触发它；普通终端仍推荐显式入口。plain CLI 复用已代理服务时也可能无需包装，
+但这是当前服务状态，重连/升级后需重验，不应作为新用户的通用保证。
+
 本项目 `src/shell.bash` 加载时先执行 `proxy_off`；远程启动器提供非空
 `CODEX_REMOTE_PAYLOAD` 时才调用 `proxy_on`，就绪失败则退出。它是本地验证的兼容 hook，
 不是公开稳定的 Codex API，不能假定所有 Remote、code-mode 或 VS Code 启动路径都有它。

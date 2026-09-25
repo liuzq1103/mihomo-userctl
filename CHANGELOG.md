@@ -4,6 +4,17 @@ All notable changes follow a simplified Keep a Changelog format.
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-09-25
+
+### Changed
+
+- Explained when a verified Remote hook makes an extra with_proxy wrapper unnecessary,
+  while retaining explicit terminal entry and persistent-server verification boundaries.
+- Required a final subscription handoff in both installation prompts: actual absolute
+  configuration path/provider key, safe local entry, preserved existing/file providers,
+  truthful partial-completion status and authorized post-entry validation.
+- Runtime behavior and dependency pins are unchanged.
+
 ## [0.3.3] - 2026-09-24
 
 ### Changed

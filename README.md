@@ -20,6 +20,7 @@ with_proxy codex
 This injects proxy variables into the new child; ordinary shells and unrelated downloads keep
 their settings. A reused persistent app-server retains its own environment: verify the
 [Remote hook and server-reuse path](docs/en/shared-runtime.md).
+A verified Remote hook/proxied server needs no extra wrapper; a plain terminal may not trigger the hook.
 Bring your own model account, service access and proxy provider.
 
 For servers with limited internet access, see the optional
@@ -89,8 +90,8 @@ preserves credentials and Mihomo data, and never starts or enables the service.
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version v0.3.3 --dry-run
-mihomoctl update --version v0.3.3
+mihomoctl update --version v0.3.4 --dry-run
+mihomoctl update --version v0.3.4
 ```
 
 An update changes only `mihomo-userctl`; it is not a Mihomo core upgrade. It

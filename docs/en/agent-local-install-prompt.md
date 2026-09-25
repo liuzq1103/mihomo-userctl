@@ -62,4 +62,7 @@ Listener readiness is not proxy-node evidence. Return versions/architecture/SHA2
 personal installation paths and receipts, controller backup/rollback commands, service state,
 actual check results and remaining actions, using the contract's report fields and scoped isolation
 claims. Do not claim independent signature verification.
+Finish with deployment-contract.md's subscription handoff: actual absolute path/provider URL key,
+local editing and authorized follow-up checks. Preserve existing subscriptions; file providers use
+their actual import location. Never request links in chat or report missing setup as fully usable.
 ```
