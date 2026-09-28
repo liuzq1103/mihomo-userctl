@@ -1,5 +1,7 @@
 # English documentation
 
+Public directories hold installation material; private per-user installation is the default, and administrator-shared runtime is an explicitly selected option.
+
 [Shared Node/Codex on multi-user servers](shared-runtime.md)
 
 [Deployment parameters, authorization and delivery contract](deployment-contract.md)

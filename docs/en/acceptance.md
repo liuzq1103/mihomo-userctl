@@ -1,5 +1,7 @@
 # Installation acceptance and evidence
 
+Public directories hold installation material; private per-user installation is the default, and administrator-shared runtime is an explicitly selected option.
+
 Listener baseline checks and end-to-end usage checks are separate. Installation
 success, a successful doctor, and application connectivity are different claims.
 Report only what the evidence establishes.

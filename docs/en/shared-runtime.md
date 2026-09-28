@@ -2,10 +2,10 @@
 
 [中文](../zh-CN/shared-runtime.md) · [Deployment contract](deployment-contract.md) · [Local installation](offline-install.md)
 
-Use this mode on multi-user servers with administrator-managed tools: **share programs, keep
-identity data and network configuration per Linux user**. Personal machines without shared tools
-can explicitly select personal installation. Online/local acquisition and shared/personal runtime
-are independent choices.
+Use this optional mode only when administrator-managed public tools are explicitly selected:
+**share programs, keep identity and network configuration per Linux user**. Personal installation
+is the default. A public directory of ZIPs and dependency archives does not select this mode.
+The persistent-process and routing evidence below also applies to personal installations.
 
 | Layer | Ownership and boundary |
 | --- | --- |

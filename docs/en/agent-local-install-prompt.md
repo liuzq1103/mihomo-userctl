@@ -1,4 +1,4 @@
-# Coding-agent prompt for local shared packages
+# Coding-agent prompt for local archives
 
 [中文](../zh-CN/agent-local-install-prompt.md) · [Local setup](offline-install.md) · [Public online prompt](agent-install-prompt.md)
 
@@ -6,25 +6,32 @@ Use the shared [deployment parameters and delivery contract](deployment-contract
 
 ```text
 Install the requested tools for this ordinary Ubuntu account from pre-downloaded local material.
-Shared deployment directory: <absolute PUBLIC/mihomo-offline path>
-Runtime: <administrator-shared Node/npm/Codex / explicitly selected personal install; shared paths/versions>
-Selected tools: <shared mode: mihomo; personal mode may add node/codex; opencode separately selected>
-Install mihomo-userctl controller: <yes/no>
+Archive directory: <absolute path, for example /mnt/nas/public/software>
+Source version: <exact published version, for example v0.4.0; clarify ambiguous candidates>
+Runtime: <personal installation by default; administrator-shared Node/npm/Codex only if selected>
+Selected tools: <mihomo by default; codex/node/opencode optional; reuse suitable existing tools>
+Install mihomo-userctl controller: <yes by default>
 Personal port: <confirmed value, or obtain a read-only suggestion for my confirmation>
 Known environment/reuse: <existing tool paths/versions; reuse suitable installations>
 Goal: <controller installation / include Codex end-to-end acceptance>
 Startup: <install only and preserve state / install and start for acceptance>
 Network acceptance: <selected refresh/probes/minimal model request; not online installation>
 
-Read offline-install.md, setup.md, security.md, acceptance.md, architecture.md,
-troubleshooting.md, deployment-contract.md and repository constraints before changes. Use
-documentation, scripts and tests from one fixed release; never expand authorization or mix in main.
-Replace setup.md's online
-Mihomo download and Git clone steps with the documented local workflow.
-Do not access GitHub/npm/apt or run mihomoctl update (including --check). Never fall back
-to downloading missing files. Inspect capabilities, Linux architecture/libc/CPU, dependencies,
-systemd user manager, existing programs/PATH, proxy-variable categories, ports and service state.
-Review shared-directory trust/permissions, pinned manifest, SOURCE.txt and source.
+The public directory holds a source ZIP and independent dependency archives, not a shared runtime.
+List archives read-only and identify the exact source release; clarify ambiguous versions instead
+of guessing names or selecting latest. Follow offline-install.md's source preparation: copy the ZIP
+to a new private workspace, compare SHA256 before/after, and inspect paths, symlinks, duplicate members
+and size limits before extraction. Reject escapes and overwrites. Confirm release provenance/version
+against trusted records; a locally computed digest proves transfer consistency only. Stop if unknown.
+No pre-expanded source/, packages/, external scripts or SOURCE.txt are required in the public directory.
+Read the extracted release's offline-install.md, setup.md, security.md, acceptance.md, architecture.md,
+troubleshooting.md, deployment-contract.md and repository constraints before executing project scripts.
+Use one fixed release for documentation, scripts and tests; never expand authorization or mix in main.
+Replace online download/clone steps with local preparation. Never access GitHub/npm/apt or run
+mihomoctl update (including --check), and never download missing files as a fallback.
+Inspect Linux architecture/libc/CPU, dependencies, systemd user manager, existing programs/PATH,
+proxy-variable categories, ports, service state and archive-directory trust/permissions.
+Review the extracted source's pinned manifest and provenance records.
 Missing packages, checksum mismatches or dependencies must stop the workflow with a specific report.
 Report the audit and concrete change/rollback scope. Reuse suitable system Node/npm/Codex without
 shadowing them. Follow the contract's redacted audit: no environment dumps, full argv or raw logs.
@@ -35,10 +42,12 @@ explicit selection, never cleanup commands copied from deployment notes.
 Follow shared-runtime.md for Remote hook, CLI/persistent-server Unix-socket and egress evidence;
 0/8 or 8/8 alone is insufficient. Never persist CODEX_REMOTE_PAYLOAD or automatically restart old servers.
 
-Use only documented offline_install.py check/install for selected tools. Never run npm install,
+Use private-source scripts/offline_install.py check/install with examples/offline-packages.json;
+--bundle-dir points to the actual archive directory. The installer copies and rechecks dependencies
+in private storage. Install only selected missing tools. Never run npm install,
 download through npx, or execute archive install scripts. Preserve conflicting existing commands;
-report a concrete backup/migration plan before an unauthorized replacement. Copy reviewed source
-to a private workspace and use the original install.sh for the controller. Proceed within existing
+report a concrete backup/migration plan before an unauthorized replacement. Use the original install.sh from the reviewed private source for the controller.
+Installed commands must not depend on the public archive directory. Proceed within existing
 authorization; clarify only unresolved configuration or changes outside that authorization.
 Do not use sudo or alter shared files/other users/system services/TUN/system proxies. The installer
 never starts services itself. Explicit install-and-start authorization permits starting the user service

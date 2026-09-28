@@ -48,6 +48,9 @@ class OfflineTests(unittest.TestCase):
 
     def test_install_without_network_or_child_processes(self):
         p = self.package()
+        # A flat distribution directory may also contain the controller ZIP.
+        (self.bundle / "mihomo-userctl-0.4.0.zip").write_bytes(b"source archive fixture")
+        before = {x.name: x.read_bytes() for x in self.bundle.iterdir()}
         with patch("socket.socket", side_effect=AssertionError("network forbidden")), \
                 patch("subprocess.Popen", side_effect=AssertionError("no child processes")):
             receipt = offline.install(self.bundle, [p], self.home)
@@ -55,7 +58,12 @@ class OfflineTests(unittest.TestCase):
         self.assertTrue(link.is_symlink())
         self.assertEqual(link.read_bytes(), b"fake local executable\n")
         self.assertEqual(json.loads(receipt.read_text())["packages"][0]["sha256"], p["sha256"])
-        self.assertEqual(sorted(x.name for x in self.bundle.iterdir()), [p["file"]])
+        self.assertEqual({x.name: x.read_bytes() for x in self.bundle.iterdir()}, before)
+        self.assertIn(self.home.resolve(), link.resolve().parents)
+        self.assertIn(self.home.resolve(), receipt.resolve().parents)
+        # Installed commands remain usable when public distribution storage disappears.
+        self.bundle.rename(self.root / "public-unavailable")
+        self.assertEqual(link.read_bytes(), b"fake local executable\n")
 
     def test_digest_failure_cleans_stage(self):
         p = self.package()

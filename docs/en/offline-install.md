@@ -2,13 +2,11 @@
 
 [中文](../zh-CN/offline-install.md) · [Local installation prompt](agent-local-install-prompt.md) · [Public online setup](setup.md)
 
-This optional deployment is for a lab that downloads packages once and shares them read-only.
-The public repository keeps official online installation as its default. No lab path is hardcoded,
-and binary packages must not be committed to Git. Each account keeps its own ports, credentials,
-subscriptions and services. On servers with administrator-provided Node/npm/Codex, use
-[shared-runtime mode](shared-runtime.md): install only personal Mihomo/controller by default.
-The table retains optional Node/Codex packages for explicitly selected personal mode. Missing shared
-dependencies are administrator actions, never an automatic personal-install fallback.
+A public directory distributes a source ZIP and independent dependency archives. Install Mihomo
+and the controller privately per user by default, reuse suitable existing tools, and select other
+tools as needed. Archive storage does not imply shared mihomoctl or Node/Codex. Only explicitly
+selected administrator-managed tools use [shared-runtime mode](shared-runtime.md).
+The public repository also supports official online installation. Never commit binary packages.
 
 ## Downloads and preparation
 
@@ -26,49 +24,58 @@ These are HTTPS metadata checks, not independent signature verification. Review 
 manifest itself: replacing both the manifest and an archive defeats a checksum-only check.
 
 Also obtain a reviewed fixed [controller release](https://github.com/liuzq1103/mihomo-userctl/releases).
-Record its tag, full commit, archive hash and review in SOURCE.txt. Locally computing the source
+Obtain its tag, full commit, archive hash and review from trusted delivery records; no separate
+SOURCE.txt file is required. Stop and report unknown provenance. Locally computing the source
 archive hash proves transfer consistency, not publisher identity. Use the fixed
-[v0.3.4 source ZIP](https://github.com/liuzq1103/mihomo-userctl/archive/refs/tags/v0.3.4.zip),
+[v0.4.0 source ZIP](https://github.com/liuzq1103/mihomo-userctl/archive/refs/tags/v0.4.0.zip),
 which includes the helper, manifest and bilingual documentation. Ubuntu 22.04 x86_64 servers
 use the x86_64 entries regardless of the download computer's operating system. Target dependency
 and runtime compatibility checks are still required.
 
-Prepare this directory manually on the shared volume:
+## Public archives, private source workspace
+
+Archives may sit directly in a flat directory, with original dependency filenames:
 
 ```text
-PUBLIC/mihomo-offline/
-  offline_install.py       # scripts/offline_install.py from this project
-  offline-packages.json    # examples/offline-packages.json
-  docs/                   # reviewed bilingual deployment documentation
-  source/                 # complete reviewed controller source
-  SOURCE.txt              # source provenance and review
-  packages/               # archives with original filenames
+/mnt/nas/public/software/
+  mihomo-userctl-0.4.0.zip
+  mihomo-linux-amd64-compatible-v1.19.31.gz
+  ...other selected dependency archives for the target architecture
 ```
 
-The maintainer controls this directory and its ancestors; other users have read access only.
-Do not use world-writable permissions. Publish new bundle directories for updates instead of
-changing packages in use. Keep licenses and provenance, never credentials, in this directory.
+No pre-expanded source/, packages/, external scripts or documentation copies are required.
+Audit directory/ancestor permissions and provenance without modifying public material. Clarify
+ambiguous source versions; never pick latest automatically. Dependencies must match the source manifest.
+
+Create a new private mode-700 workspace, copy the selected source ZIP there, compare SHA256 before
+and after copying, and retain provenance records. Before extraction, reject absolute paths, parent
+traversal, backslashes/drive paths, symlinks, duplicate members and file/directory collisions. Limit
+the archive to 100000 members and 2 GiB total expanded bytes, enforcing the byte limit during writes.
+Extract only into a new empty private directory without overwrites; require one project root.
+Use existing archive tools or Python's standard library for these checks, not unreviewed package code.
+Read the extracted release's documentation and repository constraints; verify release-manifest.json,
+install.sh and src/common.bash agree with the selected version before running project scripts.
+A ZIP filename alone does not prove release identity. Never run installation/tests in public storage.
 
 ## Per-user installation
 
-Python 3.8+ with gzip/tarfile/lzma is required. Full controller setup still requires the base
-tools and systemd user manager in [setup](setup.md). Missing system dependencies must be
-prepared separately by the administrator for the target Ubuntu version; this helper never runs apt.
+Python 3.8+ with gzip/tarfile/lzma and the base tools/systemd user manager in [setup](setup.md)
+are required. Report missing system dependencies for administrator preparation; never run apt or
+download replacements. Run these commands from the reviewed private source directory:
 
 ```bash
-PUBLIC='/replace/with/shared/public'
-BUNDLE="$PUBLIC/mihomo-offline"
-python3 "$BUNDLE/offline_install.py" check \
-  --bundle-dir "$BUNDLE/packages" --manifest "$BUNDLE/offline-packages.json" \
+PUBLIC='/mnt/nas/public/software'  # example; replace with the actual archive directory
+python3 scripts/offline_install.py check \
+  --bundle-dir "$PUBLIC" --manifest examples/offline-packages.json \
   --packages mihomo
-python3 "$BUNDLE/offline_install.py" install \
-  --bundle-dir "$BUNDLE/packages" --manifest "$BUNDLE/offline-packages.json" \
+python3 scripts/offline_install.py install \
+  --bundle-dir "$PUBLIC" --manifest examples/offline-packages.json \
   --packages mihomo
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-The examples use shared mode. Add tools to `--packages` only when explicitly selected; Node/Codex
-require personal mode. `check` verifies bytes only and writes
+Skip installing already suitable tools. Add only selected missing tools to `--packages`, for example
+`mihomo codex`. `check` verifies bytes, not runtime compatibility, executes no archive code and writes
 nothing. Missing files, digest mismatches and unsupported architectures fail with exit code 2;
 there is no network fallback. `install` verifies private copies before bounded extraction,
 then exclusively creates command links in `~/.local/bin`. All archives are staged before any
@@ -78,13 +85,13 @@ Files and a provenance/link `receipt.json` live under
 Existing commands, including dangling links, are preserved and cause installation to stop.
 Repeated installation therefore never silently replaces a tool. Check `type -a` for other PATH copies.
 
-Copy `source/` to a private workspace. Follow the normal configuration/service/credentials setup,
+From the private source workspace, follow the normal configuration/service/credentials setup,
 substituting local packages and source for all download/clone steps. Use the original
 `install.sh --suggest-port`, confirm a per-user port, then `bash install.sh --port "$PORT"`
 with the confirmed value. The original installer owns controller transactions and rollback.
 Do not run write-producing tests or installation inside shared source.
 
-Check selected tools, including reused shared ones: `mihomo -v`, `node --version`, `npm --version`, `codex --version`,
+Check only selected tools, including reused ones; missing unselected tools are not failures: `mihomo -v`, `node --version`, `npm --version`, `codex --version`,
 `opencode --version`. Record real exit codes; run controller regression tests and acceptance.
 CPU/libc/runtime compatibility must be checked on the actual host. Hash checks do not establish
 compatibility; version output does not establish model or proxy connectivity.

@@ -15,7 +15,7 @@ Supply the non-secret [deployment parameters](deployment-contract.md); reuse exi
 Install mihomo-userctl for this ordinary Linux account from an exact reviewed,
 pinned released tag. Complete the work and return evidence, not only a plan.
 Known environment/reuse: <OS/architecture/existing tool paths and versions; reuse suitable tools>
-Runtime: <administrator-shared Node/npm/Codex / explicitly selected personal install; shared paths/versions>
+Runtime: <personal installation by default; administrator-shared Node/npm/Codex only if explicitly selected>
 Goal: <controller installation / include Codex end-to-end acceptance>
 Startup: <install only and preserve state / install and start for acceptance>
 Network acceptance: <selected subscription refresh, public probes, minimal model request>

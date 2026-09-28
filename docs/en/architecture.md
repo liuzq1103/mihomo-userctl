@@ -1,5 +1,7 @@
 # Architecture and data flow
 
+Public directories hold installation material; private per-user installation is the default, and administrator-shared runtime is an explicitly selected option.
+
 Ordinary shells, explicit terminal proxy entry and a verified CODEX_REMOTE_PAYLOAD hook are distinct
 paths; rules select egress after traffic enters Mihomo. Some versions/launch modes reuse persistent
 servers: follow [shared-runtime guidance](shared-runtime.md) for Unix sockets and the actual request

@@ -1,5 +1,7 @@
 # 简体中文文档
 
+公共目录只存放安装材料，默认安装到各用户私有目录；管理员共享运行时仅为明确选择的可选模式。
+
 [多用户共享 Node/Codex 规范](shared-runtime.md)
 
 [安装参数、授权与交付约定](deployment-contract.md)

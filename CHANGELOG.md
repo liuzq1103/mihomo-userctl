@@ -4,6 +4,19 @@ All notable changes follow a simplified Keep a Changelog format.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-28
+
+### Changed
+
+- Corrected local agent installation to copy a pinned source ZIP from a flat public
+  archive directory into a private workspace, then use its bundled installer and manifest.
+- Removed mandatory pre-expanded bundle layouts and external SOURCE.txt files; documented
+  safe ZIP extraction, source provenance and transfer-checksum limits.
+- Made personal installation with existing-tool reuse the default; administrator-shared
+  Node/npm/Codex is optional and never inferred from package storage location.
+- Preserved offline acquisition, subscription handoff, private credentials and persistent
+  process routing checks. Runtime behavior and dependency pins are unchanged.
+
 ## [0.3.4] - 2026-09-25
 
 ### Changed

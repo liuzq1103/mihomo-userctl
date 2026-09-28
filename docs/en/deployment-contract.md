@@ -8,7 +8,7 @@ verify stated environment facts read-only. Keep personal host/account details ou
 | Parameter | Choices and defaults |
 | --- | --- |
 | Source | A pinned published online release, or a shared local directory with pinned source identity |
-| Runtime mode | Shared on servers with administrator-provided Node/npm/Codex; personal mode requires explicit selection, never a fallback for missing shared tools |
+| Runtime mode | Personal installation and suitable-tool reuse by default; administrator-shared Node/npm/Codex only when explicitly selected, independent of archive location |
 | Shared tools | Administrator-confirmed entrypoints, resolved targets and pinned versions; example paths are not mandatory |
 | Known environment | OS, architecture and existing Mihomo/Node/npm/Codex/OpenCode paths and versions; audit unknowns |
 | Software | Reuse suitable existing installations by default; install only explicitly selected missing tools |
@@ -21,7 +21,7 @@ Local acquisition forbids fallback downloads, including GitHub/npm/apt and `miho
 Authorization for a network acceptance check does not authorize online installation. Online acquisition
 allows documented source/package retrieval, not automatic login or paid model requests. Report missing
 or unsuitable tools if their installation/replacement is not authorized.
-Follow the [shared-runtime contract](shared-runtime.md): administrators own common programs; users
+Only in explicitly selected shared mode, follow the [shared-runtime contract](shared-runtime.md): administrators own common programs; users
 configure private identity, Mihomo and controller state. Node/Codex offline archives are for personal mode.
 
 ## Execution and authorization

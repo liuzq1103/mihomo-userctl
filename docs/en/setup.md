@@ -1,8 +1,8 @@
 # Install Mihomo and configure the complete stack
 
-On servers with administrator-provided Node/npm/Codex, first audit the
-[shared runtime](shared-runtime.md). Set up personal Mihomo/controller only; missing or unsuitable
-shared tools go to the administrator instead of triggering a personal fallback install.
+Default to personal Mihomo/controller installation and reuse suitable existing tools; install other
+tools only when selected. Follow the [shared runtime](shared-runtime.md) only when explicitly chosen;
+in that mode missing public tools go to the administrator. Public archives do not imply shared runtime.
 
 This is the official online-source workflow. For pre-downloaded lab packages, use
 [shared-directory installation](offline-install.md) in place of the download/clone steps below.

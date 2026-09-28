@@ -84,6 +84,22 @@ if checked_grep -RInE --include='*.md' \
 fi
 
 for language in en zh-CN; do
+  local_prompt="$root/docs/$language/agent-local-install-prompt.md"
+  local_guide="$root/docs/$language/offline-install.md"
+  for marker in '/mnt/nas/public/software' 'scripts/offline_install.py' \
+                'examples/offline-packages.json' '--bundle-dir' 'SHA256'; do
+    for document in "$local_prompt" "$local_guide"; do
+      if ! checked_grep -Fq -- "$marker" "$document"; then
+        printf 'local installation lacks archive workflow marker %s: %s\n' "$marker" "$document" >&2
+        failed=1
+      fi
+    done
+  done
+  if checked_grep -En 'PUBLIC/mihomo-offline|\$BUNDLE/|Shared deployment directory:' \
+      "$local_prompt" "$local_guide"; then
+    printf 'local installation still requires a pre-expanded bundle: %s\n' "$language" >&2
+    failed=1
+  fi
   prompt="$root/docs/$language/agent-install-prompt.md"
   compatibility="$root/docs/$language/codex-install-prompt.md"
   if [[ $language == en ]]; then
