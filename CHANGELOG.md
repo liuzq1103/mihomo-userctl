@@ -4,6 +4,22 @@ All notable changes follow a simplified Keep a Changelog format.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-28
+
+### Added
+
+- `mihomoctl codex [-- ARGS...]` checks HTTP proxy readiness before launching the PATH
+  executable and warns about old-process environments without stopping active sessions.
+- Offline `mihomoctl diagnose codex [--json]` provides redacted same-user process
+  snapshots and actionable recovery guidance; model/WebSocket results remain UNVERIFIED.
+- Bilingual first-use guidance distinguishes terminal, Remote hook and VS Code entrypoints,
+  WebSocket failure layers, safe client reconnects and separate installation/network/model milestones.
+
+### Changed
+
+- Installation now prints concrete next steps; agent prompts and acceptance require an
+  entry-specific handoff instead of treating plain Codex or a wrapper as universal.
+
 ## [0.4.0] - 2026-09-28
 
 ### Changed

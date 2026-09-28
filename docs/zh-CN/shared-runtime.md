@@ -1,5 +1,7 @@
 # 共享 Node/Codex，独立用户身份与代理
 
+首次使用、WebSocket 报错或旧进程问题，先看[安装后第一次使用 Codex](first-run.md)。
+
 [English](../en/shared-runtime.md) · [交付约定](deployment-contract.md) · [本地安装](offline-install.md)
 
 本模式仅适用于明确选择管理员维护公共程序的部署：**共享程序，按 Linux 用户隔离
@@ -65,7 +67,7 @@ Codex 状态目录默认是 `~/.codex`；`CODEX_HOME` 可覆盖它。核对当�
 不能以没有 `auth.json` 判断未登录。依据[官方认证说明](https://learn.chatgpt.com/docs/auth)及
 [环境变量说明](https://learn.chatgpt.com/docs/config-file/environment-variables)核对已选版本。
 禁止共享凭据文件、密钥、会话目录或把状态目录链接到公共目录；只检查自己，保留既有状态。
-用户通过自己的认证完成登录，需要代理时从 `with_proxy codex` 进入；不把令牌或登录码发到聊天。
+用户通过自己的认证完成登录，按[首次使用指南](first-run.md)选择终端或 Remote 入口；不把令牌或登录码发到聊天。
 
 最终报告增加公共命令/真实目标/版本、普通与代理 Shell 的解析结果、npm prefix/root、
 Node 实际解释器（适用时）、当前 UID、私有状态路径、迁移前后默认值及回滚方式。

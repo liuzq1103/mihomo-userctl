@@ -5,6 +5,7 @@ import argparse
 import os
 from pathlib import Path
 import re
+import shutil
 import sys
 
 try:
@@ -239,6 +240,115 @@ def handle_name(args, root=Path("/proc")):
     return 2 if unverified else 0 if matches else 1
 
 
+def process_identity(root, pid):
+    """Start ticks distinguish PID reuse while taking a best-effort snapshot."""
+    try:
+        raw = (root / str(pid) / "stat").read_text()
+        return int(raw.rsplit(")", 1)[1].split()[19])
+    except (OSError, ValueError, IndexError, UnicodeError):
+        raise DiagnosticError("process-identity-unreadable") from None
+
+
+def codex_snapshot(root=Path("/proc")):
+    """Inspect only same-user Codex candidates; never emit argv or environment values."""
+    expected = expected_environment()
+    uid = os.getuid()
+    rows, unavailable = [], 0
+    try:
+        candidates = sorted((p for p in root.iterdir() if p.name.isdigit()),
+                            key=lambda p: int(p.name))
+    except OSError:
+        raise DiagnosticError("proc-unavailable") from None
+    for entry in candidates:
+        pid = int(entry.name)
+        try:
+            owner, _ = read_status(root, pid)
+        except DiagnosticError:
+            # A vanished process is normal; an inaccessible live entry is incomplete coverage.
+            unavailable += int(entry.exists())
+            continue
+        if owner != uid:
+            continue
+        try:
+            name = (entry / "comm").read_text().rstrip("\n")
+        except (OSError, UnicodeError):
+            unavailable += int(entry.exists())
+            continue
+        if name != "codex":
+            # Linux comm can be changed or truncated. Match the executable without reading argv.
+            try:
+                executable = os.readlink(entry / "exe")
+                if executable.endswith(" (deleted)"):
+                    executable = executable[:-10]
+            except OSError:
+                continue
+            if Path(executable).name != "codex":
+                continue
+        try:
+            identity = process_identity(root, pid)
+            env = proxy_environment(read_environment(root, pid), expected)
+            # Read only a bounded prefix, and never include command arguments in reports.
+            with (entry / "cmdline").open("rb") as stream:
+                argv = stream.read(4096).split(b"\0")
+            role = "app-server" if len(argv) > 1 and argv[1] == b"app-server" else "cli-or-helper"
+            if process_identity(root, pid) != identity or read_status(root, pid)[0] != uid:
+                raise DiagnosticError("process-changed")
+            rows.append({"pid": pid, "role": role, "proxy_environment": env})
+        except (DiagnosticError, OSError):
+            rows.append({"pid": pid, "role": "unknown", "proxy_environment": None})
+    return rows, unavailable
+
+
+def handle_codex(args, root=Path("/proc")):
+    processes, unavailable = codex_snapshot(root)
+    executable_found = shutil.which("codex") is not None
+    current = proxy_environment({key: os.environ[key].encode() for key in PROXY_NAMES
+                                 if key in os.environ}, expected_environment())
+    issues = []
+    if not executable_found:
+        issues.append("codex-not-on-path")
+    if current["classification"] != "proxied":
+        issues.append("current-shell-not-configured-for-proxy")
+    if any(p["proxy_environment"] is not None and
+           p["proxy_environment"]["classification"] != "proxied" for p in processes):
+        issues.append("existing-process-environment-differs")
+    if unavailable or any(p["proxy_environment"] is None for p in processes):
+        issues.append("process-inspection-incomplete")
+    actions = ["Use mihomoctl codex for a terminal launch; a verified Remote hook needs no wrapper.",
+               "For connection errors, save work, close your own Codex clients, then reconnect through the intended proxy entry.",
+               "If a process remains, verify its owner and client association before stopping that specific process.",
+               "Do not delete credentials, sessions or sockets, or run broad pkill commands.",
+               "Confirm one authorized model reply; HTTP readiness does not test WebSocket or model traffic."]
+    if getattr(args, "launch_advice", False):
+        if "existing-process-environment-differs" in issues or "process-inspection-incomplete" in issues:
+            print("mihomoctl: existing Codex processes may keep an earlier proxy environment; "
+                  "this launch does not change them.", file=sys.stderr)
+            print("mihomoctl: if connection errors persist, save work and reconnect your own clients; "
+                  "run mihomoctl diagnose codex for details. No process was stopped.", file=sys.stderr)
+        return 0
+    # This is an offline snapshot, not proof of a request route or a complete process inventory.
+    payload = {"executable_found": executable_found, "current_environment": current,
+               "processes": processes, "unverified_entries": unavailable, "issues": issues,
+               "model_request": "UNVERIFIED", "websocket": "UNVERIFIED",
+               "next_steps": actions}
+    if args.json:
+        emit_json("diagnose-codex", "UNVERIFIED", payload)
+    else:
+        print("Codex local check (no network request; model/WebSocket path UNVERIFIED)")
+        print("executable={} current_proxy_environment={} candidates={}".format(
+            "found" if executable_found else "missing", current["classification"], len(processes)))
+        for item in processes:
+            env = item["proxy_environment"]
+            print("pid={} role={} proxy_environment={}".format(
+                item["pid"], item["role"], env["classification"] if env else "unreadable"))
+        for issue in issues:
+            print("Check: " + issue)
+        print("Process candidates are not proof of reuse or direct model traffic; custom launchers may be missed.")
+        for action in actions:
+            print("Next: " + action)
+    return 2
+
+
 def handle_format(args):
     if args.kind == "status":
         payload = {"service": {"active": args.service == "up", "enabled": args.enabled},
@@ -278,9 +388,14 @@ def parser():
     fmt.add_argument("--check", action="append", default=[])
     error = sub.add_parser("error")
     error.add_argument("kind", choices=("status", "ready", "doctor", "diagnose",
-                                        "diagnose-url", "diagnose-process", "diagnose-name",
+                                        "diagnose-url", "diagnose-process", "diagnose-name", "diagnose-codex",
                                         "test-url", "inspect-process", "inspect-name"))
     error.add_argument("code")
+    codex = sub.add_parser("codex")
+    codex.add_argument("--port", required=True, type=int)
+    codex.add_argument("--json", action="store_true")
+    codex.add_argument("--launch-advice", action="store_true", help=argparse.SUPPRESS)
+    codex.add_argument("--report-command", choices=("diagnose-codex",), default="diagnose-codex")
     for name, canonical, legacy in (("process", "diagnose-process", "inspect-process"),
                                     ("name", "diagnose-name", "inspect-name")):
         child = sub.add_parser(name)
@@ -293,7 +408,7 @@ def parser():
 
 def main(argv=None):
     values = list(argv if argv is not None else sys.argv[1:])
-    command = ("diagnose-" + values[0] if values and values[0] in ("process", "name")
+    command = ("diagnose-" + values[0] if values and values[0] in ("process", "name", "codex")
                else "diagnostics")
     try:
         args = parser().parse_args(argv)
@@ -309,6 +424,8 @@ def main(argv=None):
             return handle_format(args)
         if not 1024 <= args.port <= 65535:
             raise DiagnosticError("invalid-port")
+        if args.command == "codex":
+            return handle_codex(args)
         return handle_process(args) if args.command == "process" else handle_name(args)
     except DiagnosticError as error:
         wants_json = "--json" in (argv if argv is not None else sys.argv[1:])

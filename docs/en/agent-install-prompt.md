@@ -84,4 +84,7 @@ Never claim an unrun check passed.
 Finish with the subscription handoff in deployment-contract.md: actual absolute config path and
 proxy-providers.<actual-name>.url, local-only entry, pending acceptance and follow-up checks.
 Preserve existing subscriptions; give the actual import location for file providers. Do not equate missing setup with success.
+Follow first-run.md for terminal/verified Remote hook/VS Code handoff; no entry is universal.
+For Codex acceptance run mihomoctl diagnose codex: UNVERIFIED/exit 2 is not model failure; HTTP is not WebSocket proof.
+Guide safe quit/reconnect, never auto-kill or delete credentials/sockets. Report install, HTTP, model reply and pending actions separately.
 ```

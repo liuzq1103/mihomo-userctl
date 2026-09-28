@@ -66,4 +66,9 @@ Listener readiness 不等于代理节点证据。按 deployment-contract.md 分�
 结尾必须按 deployment-contract.md 交接订阅：给出实际绝对配置路径和
 proxy-providers.<实际名称>.url 的准确位置，提醒仅在服务器本地填写。订阅未填不等于完整可用；
 已存在则说明保留，file provider 则给实际导入位置，并列出填写后的检查与授权验收步骤。
+安装及交付还须遵循同版本 first-run.md：根据普通终端、已验证 Remote hook 或 VS Code
+给出实际入口，不把裸 codex 或 with_proxy 说成所有场景通用。选择 Codex 验收时运行
+mihomoctl diagnose codex；其 UNVERIFIED/退出码 2 不代表模型失败，HTTP 通过不代表 WebSocket 通过。
+发现旧进程先报告并指导用户保存工作、正常退出和重连；不自动 kill、删 socket 或清空认证。
+最终分别报告控制层安装、HTTP 就绪、实际客户端模型回复，以及待登录/重连/订阅事项。
 ```

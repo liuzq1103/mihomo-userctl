@@ -1,5 +1,7 @@
 # Recommended VS Code Remote configuration
 
+For first use, WebSocket errors or old-process recovery, start with [first use](first-run.md).
+
 Use this guide when Mihomo and `mihomo-userctl` are already installed in a
 remote Linux account, `with_proxy codex` works in a terminal, but the Codex
 extension in VS Code Remote still times out.

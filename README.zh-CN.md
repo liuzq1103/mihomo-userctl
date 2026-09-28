@@ -9,17 +9,17 @@
 完成用户级代理配置与验收。服务器无法方便访问 GitHub？先备好软件包，再用
 [本地安装 Prompt](docs/zh-CN/agent-local-install-prompt.md)。
 
-首次安装完成、Mihomo 已启动且节点可用、Codex 已安装并完成认证后，只需：
+**先按启动方式选择入口：**已验证 Remote hook 和实际请求正常时，直接使用 Codex；
+普通终端手动启动使用 `with_proxy codex`，无需加载 Bash 函数的等价入口是 `mihomoctl exec -- codex`。
+`.bashrc` 已安装 hook 不代表普通终端直接输入 `codex` 会自动走代理。
 
-```bash
-with_proxy codex
-```
+v0.5.0 新增 `mihomoctl codex`：检查代理就绪、提醒已有进程风险后再启动，适合普通终端使用。
+它不自动启动服务或停止旧进程。v0.4.0 用户升级前仍使用上面的入口。
+初次使用先看[安装后第一次使用 Codex](docs/zh-CN/first-run.md)，确认订阅、服务、登录和实际回复。
 
-这会给新启动的子进程注入代理环境，普通 Shell 和其他下载任务保持原来的网络设置。
-若 CLI 复用长期 app-server，实际请求取决于该服务的环境；还需核对
-[Remote hook 与服务复用链路](docs/zh-CN/shared-runtime.md)。
-已验证 Remote hook 生效且实际服务走代理时，无需再套 `with_proxy`；普通终端不一定触发 hook。
-本项目帮助接通网络；模型账号、服务访问权限和可用的代理节点需要自行准备。
+遇到 WebSocket 报错或改完代理仍有旧错误，按指南检查并重连自己的旧客户端；
+新进程的代理变量不会改变已有 app-server。HTTP 检查成功不等于模型或 WebSocket 已连通。
+模型账号、服务访问权限和可用的代理节点需要自行准备。
 
 `mihomo-userctl` 是现有 Linux 用户级
 [Mihomo](https://github.com/MetaCubeX/mihomo) 服务之上的轻量控制、进程接入和
@@ -80,8 +80,8 @@ ss -lnt "sport = :$PROXY_PORT"
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version v0.4.0 --dry-run
-mihomoctl update --version v0.4.0
+mihomoctl update --version v0.5.0 --dry-run
+mihomoctl update --version v0.5.0
 ```
 
 更新只改变 `mihomo-userctl`，不等于 Mihomo 核心升级。它复用同一事务安装器，
@@ -99,12 +99,14 @@ mihomoctl status [--json]
 mihomoctl ready [--json]
 mihomoctl doctor [--offline] [--json]
 
+mihomoctl codex [-- ARGS...]
 mihomoctl exec -- COMMAND [ARGS...]
 mihomoctl direct -- COMMAND [ARGS...]
 
 mihomoctl diagnose url URL [--json]
 mihomoctl diagnose process PID [--json]
 mihomoctl diagnose name NAME [--json]
+mihomoctl diagnose codex [--json]
 
 mihomoctl rules status [--json] [--home-dir PATH] [--config PATH]
 mihomoctl rules check [--home-dir PATH] [--config PATH]

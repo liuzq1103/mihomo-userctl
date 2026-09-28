@@ -1,5 +1,7 @@
 # Troubleshooting
 
+For first use, WebSocket errors or old-process recovery, start with [first use](first-run.md).
+
 ## Installation stops at `doctor`
 
 The installer treats the update as a transaction. It restores the previous

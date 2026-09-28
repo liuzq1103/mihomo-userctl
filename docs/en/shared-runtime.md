@@ -1,5 +1,7 @@
 # Shared Node/Codex, private identity and proxy
 
+For first use, WebSocket errors or old-process recovery, start with [first use](first-run.md).
+
 [中文](../zh-CN/shared-runtime.md) · [Deployment contract](deployment-contract.md) · [Local installation](offline-install.md)
 
 Use this optional mode only when administrator-managed public tools are explicitly selected:
@@ -73,7 +75,7 @@ Refer to the official [authentication](https://learn.chatgpt.com/docs/auth) and
 [environment-variable](https://learn.chatgpt.com/docs/config-file/environment-variables) guidance
 for the selected release. Never share credential files, keys or sessions, or link state into a public
 directory. Inspect only the current user's state and preserve it. The user completes their own login
-via `with_proxy codex` when necessary; do not send tokens or login codes to chat.
+through the appropriate terminal or Remote entry in [first use](first-run.md); do not send tokens or login codes to chat.
 
 Add shared entrypoints/resolved targets/versions, normal and proxy-shell resolution, npm prefix/root,
 actual Node interpreter where applicable, UID, private state path and migration defaults/rollback to

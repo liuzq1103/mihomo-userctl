@@ -24,6 +24,107 @@ def expected():
 
 
 class DiagnosticTests(unittest.TestCase):
+    def codex_fixture(self, root, pid=42, uid=1000, env=None, role=b"app-server"):
+        proc = root / str(pid)
+        proc.mkdir()
+        (proc / "status").write_text("Uid:\t{0} {0} {0} {0}\nPPid:\t1\n".format(uid))
+        (proc / "comm").write_text("codex\n")
+        (proc / "stat").write_text(str(pid) + " (codex) " + " ".join(["S"] + ["0"] * 18 + ["123"]))
+        (proc / "environ").write_bytes(b"\0".join(
+            (k + "=" + v).encode() for k, v in (env or {}).items()))
+        (proc / "cmdline").write_bytes(b"codex\0" + role + b"\0secret-prompt-token\0")
+        return proc
+
+    def codex_report(self, root, **options):
+        args = type("Args", (), dict(json=True, launch_advice=False, **options))()
+        output = io.StringIO()
+        with patch.object(d, "expected_environment", return_value=expected()), \
+                patch.object(d.os, "getuid", return_value=1000, create=True), \
+                patch.object(d.shutil, "which", return_value="/private/bin/codex"), \
+                contextlib.redirect_stdout(output):
+            self.assertEqual(d.handle_codex(args, root), 2)
+        return json.loads(output.getvalue())
+
+    def test_codex_empty_snapshot_is_not_a_failed_model_request(self):
+        with tempfile.TemporaryDirectory() as folder:
+            data = self.codex_report(Path(folder))
+        self.assertEqual(data["processes"], [])
+        self.assertEqual(data["overall"], "UNVERIFIED")
+        self.assertEqual(data["websocket"], "UNVERIFIED")
+
+    def test_codex_old_server_is_actionable_but_not_proof_of_direct_traffic(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, expected()):
+            root = Path(folder)
+            self.codex_fixture(root)
+            data = self.codex_report(root)
+        self.assertEqual(data["current_environment"]["classification"], "proxied")
+        self.assertIn("existing-process-environment-differs", data["issues"])
+        self.assertEqual(data["processes"][0]["role"], "app-server")
+        self.assertNotIn("secret-prompt-token", repr(data))
+        self.assertNotIn("private-value", repr(data))
+
+    def test_codex_matching_server_does_not_claim_websocket_success(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, expected()):
+            root = Path(folder)
+            self.codex_fixture(root, env=expected())
+            data = self.codex_report(root)
+        self.assertEqual(data["issues"], [])
+        self.assertEqual(data["model_request"], "UNVERIFIED")
+
+    def test_codex_foreign_user_is_skipped_before_private_reads(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            proc = self.codex_fixture(root, uid=2000)
+            (proc / "environ").unlink()
+            (proc / "cmdline").unlink()
+            data = self.codex_report(root)
+        self.assertEqual(data["processes"], [])
+        self.assertEqual(data["unverified_entries"], 0)
+
+    def test_codex_unreadable_environment_and_pid_reuse_are_unverified(self):
+        for changed in (False, True):
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                proc = self.codex_fixture(root)
+                if not changed:
+                    (proc / "environ").unlink()
+                with patch.object(d, "process_identity", side_effect=[123, 124]):
+                    data = self.codex_report(root)
+                self.assertIsNone(data["processes"][0]["proxy_environment"])
+                self.assertIn("process-inspection-incomplete", data["issues"])
+
+    def test_codex_renamed_comm_matches_executable(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            proc = self.codex_fixture(root)
+            (proc / "comm").write_text("worker\n")
+            with patch.object(d.os, "readlink", return_value="/private/bin/codex (deleted)"):
+                data = self.codex_report(root)
+        self.assertEqual(len(data["processes"]), 1)
+
+    def test_codex_missing_proc_is_sanitized_json_error(self):
+        output = io.StringIO()
+        with patch.object(d, "codex_snapshot", side_effect=d.DiagnosticError("proc-unavailable")), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(d.main(["codex", "--port", "28443", "--json"]), 2)
+        data = json.loads(output.getvalue())
+        self.assertEqual(data["command"], "diagnose-codex")
+        self.assertEqual(data["error"]["code"], "proc-unavailable")
+
+    def test_codex_launch_advice_warns_without_stopping_processes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            self.codex_fixture(root)
+            output, error = io.StringIO(), io.StringIO()
+            args = type("Args", (), {"json": False, "launch_advice": True})()
+            with patch.object(d, "expected_environment", return_value=expected()), \
+                    patch.object(d.os, "getuid", return_value=1000, create=True), \
+                    patch.object(d.os, "kill", side_effect=AssertionError("no signals")), \
+                    contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+                self.assertEqual(d.handle_codex(args, root), 0)
+            self.assertEqual(output.getvalue(), "")
+            self.assertIn("existing Codex processes", error.getvalue())
+
     def test_proxy_environment_classifies_without_returning_values(self):
         self.assertEqual(d.proxy_environment({}, expected())["classification"], "direct")
         values = {name: value.encode() for name, value in expected().items()}

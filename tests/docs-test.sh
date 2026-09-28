@@ -32,6 +32,7 @@ expected=(
   agent-local-install-prompt.md
   offline-install.md
   deployment-contract.md
+  first-run.md
   shared-runtime.md
   agent-update-prompt.md
   architecture.md
@@ -84,6 +85,14 @@ if checked_grep -RInE --include='*.md' \
 fi
 
 for language in en zh-CN; do
+  for topic in first-run.md agent-install-prompt.md agent-local-install-prompt.md deployment-contract.md; do
+    for marker in 'mihomoctl diagnose codex' 'WebSocket' 'UNVERIFIED'; do
+      if ! checked_grep -Fq -- "$marker" "$root/docs/$language/$topic"; then
+        printf 'first-use handoff lacks %s: %s/%s\n' "$marker" "$language" "$topic" >&2
+        failed=1
+      fi
+    done
+  done
   local_prompt="$root/docs/$language/agent-local-install-prompt.md"
   local_guide="$root/docs/$language/offline-install.md"
   for marker in '/mnt/nas/public/software' 'scripts/offline_install.py' \

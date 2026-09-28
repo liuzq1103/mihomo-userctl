@@ -1,5 +1,7 @@
 # Installation acceptance and evidence
 
+For first use, WebSocket errors or old-process recovery, start with [first use](first-run.md).
+
 Public directories hold installation material; private per-user installation is the default, and administrator-shared runtime is an explicitly selected option.
 
 Listener baseline checks and end-to-end usage checks are separate. Installation

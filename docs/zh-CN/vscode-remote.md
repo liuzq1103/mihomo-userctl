@@ -1,5 +1,7 @@
 # VS Code Remote 推荐配置
 
+首次使用、WebSocket 报错或旧进程问题，先看[安装后第一次使用 Codex](first-run.md)。
+
 本文适用于：Mihomo 和 `mihomo-userctl` 已安装在远程 Linux 账户中，终端里的
 `with_proxy codex` 可以联网，但 VS Code Remote 中的 Codex 扩展仍然超时。
 

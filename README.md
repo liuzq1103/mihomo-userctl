@@ -11,24 +11,18 @@ to your remote Linux terminal. It guides per-user proxy setup and verification. 
 cannot easily reach GitHub, pre-download the packages and use the
 [local installation prompt](docs/en/agent-local-install-prompt.md).
 
-Once setup is complete, Mihomo is running with a working proxy node, and Codex is installed
-and authenticated, launch it with:
+**Choose your entry point:** use a verified Remote hook normally; in an ordinary terminal,
+use `with_proxy codex`, or `mihomoctl exec -- codex` without Bash functions. Installing the
+`.bashrc` hook does not automatically proxy a plain `codex` command in ordinary terminals.
 
-```bash
-with_proxy codex
-```
+v0.5.0 adds `mihomoctl codex` for terminal users: proxy readiness checks
+and existing-process advice before launch, without starting services or stopping old processes.
+v0.4.0 users should use the entries above until upgrading. Read [first use](docs/en/first-run.md) to finish
+subscription, service, login and actual model-reply verification.
 
-This injects proxy variables into the new child; ordinary shells and unrelated downloads keep
-their settings. A reused persistent app-server retains its own environment: verify the
-[Remote hook and server-reuse path](docs/en/shared-runtime.md).
-A verified Remote hook/proxied server needs no extra wrapper; a plain terminal may not trigger the hook.
-Bring your own model account, service access and proxy provider.
-
-For servers with limited internet access, see the optional
-[shared-directory installation](docs/en/offline-install.md) and
-[local installation prompt](docs/en/agent-local-install-prompt.md).
-The separate helper installs pre-downloaded Mihomo, Node.js, Codex CLI and OpenCode packages;
-the controller installer retains its original responsibility.
+For WebSocket failures or repeated old errors after changing proxy settings, check and reconnect
+your own old clients. New proxy variables do not change existing app-servers. HTTP readiness is
+not model/WebSocket acceptance. You still need an account, service access and a working proxy node.
 
 `mihomo-userctl` is a small control, process-entry, and acceptance layer for an
 existing per-user [Mihomo](https://github.com/MetaCubeX/mihomo) service on Linux.
@@ -91,8 +85,8 @@ preserves credentials and Mihomo data, and never starts or enables the service.
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version v0.4.0 --dry-run
-mihomoctl update --version v0.4.0
+mihomoctl update --version v0.5.0 --dry-run
+mihomoctl update --version v0.5.0
 ```
 
 An update changes only `mihomo-userctl`; it is not a Mihomo core upgrade. It
@@ -111,12 +105,14 @@ mihomoctl status [--json]
 mihomoctl ready [--json]
 mihomoctl doctor [--offline] [--json]
 
+mihomoctl codex [-- ARGS...]
 mihomoctl exec -- COMMAND [ARGS...]
 mihomoctl direct -- COMMAND [ARGS...]
 
 mihomoctl diagnose url URL [--json]
 mihomoctl diagnose process PID [--json]
 mihomoctl diagnose name NAME [--json]
+mihomoctl diagnose codex [--json]
 
 mihomoctl rules status [--json] [--home-dir PATH] [--config PATH]
 mihomoctl rules check [--home-dir PATH] [--config PATH]

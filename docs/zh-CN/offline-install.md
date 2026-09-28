@@ -22,7 +22,7 @@
 | Codex CLI 0.156.1 | [x86_64 musl .tar.gz](https://github.com/openai/codex/releases/download/rust-v0.156.1/codex-x86_64-unknown-linux-musl.tar.gz) | [aarch64 musl .tar.gz](https://github.com/openai/codex/releases/download/rust-v0.156.1/codex-aarch64-unknown-linux-musl.tar.gz) |
 | OpenCode 1.18.32 | [x64 baseline .tar.gz](https://github.com/anomalyco/opencode/releases/download/v1.18.32/opencode-linux-x64-baseline.tar.gz) | [arm64 .tar.gz](https://github.com/anomalyco/opencode/releases/download/v1.18.32/opencode-linux-arm64.tar.gz) |
 | Node.js 24.21.0 LTS（含 npm/npx） | [x64 .tar.xz](https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.xz) | [arm64 .tar.xz](https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-arm64.tar.xz) |
-| mihomo-userctl 源码 | [v0.4.0 ZIP（架构通用）](https://github.com/liuzq1103/mihomo-userctl/archive/refs/tags/v0.4.0.zip) | 同左 |
+| mihomo-userctl 源码 | [v0.5.0 ZIP（架构通用）](https://github.com/liuzq1103/mihomo-userctl/archive/refs/tags/v0.5.0.zip) | 同左 |
 
 Mihomo 和本项目构成代理控制环境；Codex、OpenCode、Node 均为可选工具。选用独立
 Codex/OpenCode 程序包，无需通过 npm 安装它们。Node 为其他 JS 工具准备，不是
@@ -38,7 +38,7 @@ Codex/OpenCode 程序包，无需通过 npm 安装它们。Node 为其他 JS 工
 源码 ZIP 没有在这份二进制清单中：维护者应在联网电脑核对标签对应 commit、审阅源码，
 提供可核对的版本/commit 与来源记录；记录归档 SHA256。记录可随交付说明提供，
 不要求单独的 `SOURCE.txt`。自算摘要只用于传输一致性，无法确认来源时应停止并报告。
-v0.4.0 包含离线入口、清单及双语文档，直接从同一份审核后的源码复制即可。
+v0.5.0 包含离线入口、清单及双语文档，直接从同一份审核后的源码复制即可。
 Ubuntu 22.04 x86_64 服务器使用表中 x86_64 一列；不要根据下载电脑的 Windows 架构
 选择 Windows 包。安装前仍需检查目标服务器的基础依赖和实际运行兼容性。
 
@@ -48,7 +48,7 @@ Ubuntu 22.04 x86_64 服务器使用表中 x86_64 一列；不要根据下载电�
 
 ```text
 /mnt/nas/public/software/
-  mihomo-userctl-0.4.0.zip
+  mihomo-userctl-0.5.0.zip
   mihomo-linux-amd64-compatible-v1.19.31.gz
   ...其他已选择且匹配目标架构的依赖包
 ```

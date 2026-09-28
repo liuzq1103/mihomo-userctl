@@ -32,6 +32,8 @@ Commands:
   status                Print a stable one-line service/listener status
   ready                 Test service, listener, credentials, and an authenticated HTTP request
   doctor                Run safe configuration and runtime diagnostics
+  codex [-- ARGS...]
+                        Check proxy readiness, warn about old processes, and launch Codex
   exec -- COMMAND [ARGS...]
                         Run one command with validated proxy variables
   direct -- COMMAND [ARGS...]
@@ -42,6 +44,8 @@ Commands:
                         Inspect one current-user process without exposing values
   diagnose name NAME [--json]
                         Inspect current-user processes with an exact name
+  diagnose codex [--json]
+                        Explain local Codex proxy state and safe recovery steps (offline)
   rules status [OPTIONS] | rules check [OPTIONS]
                         Inspect the documented custom-rule contract without changes
   logs [--lines N] [--follow]
@@ -243,6 +247,36 @@ cmd_exec() {
   exec -- "$@"
 }
 
+cmd_codex() {
+  local executable rc
+  if [[ ${1:-} == --help || ${1:-} == -h ]]; then
+    (( $# == 1 )) || { _muc_err 'usage: mihomoctl codex [-- CODEX_ARGS...]'; return 2; }
+    printf 'Usage: mihomoctl codex [-- CODEX_ARGS...]\nUses PATH, checks HTTP proxy readiness, and warns about existing processes.\nNo service is started and no existing process is stopped. Remote hooks need no extra wrapper.\n'
+    return 0
+  fi
+  if (( $# )); then
+    [[ $1 == -- ]] || { _muc_err 'usage: mihomoctl codex [-- CODEX_ARGS...]'; return 2; }
+    shift
+  fi
+  executable=$(type -P codex) || {
+    _muc_err 'Codex is not on PATH; reopen your terminal or install the selected Codex package first'
+    return 2
+  }
+  require_python_module "$_muc_lib_dir/diagnostics.py"
+  _muc_prepare_proxy_environment || {
+    rc=$?
+    _muc_err 'Codex was not launched. Run mihomoctl doctor; check your subscription, then start the service if intended.'
+    return "$rc"
+  }
+  # Credentials used for comparison stay inside this short-lived inspection child.
+  (
+    _muc_load_credentials || exit 2
+    export MIHOMO_HTTP_PROXY MIHOMO_HTTPS_PROXY MIHOMO_ALL_PROXY
+    python3 -B "$_muc_lib_dir/diagnostics.py" codex --port "$MIHOMO_PORT" --launch-advice
+  ) || _muc_err 'Codex process inspection unavailable; launch continues, existing-server routing is unverified'
+  exec -- "$executable" "$@"
+}
+
 cmd_direct() {
   [[ ${1:-} == -- && $# -ge 2 ]] || { _muc_err 'usage: mihomoctl direct -- command [args...]'; exit 2; }
   shift
@@ -291,13 +325,21 @@ cmd_diagnose_process() {
 }
 
 cmd_diagnose() {
-  local kind=${1:-}
+  local kind=${1:-} option
   (( $# > 0 )) && shift
   case $kind in
     url) cmd_diagnose_url diagnose-url "$@" ;;
     process) cmd_diagnose_process process diagnose-process "$@" ;;
     name) cmd_diagnose_process name diagnose-name "$@" ;;
-    '') _muc_err 'usage: mihomoctl diagnose {url|process|name} ...'; exit 2 ;;
+    codex)
+      for option in "$@"; do
+        [[ $option == --json ]] || {
+          [[ " $* " == *' --json '* ]] && json_error diagnose-codex invalid-options
+          _muc_err 'usage: mihomoctl diagnose codex [--json]'; exit 2
+        }
+      done
+      cmd_diagnose_process codex diagnose-codex "$@" ;;
+    '') _muc_err 'usage: mihomoctl diagnose {url|process|name|codex} ...'; exit 2 ;;
     *)
       if [[ $kind == --json || " $* " == *' --json '* ]]; then
         json_error diagnose invalid-options
@@ -389,6 +431,7 @@ case $command_name in
     cmd_doctor "$offline" "$json"
     ;;
   exec) cmd_exec "$@" ;;
+  codex) cmd_codex "$@" ;;
   direct) cmd_direct "$@" ;;
   diagnose) cmd_diagnose "$@" ;;
   # v0.2.1 compatibility aliases; intentionally omitted from help/completion/docs.

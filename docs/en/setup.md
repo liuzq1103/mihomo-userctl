@@ -1,5 +1,7 @@
 # Install Mihomo and configure the complete stack
 
+For first use, WebSocket errors or old-process recovery, start with [first use](first-run.md).
+
 Default to personal Mihomo/controller installation and reuse suitable existing tools; install other
 tools only when selected. Follow the [shared runtime](shared-runtime.md) only when explicitly chosen;
 in that mode missing public tools go to the administrator. Public archives do not imply shared runtime.

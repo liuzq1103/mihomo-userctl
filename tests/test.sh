@@ -81,6 +81,51 @@ printf 'Mihomo Meta test\n'
 EOF
 chmod 755 "$TEST_ROOT/bin/"*
 
+cat > "$TEST_ROOT/bin/codex" <<'EOF'
+#!/usr/bin/env bash
+[[ $http_proxy == "$HTTP_PROXY" && $https_proxy == "$HTTPS_PROXY" && $all_proxy == "$ALL_PROXY" ]] || exit 90
+[[ $http_proxy == http://*@127.0.0.1:28443 && $no_proxy == localhost,127.0.0.1,::1 ]] || exit 91
+[[ ! -v MIHOMO_HTTP_PROXY ]] || exit 92
+printf '%s\0' "$@" > "$HOME/codex-args"
+printf 'codex-child-output\n'
+exit 37
+EOF
+chmod 755 "$TEST_ROOT/bin/codex"
+assert 'Codex launcher preserves arguments, child output/status and parent environment' bash -c '
+  export HTTP_PROXY=parent-value
+  output=$(mihomoctl codex -- "a b" '\''$(touch unexpected)'\'' --version); rc=$?
+  [[ $rc == 37 && $output == codex-child-output && $HTTP_PROXY == parent-value ]] || exit 1
+  python3 -c '\''import pathlib,os; assert (pathlib.Path(os.environ["HOME"])/"codex-args").read_bytes() == b"a b\0$(touch unexpected)\0--version\0"'\''
+'
+assert 'Codex launcher rejects ambiguous options before running the child' bash -c '
+  mihomoctl codex --version >/dev/null 2>&1; [[ $? == 2 ]]
+'
+assert 'Codex launcher rejects extra help arguments' bash -c '
+  mihomoctl codex --help unexpected >/dev/null 2>&1; [[ $? == 2 ]]
+'
+assert 'Codex launcher never auto-starts a stopped service' bash -c '
+  printf "inactive\n" > "$1"
+  mihomoctl codex >/dev/null 2>&1; rc=$?
+  state=$(cat "$1")
+  printf "active\n" > "$1"
+  [[ $rc == 1 && $state == inactive ]]
+' _ "$TEST_ROOT/service-state"
+assert 'Codex launcher does not launch when readiness fails' bash -c '
+  rm -f "$HOME/codex-args"
+  CURL_FAIL=1 mihomoctl codex >/dev/null 2>&1; rc=$?
+  [[ $rc == 1 && ! -e $HOME/codex-args ]]
+'
+assert 'Codex offline diagnosis is JSON and never claims model success' bash -c '
+  output=$(CURL_FAIL=1 mihomoctl diagnose codex --json); rc=$?
+  [[ $rc == 2 ]] || exit 1
+  python3 -c '\''import json,sys; d=json.loads(sys.argv[1]); assert d["command"] == "diagnose-codex" and d["overall"] == d["websocket"] == d["model_request"] == "UNVERIFIED"'\'' "$output"
+'
+assert 'Codex diagnosis rejects unsupported flags as JSON' bash -c '
+  output=$(mihomoctl diagnose codex --launch-advice --json 2>/dev/null); rc=$?
+  [[ $rc == 2 ]] || exit 1
+  python3 -c '\''import json,sys; assert json.loads(sys.argv[1])["error"]["code"] == "invalid-options"'\'' "$output"
+'
+
 assert 'doctor accepts secure config and disabled service' "$HOME/.local/bin/mihomoctl" doctor
 assert 'ready validates the authenticated path' "$HOME/.local/bin/mihomoctl" ready
 assert 'status reports active loopback listener' bash -c '[[ $(mihomoctl status) == *"service=up enabled=disabled listener=up endpoint=127.0.0.1:28443"* ]]'

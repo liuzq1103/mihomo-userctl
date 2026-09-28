@@ -102,3 +102,13 @@ Configuration validation/provider fetching can need network access and remains s
 Then, only when authorized, start or coordinate restart/reconnect of the current user's service/client
 and perform acceptance. Report software installation, subscription usability and Codex request success
 separately; never automatically interrupt working processes.
+
+## First-use handoff
+
+Follow [first-run.md](first-run.md) to distinguish terminals, verified Remote hooks and VS Code;
+give the user a next step for their actual entry. Installer success is not subscription/service/Codex readiness.
+For selected Codex acceptance include the read-only `mihomoctl diagnose codex` snapshot; its overall
+UNVERIFIED/exit 2 is intentional. A differing old-process environment is a candidate risk, not proof
+of reuse or direct model traffic. Guide users to save work and reconnect normally, never automatically
+kill processes or delete sockets, credentials or sessions. Report controller installation, HTTP
+readiness and actual-client model reply separately; untested WebSockets stay UNVERIFIED with pending actions.

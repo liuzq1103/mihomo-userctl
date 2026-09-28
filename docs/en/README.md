@@ -1,5 +1,7 @@
 # English documentation
 
+For first use, WebSocket errors or old-process recovery, start with [first use](first-run.md).
+
 Public directories hold installation material; private per-user installation is the default, and administrator-shared runtime is an explicitly selected option.
 
 [Shared Node/Codex on multi-user servers](shared-runtime.md)
