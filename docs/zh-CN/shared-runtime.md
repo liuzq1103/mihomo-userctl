@@ -1,5 +1,12 @@
 # 共享 Node/Codex，独立用户身份与代理
 
+## v0.6 Codex 运行时门禁
+
+`mihomoctl codex preflight` 按 [first-run.md](first-run.md) 的四层状态决定是否允许启动，
+`mihomoctl codex` 内部执行同一门禁。旧候选进程环境不匹配为 BLOCKED；检查不完整为 UNVERIFIED，
+均不启动、不停止任何旧进程。安装 Agent 联网、磁盘 loader 更新或新 CLI 的变量不证明旧服务已代理。
+本地 transport 应直连，远程 transport/模型请求仍需独立实测。
+
 首次使用、WebSocket 报错或旧进程问题，先看[安装后第一次使用 Codex](first-run.md)。
 
 [English](../en/shared-runtime.md) · [交付约定](deployment-contract.md) · [本地安装](offline-install.md)

@@ -355,3 +355,8 @@ Mihomo 二进制使用步骤 2 的精确备份；配置或 unit 回滚前
 
 后续仅更新控制层请使用[更新指南](update.md)或[更新 Prompt](agent-update-prompt.md)。
 安装与更新需要 Python 3.8+。
+
+## v0.7 Control Plane
+
+需要查看或切换节点时，按[节点管理与面板](control-plane.md)启用独立认证 loopback controller。
+快速安装入口见[固定链接安装](quick-install.md)。这些功能不绕过 Codex preflight，也不改变普通 Shell 默认直连。

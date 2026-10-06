@@ -77,6 +77,31 @@ class FakeRelease:
 
 
 class SourceTests(unittest.TestCase):
+    def test_pre_controller_receipts_accept_exact_old_module_set(self):
+        for version in ("0.2.2", "0.3.4", "0.4.0", "0.5.0", "0.6.0"):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                generation = root / "generations" / ("c" * 32)
+                generation.mkdir(parents=True)
+                hashes = {}
+                for name in ins.RUNTIME_060:
+                    put(generation / name, "fixture " + name, 0o644)
+                    hashes[name] = ins.digest(generation / name)
+                record = {"install_root": str(root), "generation": generation.name,
+                          "version": version, "runtime_hashes": hashes,
+                          "bootstrap_hashes": {n: "fixture" for n in ("mihomoctl", "common.bash", "shell.bash", "completion.bash")}}
+                ins.verify_generation(record)
+                hashes["controller.py"] = "unexpected"
+                with self.assertRaises(ins.InstallError): ins.verify_generation(record)
+
+    def test_v060_release_requires_preflight_regressions(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "source"
+            target_source(source)
+            (source / "tests/test_codex_preflight.py").unlink()
+            with self.assertRaisesRegex(up.UpdateError, "target-release-is-incomplete"):
+                up.validate(source, TAG)
+
     def test_v020_runtime_receipt_is_accepted_only_with_its_exact_known_set(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -345,8 +370,9 @@ esac
         record = ins.metadata(self.root)
         generation = self.root / "generations" / record["generation"]
         record["version"] = "0.2.1"
-        record["runtime_hashes"].pop("reporting.py")
-        (generation / "reporting.py").unlink()
+        for name in set(record["runtime_hashes"]) - ins.RUNTIME_021:
+            record["runtime_hashes"].pop(name)
+            (generation / name).unlink()
         ins.write_json(generation / "installation.json", record)
         ins.verify_installed(record)
 

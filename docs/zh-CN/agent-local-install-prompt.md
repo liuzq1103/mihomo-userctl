@@ -8,7 +8,7 @@
 ```text
 请为当前普通 Ubuntu 用户从已有共享目录安装环境，直接完成授权范围内的工作并返回证据。
 安装包目录：<实际绝对路径，例如 /mnt/nas/public/software>
-源码版本：<精确已发布版本，例如 v0.5.0；多个候选不得自行选最新版>
+源码版本：<精确已发布版本，例如 v0.7.0；多个候选不得自行选最新版>
 运行时模式：<默认个人安装；管理员公共 Node/npm/Codex 仅在明确选择时使用>
 选择软件：<默认 mihomo；codex/node/opencode 按需选择，复用已有适用软件>
 控制层：<默认安装 mihomo-userctl>
@@ -67,9 +67,14 @@ OpenCode 如需关闭自动更新，只合并个人配置的 autoupdate=false，
 最后必须按 deployment-contract.md 提醒订阅填写：实际绝对配置路径、provider 的准确 url 键、
 本地编辑方法、填写后检查与授权验收；不把缺订阅说成完整可用。已有订阅说明保留，
 file provider 给实际导入位置，不强迫输入 URL，也不索取聊天中的链接。
-安装及交付还须遵循同版本 first-run.md：根据普通终端、已验证 Remote hook 或 VS Code
-给出实际入口，不把裸 codex 或 with_proxy 说成所有场景通用。选择 Codex 验收时运行
-mihomoctl diagnose codex；其 UNVERIFIED/退出码 2 不代表模型失败，HTTP 通过不代表 WebSocket 通过。
-发现旧进程先报告并指导用户保存工作、正常退出和重连；不自动 kill、删 socket 或清空认证。
-最终分别报告控制层安装、HTTP 就绪、实际客户端模型回复，以及待登录/重连/订阅事项。
+Codex 交付严格按同版本 first-run.md 状态机：控制层安装 → mihomoctl doctor →
+仅已选择启动时 mihomoctl start → 获准公开探测时 mihomoctl codex preflight。
+退出 0 才通过实际入口进行已授权模型验收；退出 1 为 BLOCKED，不运行 Codex、不发模型请求，
+指导保存工作并正常重连旧客户端；退出 2 为 UNVERIFIED，不启动、不宣称成功。
+post-install 验收不得直接运行裸 codex；mihomoctl codex 内部重新执行门禁。
+需要深度排查时运行 mihomoctl diagnose codex，其 UNVERIFIED/退出 2 不代表模型失败。
+安装 Agent 自己的网络可用性不是目标 Codex 的验收证据；修改 .bashrc 仅改变磁盘，
+不会追溯修改已有 Agent/app-server/Extension Host/tmux/Notebook 进程。
+不自动 kill、删 socket 或清空认证；WebSocket 须区分本地与远程 transport，模型未测为 UNVERIFIED。
+分别报告四层状态及待订阅、登录、重连事项，不用 HTTP 通过代替实际模型回复。
 ```

@@ -1,5 +1,18 @@
 # 安装参数与交付约定
 
+## v0.6 Codex 运行时门禁
+
+遵循 [first-run.md](first-run.md) 的四层状态与退出码契约：CONTROL_PLANE_INSTALLED →
+PROXY_READY → CODEX_RUNTIME_CLEAN → CODEX_E2E_VERIFIED。
+`mihomoctl codex preflight [--json]` 返回 0/SAFE_TO_LAUNCH 才允许已授权的实际客户端验收；
+1/BLOCKED 和 2/UNVERIFIED 都禁止启动 Codex 或发送模型请求。`mihomoctl codex` 内部重复同一门禁。
+检查不完整优先返回 2，并保留已知阻断原因；不要解析自由文本决定继续。
+`mihomoctl diagnose codex` 保留离线诊断职责及 UNVERIFIED/退出 2，不代替启动策略。
+local_transport=DIRECT_EXPECTED 仅是本地应直连的策略；remote_transport/model_request 未实测为 UNVERIFIED。
+安装 Agent 自己能够联网、磁盘 loader 已写入或新 CLI 具备 8/8 变量，都不是旧 app-server 已代理的证据。
+post-install 验收不得运行裸 `codex`；不自动 kill、删 socket、清空认证或会话。
+现有仅两变量的 IDE 进程也可能被严格八变量门禁阻断；这不等于其实际模型通信失败。
+
 [English](../en/deployment-contract.md) · [在线 Prompt](agent-install-prompt.md) · [本地 Prompt](agent-local-install-prompt.md)
 
 将以下非敏感参数填入所选 Prompt。用户已提供的选择直接沿用；已知环境仍需只读核实。

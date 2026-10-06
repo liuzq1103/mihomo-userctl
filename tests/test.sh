@@ -81,6 +81,29 @@ printf 'Mihomo Meta test\n'
 EOF
 chmod 755 "$TEST_ROOT/bin/"*
 
+# Keep Codex preflight independent of live /proc and sockets, like the existing
+# systemctl/ss/curl stubs. Only these disposable copied modules are patched.
+mkdir "$TEST_ROOT/proc"
+python3 - "$XDG_DATA_HOME/mihomo-userctl" "$TEST_ROOT/proc" <<'PY'
+from pathlib import Path
+import sys
+runtime = Path(sys.argv[1])
+p = runtime / 'diagnostics.py'
+p.write_text(p.read_text().replace('Path("/proc")', 'Path(' + repr(sys.argv[2]) + ')'))
+p = runtime / 'acceptance.py'
+p.write_text(p.read_text() + '\nhttp_no_auth = lambda *a: Result("PASS", "http-no-auth", "fixture-407")\n'
+             + 'socks_no_auth = lambda *a: Result("PASS", "socks5h-no-auth", "fixture-ff")\n')
+PY
+cat > "$TEST_ROOT/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+if [[ ${CURL_FAIL:-0} == 1 ]]; then
+  [[ " $* " != *' --write-out '* ]] || printf '000\t000\t127.0.0.1\t28443'
+  exit 7
+fi
+[[ " $* " != *' --write-out '* ]] || printf '204\t200\t127.0.0.1\t28443'
+exit 0
+EOF
+
 cat > "$TEST_ROOT/bin/codex" <<'EOF'
 #!/usr/bin/env bash
 [[ $http_proxy == "$HTTP_PROXY" && $https_proxy == "$HTTPS_PROXY" && $all_proxy == "$ALL_PROXY" ]] || exit 90

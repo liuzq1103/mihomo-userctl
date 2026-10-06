@@ -21,8 +21,11 @@ Mihoro 文档使用 `eval $(mihoro proxy export)`；本项目不生成代码供 
 Shell 模块经过所有者和权限校验后才 source，凭据文件始终作为白名单数据解析。
 
 本项目坚持服务 `disabled`、手动启动、带认证的 loopback-only Mixed Listener、
-无 controller、无 Dashboard、无 TUN、无系统路由修改，并同时管理大小写八个
+无 TUN、无系统路由修改，并同时管理大小写八个
 代理变量。Mihomo 内部规则和订阅仍完全归用户所有。
 
 Mihoro 和本项目都采用 MIT，但本项目为原创 Bash 实现，没有复制 Mihoro 源码、
 品牌、Logo 或资产。
+
+v0.7 增加显式启用的认证 loopback Controller、终端选择器和浏览器面板，见[节点管理](control-plane.md)。
+[固定链接安装](quick-install.md)调用原有控制层安装器，不改变订阅和服务授权约定。

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION=0.5.0
+VERSION=0.7.0
 BEGIN_MARKER='# >>> mihomo-userctl managed loader >>>'
 END_MARKER='# <<< mihomo-userctl managed loader <<<'
 
@@ -326,7 +326,8 @@ note "installed mihomo-userctl $VERSION"
 note "backup=$backup_root"
 note 'the Mihomo service was not enabled or started'
 note 'next: finish your private subscription/configuration, then run mihomoctl start when ready'
-note 'terminal Codex: reopen the terminal, then use mihomoctl codex (with_proxy codex is also supported)'
+note 'terminal Codex: run mihomoctl codex preflight; only SAFE_TO_LAUNCH permits acceptance via mihomoctl codex'
+note 'BLOCKED/UNVERIFIED: do not run Codex; inspect with mihomoctl diagnose codex and reconnect your own clients'
 note 'verified Remote hook: reconnect normally; .bashrc alone does not proxy ordinary codex launches'
 note 'connection/WebSocket errors: mihomoctl diagnose codex; save work and reconnect your own old clients'
 note 'installation and HTTP readiness do not prove a working Codex model request'

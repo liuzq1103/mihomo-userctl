@@ -111,19 +111,20 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(data["command"], "diagnose-codex")
         self.assertEqual(data["error"]["code"], "proc-unavailable")
 
-    def test_codex_launch_advice_warns_without_stopping_processes(self):
+    def test_codex_diagnosis_is_read_only_and_transport_specific(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             self.codex_fixture(root)
             output, error = io.StringIO(), io.StringIO()
-            args = type("Args", (), {"json": False, "launch_advice": True})()
+            args = type("Args", (), {"json": False})()
             with patch.object(d, "expected_environment", return_value=expected()), \
                     patch.object(d.os, "getuid", return_value=1000, create=True), \
                     patch.object(d.os, "kill", side_effect=AssertionError("no signals")), \
                     contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
-                self.assertEqual(d.handle_codex(args, root), 0)
-            self.assertEqual(output.getvalue(), "")
-            self.assertIn("existing Codex processes", error.getvalue())
+                self.assertEqual(d.handle_codex(args, root), 2)
+            self.assertIn("local_transport=DIRECT_EXPECTED", output.getvalue())
+            self.assertIn("remote_transport=UNVERIFIED", output.getvalue())
+            self.assertEqual(error.getvalue(), "")
 
     def test_proxy_environment_classifies_without_returning_values(self):
         self.assertEqual(d.proxy_environment({}, expected())["classification"], "direct")

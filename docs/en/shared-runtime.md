@@ -1,5 +1,12 @@
 # Shared Node/Codex, private identity and proxy
 
+## v0.6 Codex runtime gate
+
+`mihomoctl codex preflight` uses the four levels in [first-run.md](first-run.md) to decide launch;
+`mihomoctl codex` runs the same gate. Mismatched candidates are BLOCKED; incomplete inspection is UNVERIFIED.
+Neither launches Codex nor stops existing processes. Installer connectivity, disk loader changes or new CLI
+variables cannot prove an old service's route. Local transport should bypass the proxy; remote/model traffic needs real verification.
+
 For first use, WebSocket errors or old-process recovery, start with [first use](first-run.md).
 
 [中文](../zh-CN/shared-runtime.md) · [Deployment contract](deployment-contract.md) · [Local installation](offline-install.md)

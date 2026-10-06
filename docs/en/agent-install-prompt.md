@@ -73,18 +73,18 @@ Follow deployment-contract.md for separate Codex executable, new-process, Listen
 and authorized minimal-model-request evidence; the user handles login. Missing evidence or
 authorization is UNVERIFIED; DEFERRED requires explicit user postponement. Unselected is not passed.
 
-On failure, stop within the authorized scope and use the documented rollback;
-do not improvise destructive recovery. Finish with a redacted diff and final
-acceptance report covering changes, versions and source identity, actual test
-commands/exit codes, active/enabled preservation, backup and rollback command,
-remaining UNVERIFIED/DEFERRED items, and user actions such as opening a new
-terminal or reconnecting a long-lived client. This is the final acceptance
-record; use deployment-contract.md's report fields and limit isolation claims to measured scope.
-Never claim an unrun check passed.
+On failure use documented rollback within authorization. Return a redacted diff and final acceptance
+report using deployment-contract.md: changes, source/version, commands/exit codes, active/enabled preservation,
+backup/rollback, pending evidence and user actions. Limit claims to measured scope; never claim unrun checks passed.
 Finish with the subscription handoff in deployment-contract.md: actual absolute config path and
 proxy-providers.<actual-name>.url, local-only entry, pending acceptance and follow-up checks.
 Preserve existing subscriptions; give the actual import location for file providers. Do not equate missing setup with success.
-Follow first-run.md for terminal/verified Remote hook/VS Code handoff; no entry is universal.
-For Codex acceptance run mihomoctl diagnose codex: UNVERIFIED/exit 2 is not model failure; HTTP is not WebSocket proof.
-Guide safe quit/reconnect, never auto-kill or delete credentials/sockets. Report install, HTTP, model reply and pending actions separately.
+For Codex delivery follow first-run.md: install → mihomoctl doctor → mihomoctl start only if selected →
+mihomoctl codex preflight only when public probing is authorized. Exit 0 permits authorized real-client
+acceptance; exit 1 is BLOCKED: no Codex or model request, guide safe client reconnect; exit 2 is UNVERIFIED: no launch.
+Never run bare codex for post-install acceptance; mihomoctl codex repeats the gate. Use mihomoctl diagnose codex
+for offline diagnosis; its UNVERIFIED/exit 2 does not mean model failure. WebSocket needs local/remote distinction.
+The installation agent's own connectivity is not Codex evidence; .bashrc changes disk state, not existing
+Agent/app-server/Extension Host/tmux/Notebook environments. Never kill or delete sockets/authentication/sessions.
+Report four levels and pending subscription/login/reconnect; HTTP success cannot replace an actual model reply.
 ```

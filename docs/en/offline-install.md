@@ -1,5 +1,7 @@
 # Install from a shared directory
 
+Examples use the v0.7.0 release. Pin the version and verify the source before deployment.
+
 [中文](../zh-CN/offline-install.md) · [Local installation prompt](agent-local-install-prompt.md) · [Public online setup](setup.md)
 
 A public directory distributes a source ZIP and independent dependency archives. Install Mihomo
@@ -27,7 +29,7 @@ Also obtain a reviewed fixed [controller release](https://github.com/liuzq1103/m
 Obtain its tag, full commit, archive hash and review from trusted delivery records; no separate
 SOURCE.txt file is required. Stop and report unknown provenance. Locally computing the source
 archive hash proves transfer consistency, not publisher identity. Use the fixed
-[v0.5.0 source ZIP](https://github.com/liuzq1103/mihomo-userctl/archive/refs/tags/v0.5.0.zip),
+[v0.7.0 source ZIP](https://github.com/liuzq1103/mihomo-userctl/archive/refs/tags/v0.7.0.zip),
 which includes the helper, manifest and bilingual documentation. Ubuntu 22.04 x86_64 servers
 use the x86_64 entries regardless of the download computer's operating system. Target dependency
 and runtime compatibility checks are still required.
@@ -38,7 +40,7 @@ Archives may sit directly in a flat directory, with original dependency filename
 
 ```text
 /mnt/nas/public/software/
-  mihomo-userctl-0.5.0.zip
+  mihomo-userctl-0.7.0.zip
   mihomo-linux-amd64-compatible-v1.19.31.gz
   ...other selected dependency archives for the target architecture
 ```

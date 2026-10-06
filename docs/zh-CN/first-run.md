@@ -2,89 +2,120 @@
 
 [English](../en/first-run.md) · [安装](setup.md) · [故障排查](troubleshooting.md)
 
-安装完成不等于 Codex 已经连通。先完成个人订阅/配置，确认 Codex 已安装；登录由你本人完成。
-本页的 `mihomoctl codex` 和 `mihomoctl diagnose codex` 是 v0.5.0 新增入口。
-已发布的 v0.4.0 使用 `with_proxy codex`（Bash 已加载时）或 `mihomoctl exec -- codex`，
-进程检查使用 `mihomoctl diagnose name codex`；升级前不要假定新命令已存在。
+安装成功 ≠ HTTP proxy ready ≠ Codex runtime ready ≠ model E2E verified。
+先完成个人订阅/配置，确认 Codex 已安装；登录由用户本人完成。
+本页描述 v0.6.0。v0.5.0 的启动器只警告旧进程风险，升级后会拒绝不安全或无法验证的启动。
+v0.4.0 没有 Codex 专用入口，不能把旧版 `with_proxy codex` 当作新的运行时门禁。
 
-## 按你的启动方式操作
+## 四层状态
 
-| 你如何使用 Codex | 正确入口 |
+| 层级 | 含义及证据 |
 | --- | --- |
-| 普通 SSH/Bash 终端手动输入命令 | `mihomoctl codex`，会检查 HTTP 代理就绪并提醒旧进程风险 |
-| 已验证自动 hook 生效的 Codex Remote | 正常连接，不需要额外包装；变更代理后重新连接并验证 |
-| VS Code Remote 扩展 | 按 [VS Code 集成](vscode-remote.md)配置，不能用终端成功代替扩展验收 |
-| 脚本或其他工具 | `mihomoctl exec -- COMMAND`；Bash 中也可使用 `with_proxy COMMAND` |
+| `CONTROL_PLANE_INSTALLED` | 控制层可加载且配置/凭据校验通过；preflight 不代替安装 receipt 的完整哈希审计 |
+| `PROXY_READY` | 用户服务 active、选定端口仅监听 loopback、无认证 HTTP/SOCKS 被拒、认证 HTTP 请求通过 |
+| `CODEX_RUNTIME_CLEAN` | 可找到 Codex、待启动环境匹配配置、进程快照完整且已识别候选均匹配 |
+| `CODEX_E2E_VERIFIED` | 用户授权后，真实使用入口发出最小模型请求并取得完整回复；自动 preflight 始终记为 UNVERIFIED |
 
-`.bashrc` 中的 loader 提供函数并加载条件 hook。普通 Shell 加载时先清理代理变量；
-仅远程启动器提供非空 `CODEX_REMOTE_PAYLOAD` 时自动启用。因此普通终端直接输入 `codex`
-没有自动代理保证。不要把该变量永久写入启动文件，也不要添加全局代理来修复单个应用。
-本项目不替换 `codex` 命令、不添加同名 alias，保留直连与其他客户端原有行为。
+这些是本次观察，不存储为永久认证。单次快照不能保证下一时刻不会出现新的旧环境进程。
 
 ## 普通终端的首次检查
 
-打开一个新终端。若 `mihomoctl` 不在 PATH 中，用 `~/.local/bin/mihomoctl` 执行，
-再按安装时的 PATH 设置修复。非 Bash Shell 也可使用这个可执行入口，无须 `source .bashrc`。
-
 ```bash
-mihomoctl doctor --offline
+mihomoctl doctor
+# 仅当用户已选择启动且配置完成时：
 mihomoctl start
+mihomoctl codex preflight
+mihomoctl codex preflight --json
+# 只有 preflight 允许且用户授权真实验收后：
 mihomoctl codex
 ```
 
-先确认订阅/配置已完成再启动服务；服务已经运行时可以直接使用启动入口。
-服务默认 disabled，机器重启后要按需手动启动。`mihomoctl codex` 不自动启动服务。
-向 Codex 传递参数时用分隔符，例如 `mihomoctl codex -- resume`；原参数和退出码会保留。
-该入口使用 PATH 中的 Codex 可执行文件，不执行 Shell alias/function，也不替你安装或登录。
+服务已运行则无需再启动。`preflight` 会请求配置的公开 HTTPS READY URL（HEAD），检查
+HTTP CONNECT 认证拒绝和 SOCKS 无认证拒绝；不发模型请求、不登录、不启动服务。
+READY URL 不得含 userinfo、query、fragment 或本地主机，应支持 HEAD 并返回 2xx。
+不能联网或尚未获准探测时不执行 preflight，把相关验收记为 UNVERIFIED。
 
-启动入口的就绪检查会通过代理请求配置的 READY URL，然后才启动 Codex。
-若检查失败，会阻止这次启动并提示检查配置；成功也只证明这次 HTTP 请求可用。
-登录完成且你同意发出模型请求后，在同一个实际使用入口发送一句最小测试消息，确认收到完整回复。
-API 用户的模型请求可能计费；诊断命令不会自动发起这类测试。
+| preflight 退出码 | 状态 | 后续动作 |
+| --- | --- | --- |
+| 0 | SAFE_TO_LAUNCH | 可以从实际入口进行已授权的 Codex 验收，不能宣称模型已通 |
+| 1 | BLOCKED | 已发现服务/监听/认证/HTTP 失败、缺少 Codex 或旧进程环境不匹配；不运行 Codex、不发模型请求 |
+| 2 | UNVERIFIED | 配置/依赖/权限/进程检查无法可靠完成；不运行 Codex，不宣称成功 |
 
-## WebSocket 报错先判断是哪一段
+检查错误优先于已知阻断：两者并存返回 2，但 `reasons` 保留所有已发现问题。
+依赖上游失败而跳过的网络项标记 SKIPPED，不算额外检查错误。
+`mihomoctl codex` 每次内部重新运行相同 preflight，只有退出 0 才 exec PATH 中的 Codex。
+它不调用 alias/function，不安装程序、不停止旧进程，不提供跳过门禁开关。
+启动成功后透传 Codex 自己的退出码；不要把子程序的退出码解释成 preflight 状态。
+参数使用 `mihomoctl codex -- resume`；普通非 Bash 终端也可使用此入口。
 
-| 现象 | 下一步 |
-| --- | --- |
-| `command not found` | 确认所选工具已安装，重开终端并检查 PATH，不是网络故障 |
-| `doctor`/`ready` 失败、代理认证失败 | 检查服务、个人端口、`client.env` 与 Mihomo 认证、订阅和节点 |
-| HTTP 检查通过，但 WebSocket 握手失败或流中断 | 检查实际出站进程、对应目标的路由/节点、TLS/证书、网络中间设备；不能据此认定代理已完成或未完成 |
-| 本地 Unix socket、localhost 的连接失败 | 检查所属客户端与 app-server 是否正常；本地连接应绕过代理，远端节点通常无法修复本地服务 |
-| 401/403 或账号/配额提示 | 结合实际出错层检查登录、权限或网关限制；不要反复清空认证文件 |
-| 改完代理后仍重复旧错误 | 按下面步骤退出并重连自己的旧客户端，检查是否还有旧进程被复用 |
+普通 Shell 默认 direct 是正常状态。报告中的 `invoking_environment` 是调用方环境分类；
+`codex.current_environment` 检查的是准备传给新 Codex 的八变量环境，父 Shell 不会被改写。
+现有进程采用严格八变量匹配策略，包括 NO_PROXY；即使某个 VS Code 服务仅使用两个变量即可联网，
+它也不满足此终端门禁，不能据此断言它的实际模型连接已失败。
 
-WebSocket 可能用于客户端到 app-server，也可能用于 app-server 的远程连接；看清错误发生的
-层次，不能把所有 WebSocket 都视为模型出站。参见 [Codex 官方连接说明](https://learn.chatgpt.com/docs/app-server)。
-`curl` 成功、8 个代理变量齐全、某次请求回退到其他传输，都不能单独证明目标 WebSocket 已通过。
-不要套用未验证版本的“关闭 WebSocket”配置，也不要关闭 TLS 校验来掩盖错误。
+## 旧进程阻断与安全恢复
 
-## 已有进程与安全恢复
-
-```bash
-mihomoctl diagnose codex
-# 如需交给 Agent 分析：
-mihomoctl diagnose codex --json
+```text
+Overall
+  BLOCKED
+Reason: stale-direct-app-server
+  PID=182034 role=app-server proxy_environment=direct
 ```
 
-这是无联网、只读检查：报告当前环境及本用户 Codex 候选进程的 PID、角色和代理环境分类，
-不输出命令参数、订阅或代理密码。`direct` 表示未读到代理变量，不等于模型请求一定直连；
-`inconsistent` 表示与当前个人代理配置不匹配。匹配也不能证明 WebSocket 成功。
-无进程是未运行的正常可能状态。权限不足、进程退出/变化会保留为未验证，不视作零风险。
-自定义启动器可能漏检；此命令不关联 Unix socket 对端，不识别哪一个候选服务正在被你的请求复用。
-因此报告整体为 `UNVERIFIED`、退出码为 `2`，即使没有发现问题；这不是模型请求失败。
+PID 仅为虚构示例。direct/inconsistent 的已识别 CLI、helper 或 app-server 均阻断；
+没有关联证据时，宁可要求确认，也不猜哪个候选会被复用。
+读取失败、PID 变化或活跃同 UID 进程无法分类时为 UNVERIFIED。
 
-1. 保存当前工作，在自己的 Codex 客户端正常退出或断开 Remote 连接。
-2. 再次运行诊断。如果候选进程仍在，不要仅凭“旧”“direct”或 PID 就停止它：它可能服务于你的其他活跃会话。
-3. 若需人工清理，先确认当前 PID 的 UID、对应客户端和会话，并在停止前重新核实，防止 PID 已被复用。
-   只对确认不再使用的那个进程进行正常停止；不执行全局 `pkill`/`killall`，不删除 socket、`~/.codex`、登录和会话数据。
-4. 从上表对应入口重新连接；确认实际服务也继承了正确环境，再做一次已授权的最小请求。
+1. 保存工作，正常退出或断开自己的旧 Codex 客户端。
+2. 运行 `mihomoctl diagnose codex` 查看只读快照，确认是否仍有活跃会话。
+3. 再运行 preflight；清除原因后从正确入口重连。
 
-重启 Mihomo、重开一个终端或再次 `source .bashrc` 都不会修改旧 app-server 的环境。
-新启动入口只提醒风险，不强停进程，也不承诺自动修复旧服务。没有关联证据时，让 Agent 按
-[详细排障](troubleshooting.md)继续只读检查，避免盲目重装。
+工具不会 kill、pkill、删除 Unix socket、`.codex`、登录态或会话。不要为通过门禁破坏正在工作的会话。
+修改 `.bashrc` 只改变磁盘状态，不能追溯修改 OpenCode、Claude Code、Codex 安装 Agent 的进程树，
+也不能修改已有 app-server、Extension Host、tmux 或 Notebook。新 CLI 的 8/8 不是旧服务已代理的证据。
 
-## 安装交付应告诉你什么
+## 本地 transport 与远程 transport
 
-交付报告必须给出：实际订阅配置位置及是否已填写、服务是否启动、你的启动入口、
-是否需要退出旧客户端、实际请求是否测过，以及还需你完成的登录或验证。
-“控制层已安装”“HTTP 代理就绪”“Codex 收到模型回复”应分别报告，不合并成“全部可用”。
+```text
+CLI → localhost / 127.0.0.1 / ::1 / Unix socket → app-server
+    local_transport = DIRECT_EXPECTED
+
+app-server → HTTPS / WSS / other remote transport → remote service
+    remote_transport = UNVERIFIED
+    model_request = UNVERIFIED
+```
+
+`NO_PROXY=localhost,127.0.0.1,::1` 是正确设计；Unix socket 本身不通过 HTTP 代理。
+DIRECT_EXPECTED 是本地链路应直连的策略，不能当作本地连通 PASS。
+HTTP readiness 不证明远程 WebSocket 或模型成功；看到 WebSocket 报错先识别出错层，不直接归因于 Mihomo。
+诊断保留旧 JSON `websocket=UNVERIFIED` 兼容字段，并新增 local_transport/remote_transport/model_request。
+不要关闭 TLS 校验或套用未经验证的传输配置。
+
+## diagnosis 与 policy enforcement
+
+`mihomoctl diagnose codex [--json]` 是离线深度排查入口，整体仍为 UNVERIFIED、退出 2；
+它不发网络请求，也不决定启动。`mihomoctl codex preflight [--json]` 是启动策略判断，返回 0/1/2。
+二者只报告当前 UID 候选的 PID、角色和环境分类，不打印完整 argv、环境、订阅或凭据。
+preflight 复用 `mihomo-userctl.diagnostics/v1`，command 为 `codex-preflight`；
+launch_safe 是布尔值，proxy/codex 是检查分类，checks 是实际探测证据，reasons 是稳定原因代码，
+levels 是上述四层状态。配置/检查错误也返回相同核心字段；Python 或受信任模块不可用时，
+返回只含 schema、command、overall、launch_safe、reasons、error 的最小错误对象。
+
+匹配范围是名称或可执行文件为 codex，以及可识别的 node/bash/sh Codex 脚本入口。
+任意改名二进制、自定义嵌入式服务可能无法识别。不能自动证明 Unix socket 对端因果关系、复用关系、
+最终代理节点或真实远程请求。SAFE_TO_LAUNCH 只表示这次已实现检查全部通过。
+
+## Remote、VS Code 与安装 Agent
+
+已验证 Remote hook 可按既有方式连接；VS Code 使用[独立集成](vscode-remote.md)。
+这些入口以及 `with_proxy`/`exec` 不会自动执行 Codex 门禁；安装后的 Codex 验收必须先运行 preflight，
+不能用裸 `codex` 作为 post-install 验收捷径，也不能绕过阻断去试模型。
+本版本不把门禁加到通用 `.bashrc` hook，以免影响非 Codex 命令和已有远程连接。
+
+安装 Agent 自己能够联网不是目标 Codex 的验收证据。先登录，再在已授权范围内通过实际使用的客户端
+发送最小消息，确认完整回复，另行记录真实路由证据。交付分别报告四层状态及待填订阅、登录、重连事项。
+
+## v0.7 Control Plane
+
+需要查看或切换节点时，按[节点管理与面板](control-plane.md)启用独立认证 loopback controller。
+快速安装入口见[固定链接安装](quick-install.md)。这些功能不绕过 Codex preflight，也不改变普通 Shell 默认直连。

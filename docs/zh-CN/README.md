@@ -14,7 +14,7 @@
 全新服务器建议按顺序阅读：
 
 1. [安装 Mihomo 并配置完整环境](setup.md)
-2. [安装和使用 mihomo-userctl](../../README.zh-CN.md)
+2. [安装和使用 mihomo-userctl](../../README.md)
 3. [架构与数据流](architecture.md)
 4. [安全模型](security.md)
 5. [VS Code Remote 推荐配置](vscode-remote.md)（可选）
@@ -28,3 +28,6 @@
 - [更新与一次性迁移](update.md)
 - [编码 Agent 更新 Prompt](agent-update-prompt.md)
 - [私有自定义规则契约与只读检查](rules.md)
+
+- [节点管理 / Nodes and dashboards](control-plane.md)
+- [快速安装 / Quick installation](quick-install.md)

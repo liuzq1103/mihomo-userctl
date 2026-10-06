@@ -1,9 +1,15 @@
 _mihomoctl_complete() {
   local current=${COMP_WORDS[COMP_CWORD]}
   local previous=${COMP_WORDS[COMP_CWORD-1]}
-  local commands='start stop restart status ready doctor codex exec direct diagnose rules logs version update help'
+  local commands='start stop restart status ready doctor codex exec direct diagnose rules logs version update controller nodes groups select latency connections traffic tui ui dashboard help'
   if (( COMP_CWORD == 1 )); then
     mapfile -t COMPREPLY < <(compgen -W "$commands" -- "$current")
+  elif [[ ${COMP_WORDS[1]} == controller ]]; then
+    mapfile -t COMPREPLY < <(compgen -W 'setup status token --port --home-dir --config --archive --sha256 --json' -- "$current")
+  elif [[ ${COMP_WORDS[1]} =~ ^(nodes|groups|connections|traffic|ui|dashboard)$ ]]; then
+    mapfile -t COMPREPLY < <(compgen -W '--json --config' -- "$current")
+  elif [[ ${COMP_WORDS[1]} == tui ]]; then
+    mapfile -t COMPREPLY < <(compgen -W '--plain --config' -- "$current")
   elif [[ ${COMP_WORDS[1]} == logs ]]; then
     if [[ $previous == --lines ]]; then
       COMPREPLY=()
@@ -17,7 +23,9 @@ _mihomoctl_complete() {
   elif [[ ${COMP_WORDS[1]} == doctor ]]; then
     mapfile -t COMPREPLY < <(compgen -W '--offline --json' -- "$current")
   elif [[ ${COMP_WORDS[1]} == codex && $COMP_CWORD == 2 ]]; then
-    mapfile -t COMPREPLY < <(compgen -W '-- --help' -- "$current")
+    mapfile -t COMPREPLY < <(compgen -W 'preflight -- --help' -- "$current")
+  elif [[ ${COMP_WORDS[1]} == codex && ${COMP_WORDS[2]} == preflight ]]; then
+    mapfile -t COMPREPLY < <(compgen -W '--json' -- "$current")
   elif [[ ${COMP_WORDS[1]} == diagnose ]]; then
     if (( COMP_CWORD == 2 )); then
       mapfile -t COMPREPLY < <(compgen -W 'url process name codex' -- "$current")

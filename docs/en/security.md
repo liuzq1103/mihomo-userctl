@@ -1,5 +1,12 @@
 # Security model
 
+## v0.6 Codex runtime gate
+
+`mihomoctl codex preflight` uses the four levels in [first-run.md](first-run.md) to decide launch;
+`mihomoctl codex` runs the same gate. Mismatched candidates are BLOCKED; incomplete inspection is UNVERIFIED.
+Neither launches Codex nor stops existing processes. Installer connectivity, disk loader changes or new CLI
+variables cannot prove an old service's route. Local transport should bypass the proxy; remote/model traffic needs real verification.
+
 In [shared-runtime mode](shared-runtime.md), common programs/npm directories must not be writable
 by ordinary users. Keep credentials/sessions private and check effective CODEX_HOME. User workflows
 never change public-directory permissions, log in as another user or delete `.codex`/`.nvm` to migrate.
@@ -96,3 +103,8 @@ change service state.
 selected node. JSON serialization is centralized in the installed reporting
 module; ordinary failures still produce one parseable object on stdout while
 stderr receives stable diagnostics without raw external-tool messages.
+
+## v0.7 Control Plane
+
+Use [nodes and dashboards](control-plane.md) to opt into an independently authenticated loopback controller.
+See [fixed-link installation](quick-install.md) for bootstrap. These features do not bypass Codex preflight or change direct-by-default shells.

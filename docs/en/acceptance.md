@@ -1,5 +1,18 @@
 # Installation acceptance and evidence
 
+## v0.6 Codex runtime gate
+
+Follow the four levels and exit contract in [first-run.md](first-run.md): CONTROL_PLANE_INSTALLED →
+PROXY_READY → CODEX_RUNTIME_CLEAN → CODEX_E2E_VERIFIED.
+Only exit 0/SAFE_TO_LAUNCH from `mihomoctl codex preflight [--json]` permits authorized real-client acceptance.
+Exit 1/BLOCKED and 2/UNVERIFIED prohibit Codex launch and model requests. `mihomoctl codex` repeats the same gate.
+Incomplete inspection takes precedence (exit 2), preserving known blockers; do not parse prose to decide.
+`mihomoctl diagnose codex` remains offline diagnosis with UNVERIFIED/exit 2, not launch policy enforcement.
+local_transport=DIRECT_EXPECTED is a local bypass policy; unmeasured remote_transport/model_request stay UNVERIFIED.
+Installer agent connectivity, a loader written to disk or a new CLI's 8/8 variables cannot prove an old app-server's route.
+Never run bare `codex` for post-install acceptance; never automatically kill or remove sockets, credentials or sessions.
+An IDE process with only two proxy variables may also fail the strict eight-variable gate without proving model failure.
+
 For first use, WebSocket errors or old-process recovery, start with [first use](first-run.md).
 
 Public directories hold installation material; private per-user installation is the default, and administrator-shared runtime is an explicitly selected option.

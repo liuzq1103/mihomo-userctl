@@ -33,7 +33,9 @@ Commands:
   ready                 Test service, listener, credentials, and an authenticated HTTP request
   doctor                Run safe configuration and runtime diagnostics
   codex [-- ARGS...]
-                        Check proxy readiness, warn about old processes, and launch Codex
+                        Launch Codex only when the full preflight permits it
+  codex preflight [--json]
+                        Decide SAFE_TO_LAUNCH (0), BLOCKED (1), or UNVERIFIED (2)
   exec -- COMMAND [ARGS...]
                         Run one command with validated proxy variables
   direct -- COMMAND [ARGS...]
@@ -48,6 +50,16 @@ Commands:
                         Explain local Codex proxy state and safe recovery steps (offline)
   rules status [OPTIONS] | rules check [OPTIONS]
                         Inspect the documented custom-rule contract without changes
+  controller setup [--port PORT] [--home-dir DIR] [--archive ZIP --sha256 HASH]
+                        Back up and validate private controller/UI configuration; no restart
+  controller status | controller token
+                        Verify controller, or explicitly display secret in a private terminal
+  nodes | groups | connections | traffic [--json]
+                        Inspect nodes, current selections, redacted routes, or one traffic sample
+  select GROUP NODE     Select a member of a manual Selector group and verify the result
+  latency NODE          Probe one node against a public HTTPS test target
+  tui                   Interactive terminal node selector
+  ui | dashboard        Show local dashboard URL and SSH forwarding instructions
   logs [--lines N] [--follow]
                         Read the user-service journal
   version               Print mihomo-userctl and detected Mihomo versions
@@ -248,33 +260,50 @@ cmd_exec() {
 }
 
 cmd_codex() {
-  local executable rc
+  local json=0 preflight=0 option module runtime_ok=1 invalid=0
+  local -a options=()
   if [[ ${1:-} == --help || ${1:-} == -h ]]; then
     (( $# == 1 )) || { _muc_err 'usage: mihomoctl codex [-- CODEX_ARGS...]'; return 2; }
-    printf 'Usage: mihomoctl codex [-- CODEX_ARGS...]\nUses PATH, checks HTTP proxy readiness, and warns about existing processes.\nNo service is started and no existing process is stopped. Remote hooks need no extra wrapper.\n'
+    printf 'Usage: mihomoctl codex [-- CODEX_ARGS...]\n       mihomoctl codex preflight [--json]\nLaunch requires SAFE_TO_LAUNCH (0); BLOCKED (1) and UNVERIFIED (2) never launch.\nNo service is started and no existing process is stopped. HTTP readiness is not model verification.\n'
     return 0
   fi
-  if (( $# )); then
+  if [[ ${1:-} == preflight ]]; then
+    preflight=1
+    shift
+    for option in "$@"; do [[ $option == --json ]] && json=1; done
+    if (( $# > 1 )) || { (( $# == 1 )) && [[ $1 != --json ]]; }; then
+      invalid=1
+    fi
+    (( json )) && options+=(--json)
+  elif (( $# )); then
     [[ $1 == -- ]] || { _muc_err 'usage: mihomoctl codex [-- CODEX_ARGS...]'; return 2; }
     shift
   fi
-  executable=$(type -P codex) || {
-    _muc_err 'Codex is not on PATH; reopen your terminal or install the selected Codex package first'
+  command -v python3 >/dev/null 2>&1 || runtime_ok=0
+  for module in diagnostics.py acceptance.py reporting.py; do
+    _muc_require_safe_module "$_muc_lib_dir/$module" 2>/dev/null || runtime_ok=0
+  done
+  if (( ! runtime_ok )); then
+    if (( json )); then
+      printf '%s\n' '{"schema":"mihomo-userctl.diagnostics/v1","command":"codex-preflight","overall":"UNVERIFIED","launch_safe":false,"reasons":["runtime-unavailable"],"error":{"code":"runtime-unavailable"}}'
+    fi
+    _muc_err 'UNVERIFIED: runtime-unavailable; Python 3 and safe runtime modules are required. Codex was not launched.'
     return 2
-  }
-  require_python_module "$_muc_lib_dir/diagnostics.py"
-  _muc_prepare_proxy_environment || {
-    rc=$?
-    _muc_err 'Codex was not launched. Run mihomoctl doctor; check your subscription, then start the service if intended.'
-    return "$rc"
-  }
-  # Credentials used for comparison stay inside this short-lived inspection child.
-  (
-    _muc_load_credentials || exit 2
-    export MIHOMO_HTTP_PROXY MIHOMO_HTTPS_PROXY MIHOMO_ALL_PROXY
-    python3 -B "$_muc_lib_dir/diagnostics.py" codex --port "$MIHOMO_PORT" --launch-advice
-  ) || _muc_err 'Codex process inspection unavailable; launch continues, existing-server routing is unverified'
-  exec -- "$executable" "$@"
+  fi
+  if (( invalid )); then
+    (( json )) && json_error codex-preflight invalid-options
+    _muc_err 'usage: mihomoctl codex preflight [--json]'; return 2
+  fi
+  if ! _muc_load_config 2>/dev/null || ! _muc_load_credentials 2>/dev/null; then
+    (( json )) && json_error codex-preflight configuration-or-credentials-invalid
+    _muc_err 'UNVERIFIED: configuration-or-credentials-invalid; Codex was not launched. Run mihomoctl doctor.'
+    return 2
+  fi
+  export MIHOMO_SERVICE MIHOMO_PORT MIHOMO_READY_URL
+  export MIHOMO_HTTP_PROXY MIHOMO_HTTPS_PROXY MIHOMO_ALL_PROXY
+  # One implementation evaluates and launches, keeping secrets out of argv.
+  (( preflight )) || options=(--launch "$@")
+  exec python3 -B "$_muc_lib_dir/diagnostics.py" codex-preflight "${options[@]}"
 }
 
 cmd_direct() {
@@ -360,6 +389,17 @@ cmd_rules() {
   exec python3 -B "$_muc_lib_dir/rules.py" "$@"
 }
 
+cmd_controller() {
+  local module core
+  for module in controller.py acceptance.py reporting.py install_support.py; do
+    require_python_module "$_muc_lib_dir/$module"
+  done
+  _muc_require_safe_module "$_muc_lib_dir/dashboard.html" || exit 2
+  unset MIHOMO_CORE_BIN
+  if core=$(_muc_find_core); then export MIHOMO_CORE_BIN=$core; fi
+  exec python3 -B "$_muc_lib_dir/controller.py" "$@"
+}
+
 cmd_logs() {
   local lines=50 follow=0
   load_config_or_exit
@@ -439,6 +479,8 @@ case $command_name in
   inspect-process) cmd_diagnose_process process inspect-process "$@" ;;
   inspect-name) cmd_diagnose_process name inspect-name "$@" ;;
   rules) cmd_rules "$@" ;;
+  controller|nodes|groups|select|latency|connections|traffic|ui|dashboard|tui)
+    cmd_controller "$command_name" "$@" ;;
   logs|log) cmd_logs "$@" ;;
   update)
     _muc_require_safe_module "$_muc_lib_dir/update.py" || exit 2

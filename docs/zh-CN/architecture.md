@@ -1,5 +1,12 @@
 # 架构与数据流
 
+## v0.6 Codex 运行时门禁
+
+`mihomoctl codex preflight` 按 [first-run.md](first-run.md) 的四层状态决定是否允许启动，
+`mihomoctl codex` 内部执行同一门禁。旧候选进程环境不匹配为 BLOCKED；检查不完整为 UNVERIFIED，
+均不启动、不停止任何旧进程。安装 Agent 联网、磁盘 loader 更新或新 CLI 的变量不证明旧服务已代理。
+本地 transport 应直连，远程 transport/模型请求仍需独立实测。
+
 公共目录只存放安装材料，默认安装到各用户私有目录；管理员共享运行时仅为明确选择的可选模式。
 
 普通 Shell、显式终端代理和经验证的 CODEX_REMOTE_PAYLOAD hook 是不同入口；规则仅决定
@@ -142,3 +149,8 @@ managed loader 必须位于该 guard 之前。VS Code Remote 不执行 Shell 函
 固定启动器每次调用只解析一次 `current`，加载完整的 `generations/<id>` 版本目录。
 安装器统一负责操作锁、事务备份、原子发布及回滚；元数据记录原 XDG/启动路径和文件哈希，
 更新器调用同一安装器。详见[更新机制](update.md)。
+
+## v0.7 Control Plane
+
+需要查看或切换节点时，按[节点管理与面板](control-plane.md)启用独立认证 loopback controller。
+快速安装入口见[固定链接安装](quick-install.md)。这些功能不绕过 Codex preflight，也不改变普通 Shell 默认直连。

@@ -27,6 +27,8 @@ fi
 
 expected=(
   README.md
+  control-plane.md
+  quick-install.md
   acceptance.md
   agent-install-prompt.md
   agent-local-install-prompt.md
@@ -71,7 +73,7 @@ while IFS= read -r -d '' document; do
 done < "$documents"
 
 if checked_grep -RInE '17890|docs/(en|zh-CN)/migration\.md' \
-  "$root/README.md" "$root/README.zh-CN.md" "$root/docs" "$root/examples"; then
+  "$root/README.md" "$root/README.en.md" "$root/README.zh-CN.md" "$root/docs" "$root/examples"; then
   printf 'public documentation contains a personal port or removed migration guide\n' >&2
   failed=1
 fi
@@ -79,14 +81,14 @@ fi
 # Source archives have no Git index. Scan all public Markdown in either layout.
 if checked_grep -RInE --include='*.md' \
   'SEA[-_ ]?AD|sea-ad-single-cell|Ai\+|学术搜索|学术访问|Academic (Search|Access)' \
-  "$root/README.md" "$root/README.zh-CN.md" "$root/docs"; then
+  "$root/README.md" "$root/README.en.md" "$root/README.zh-CN.md" "$root/docs"; then
   printf 'public documentation contains maintainer-specific routing policy\n' >&2
   failed=1
 fi
 
 for language in en zh-CN; do
   for topic in first-run.md agent-install-prompt.md agent-local-install-prompt.md deployment-contract.md; do
-    for marker in 'mihomoctl diagnose codex' 'WebSocket' 'UNVERIFIED'; do
+    for marker in 'mihomoctl diagnose codex' 'mihomoctl codex preflight' 'BLOCKED' 'WebSocket' 'UNVERIFIED'; do
       if ! checked_grep -Fq -- "$marker" "$root/docs/$language/$topic"; then
         printf 'first-use handoff lacks %s: %s/%s\n' "$marker" "$language" "$topic" >&2
         failed=1
@@ -179,9 +181,16 @@ for language in en zh-CN; do
   fi
 done
 
-if ! checked_grep -Fq 'docs/en/agent-install-prompt.md' "$root/README.md" ||
-   ! checked_grep -Fq 'docs/zh-CN/agent-install-prompt.md' "$root/README.zh-CN.md"; then
+if ! checked_grep -Fq 'docs/en/agent-install-prompt.md' "$root/README.en.md" ||
+   ! checked_grep -Fq 'docs/zh-CN/agent-install-prompt.md' "$root/README.md"; then
   printf 'top-level README does not use the generic installation prompt as the main entry\n' >&2
+  failed=1
+fi
+
+if ! checked_grep -Fq '](README.md)' "$root/README.zh-CN.md" ||
+   ! checked_grep -Fq '](README.en.md)' "$root/README.md" ||
+   ! checked_grep -Fq '](README.md)' "$root/README.en.md"; then
+  printf 'README language navigation or legacy Chinese entry is missing\n' >&2
   failed=1
 fi
 

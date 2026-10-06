@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import sys
+from urllib.parse import urlsplit
 
 try:
     from . import reporting
@@ -73,6 +74,8 @@ def read_environment(root, pid):
         except UnicodeError:
             continue
         if name in PROXY_NAMES:
+            if name in values:
+                raise DiagnosticError("process-environment-ambiguous")
             values[name] = value
     return values
 
@@ -270,10 +273,12 @@ def codex_snapshot(root=Path("/proc")):
         if owner != uid:
             continue
         try:
+            identity = process_identity(root, pid)
             name = (entry / "comm").read_text().rstrip("\n")
-        except (OSError, UnicodeError):
+        except (DiagnosticError, OSError, UnicodeError):
             unavailable += int(entry.exists())
             continue
+        argv = None
         if name != "codex":
             # Linux comm can be changed or truncated. Match the executable without reading argv.
             try:
@@ -281,15 +286,42 @@ def codex_snapshot(root=Path("/proc")):
                 if executable.endswith(" (deleted)"):
                     executable = executable[:-10]
             except OSError:
+                # Zombies cannot serve requests. Every other live, unclassified
+                # same-UID process must be counted, not silently treated as safe.
+                try:
+                    state = (entry / "stat").read_text().rsplit(")", 1)[1].split()[0]
+                except (OSError, UnicodeError, IndexError):
+                    state = None
+                if state != "Z":
+                    unavailable += int(entry.exists())
                 continue
             if Path(executable).name != "codex":
-                continue
+                # The npm entry is a node script; inspect only same-UID argv,
+                # bounded, and classify it without returning paths or arguments.
+                if Path(executable).name not in ("node", "nodejs", "bash", "sh"):
+                    continue
+                try:
+                    if read_status(root, pid)[0] != uid or process_identity(root, pid) != identity:
+                        raise DiagnosticError("process-changed")
+                    with (entry / "cmdline").open("rb") as stream:
+                        argv = stream.read(4096).split(b"\0")
+                    script = argv[1] if len(argv) > 1 else b""
+                    if script.rsplit(b"/", 1)[-1] not in (b"codex", b"codex.js"):
+                        continue
+                    argv = argv[1:]
+                except (DiagnosticError, OSError):
+                    unavailable += int(entry.exists())
+                    continue
         try:
-            identity = process_identity(root, pid)
+            if read_status(root, pid)[0] != uid or process_identity(root, pid) != identity:
+                raise DiagnosticError("process-changed")
             env = proxy_environment(read_environment(root, pid), expected)
             # Read only a bounded prefix, and never include command arguments in reports.
-            with (entry / "cmdline").open("rb") as stream:
-                argv = stream.read(4096).split(b"\0")
+            if argv is None:
+                with (entry / "cmdline").open("rb") as stream:
+                    argv = stream.read(4096).split(b"\0")
+            if not argv or not argv[0]:
+                raise DiagnosticError("process-arguments-unreadable")
             role = "app-server" if len(argv) > 1 and argv[1] == b"app-server" else "cli-or-helper"
             if process_identity(root, pid) != identity or read_status(root, pid)[0] != uid:
                 raise DiagnosticError("process-changed")
@@ -319,22 +351,17 @@ def handle_codex(args, root=Path("/proc")):
                "If a process remains, verify its owner and client association before stopping that specific process.",
                "Do not delete credentials, sessions or sockets, or run broad pkill commands.",
                "Confirm one authorized model reply; HTTP readiness does not test WebSocket or model traffic."]
-    if getattr(args, "launch_advice", False):
-        if "existing-process-environment-differs" in issues or "process-inspection-incomplete" in issues:
-            print("mihomoctl: existing Codex processes may keep an earlier proxy environment; "
-                  "this launch does not change them.", file=sys.stderr)
-            print("mihomoctl: if connection errors persist, save work and reconnect your own clients; "
-                  "run mihomoctl diagnose codex for details. No process was stopped.", file=sys.stderr)
-        return 0
     # This is an offline snapshot, not proof of a request route or a complete process inventory.
     payload = {"executable_found": executable_found, "current_environment": current,
                "processes": processes, "unverified_entries": unavailable, "issues": issues,
                "model_request": "UNVERIFIED", "websocket": "UNVERIFIED",
+               "local_transport": "DIRECT_EXPECTED", "remote_transport": "UNVERIFIED",
                "next_steps": actions}
     if args.json:
         emit_json("diagnose-codex", "UNVERIFIED", payload)
     else:
         print("Codex local check (no network request; model/WebSocket path UNVERIFIED)")
+        print("local_transport=DIRECT_EXPECTED remote_transport=UNVERIFIED model_request=UNVERIFIED")
         print("executable={} current_proxy_environment={} candidates={}".format(
             "found" if executable_found else "missing", current["classification"], len(processes)))
         for item in processes:
@@ -347,6 +374,157 @@ def handle_codex(args, root=Path("/proc")):
         for action in actions:
             print("Next: " + action)
     return 2
+
+
+def preflight_error(code):
+    """Keep normal and early-error reports on the same public shape."""
+    return {"launch_safe": False, "proxy": {key: "UNVERIFIED" for key in
+            ("config", "service", "listener", "authentication", "http_outbound")},
+            "codex": {key: "UNVERIFIED" for key in
+            ("executable", "current_environment", "existing_cli", "app_server", "inspection")},
+            "processes": [], "unverified_entries": 0, "checks": [],
+            "invoking_environment": None,
+            "reasons": [code], "levels": {key: "UNVERIFIED" for key in
+            ("CONTROL_PLANE_INSTALLED", "PROXY_READY", "CODEX_RUNTIME_CLEAN", "CODEX_E2E_VERIFIED")},
+            "local_transport": "DIRECT_EXPECTED", "remote_transport": "UNVERIFIED",
+            "model_request": "UNVERIFIED"}
+
+
+def combine_status(statuses):
+    statuses = list(statuses)
+    return "UNVERIFIED" if "UNVERIFIED" in statuses else "FAIL" if "FAIL" in statuses else "PASS"
+
+
+def codex_preflight(root=Path("/proc")):
+    """One policy shared by inspection and launch. No model traffic or mutations."""
+    # Only the preflight entry loads network probes; its shell wrapper validates
+    # this module first. Offline diagnosis retains its previous dependencies.
+    try:
+        from . import acceptance
+    except ImportError:
+        import acceptance
+    expected = expected_environment()
+    try:
+        port = int(os.environ["MIHOMO_PORT"])
+        service = os.environ["MIHOMO_SERVICE"]
+        url = os.environ["MIHOMO_READY_URL"]
+        if (not 1024 <= port <= 65535 or not re.fullmatch(r"[A-Za-z0-9_.@-]+", service)
+                or not acceptance.public_https_url(url)):
+            raise ValueError
+        for key, scheme in (("http_proxy", "http"), ("https_proxy", "http"),
+                            ("all_proxy", "socks5h")):
+            endpoint = urlsplit(expected[key])
+            if (endpoint.scheme != scheme or endpoint.hostname != "127.0.0.1"
+                    or endpoint.port != port or not endpoint.username or not endpoint.password
+                    or endpoint.path not in ("", "/") or endpoint.query or endpoint.fragment):
+                raise ValueError
+    except (KeyError, ValueError):
+        raise DiagnosticError("configuration-or-credentials-invalid") from None
+    payload = preflight_error("pending")
+    payload["reasons"] = []
+    proxy, codex = payload["proxy"], payload["codex"]
+    proxy["config"] = "PASS"
+    payload["levels"]["CONTROL_PLANE_INSTALLED"] = "PASS"
+    executable = shutil.which("codex")
+    codex["executable"] = "PASS" if executable else "FAIL"
+    # Ordinary shells intentionally remain direct. Report their state, but
+    # evaluate the freshly prepared launch environment, not the parent shell.
+    payload["invoking_environment"] = proxy_environment(
+        {k: os.environ[k].encode() for k in PROXY_NAMES if k in os.environ}, expected)
+    launch_env = dict(os.environ)
+    for key in list(launch_env):
+        if key.startswith("MIHOMO_") or key in PROXY_NAMES:
+            launch_env.pop(key)
+    launch_env.update(expected)
+    codex["current_environment"] = "PASS" if proxy_environment(
+        {k: launch_env[k].encode() for k in PROXY_NAMES}, expected)["classification"] == "proxied" else "FAIL"
+
+    measured = [acceptance.service_active_check(service, 5), acceptance.listener_check(port, 5)]
+    proxy["service"], proxy["listener"] = (item.status for item in measured)
+    if all(item.status == "PASS" for item in measured):
+        auth = [acceptance.http_no_auth(url, port, 5), acceptance.socks_no_auth(port, 5)]
+        outbound = acceptance.curl_check("http-auth", url, port, 5, None, expected["https_proxy"])
+        measured.extend(auth + [outbound])
+        proxy["authentication"] = combine_status(item.status for item in auth)
+        proxy["http_outbound"] = outbound.status
+    else:
+        proxy["authentication"] = proxy["http_outbound"] = "SKIPPED"
+    payload["checks"] = [{"name": item.check, "status": item.status, "evidence": item.evidence}
+                         for item in measured]
+    for key, state in proxy.items():
+        if state in ("FAIL", "UNVERIFIED"):
+            payload["reasons"].append("proxy-" + key.replace("_", "-") + "-" + state.lower())
+    payload["levels"]["PROXY_READY"] = combine_status(proxy.values())
+
+    try:
+        processes, unavailable = codex_snapshot(root)
+    except DiagnosticError:
+        processes, unavailable = [], 1
+    payload["processes"], payload["unverified_entries"] = processes, unavailable
+    incomplete = bool(unavailable) or any(item["proxy_environment"] is None for item in processes)
+    codex["inspection"] = "UNVERIFIED" if incomplete else "PASS"
+    for field, role in (("existing_cli", "cli-or-helper"), ("app_server", "app-server")):
+        matching = [item for item in processes if item["role"] == role]
+        codex[field] = combine_status("UNVERIFIED" if item["proxy_environment"] is None else
+            "PASS" if item["proxy_environment"]["classification"] == "proxied" else "FAIL"
+            for item in matching)
+        if incomplete and codex[field] == "PASS":
+            codex[field] = "UNVERIFIED"
+    for item in processes:
+        env = item["proxy_environment"]
+        if env is not None and env["classification"] != "proxied":
+            payload["reasons"].append("stale-" + env["classification"] + "-" + item["role"])
+    if incomplete:
+        payload["reasons"].append("process-inspection-incomplete")
+    if not executable:
+        payload["reasons"].append("codex-not-on-path")
+    payload["levels"]["CODEX_RUNTIME_CLEAN"] = combine_status(codex.values())
+    state = combine_status(list(proxy.values()) + list(codex.values()))
+    overall = {"PASS": "SAFE_TO_LAUNCH", "FAIL": "BLOCKED", "UNVERIFIED": "UNVERIFIED"}[state]
+    payload["launch_safe"] = overall == "SAFE_TO_LAUNCH"
+    payload["reasons"] = sorted(set(payload["reasons"]))
+    return overall, payload, executable, launch_env
+
+
+def report_preflight(overall, payload, json_output=False, stream=None, error=None):
+    if json_output:
+        emit_json("codex-preflight", overall, payload, error=error)
+    else:
+        stream = stream or sys.stdout
+        for title in ("proxy", "codex"):
+            print(title.title(), file=stream)
+            for key, value in payload[title].items():
+                print("  {:20s} {}".format(key, value), file=stream)
+        print("Overall\n  " + overall, file=stream)
+        for reason in payload["reasons"]:
+            print("Reason: " + reason, file=stream)
+        for item in payload["processes"]:
+            env = item["proxy_environment"]
+            print("  PID={} role={} proxy_environment={}".format(item["pid"], item["role"],
+                  env["classification"] if env else "unreadable"), file=stream)
+        print("local_transport=DIRECT_EXPECTED remote_transport=UNVERIFIED model_request=UNVERIFIED", file=stream)
+        if not payload["launch_safe"]:
+            print("Codex was not launched. Run mihomoctl doctor and mihomoctl diagnose codex.\n"
+                  "For stale processes, save work, normally close or reconnect your own clients,\n"
+                  "then run mihomoctl codex again. A new CLI cannot update an old app-server.\n"
+                  "No process was stopped; no credentials, sessions or sockets were removed.", file=stream)
+    return {"SAFE_TO_LAUNCH": 0, "BLOCKED": 1, "UNVERIFIED": 2}[overall]
+
+
+def handle_preflight(args):
+    try:
+        overall, payload, executable, env = codex_preflight()
+    except (DiagnosticError, OSError, ValueError) as error:
+        code = error.code if isinstance(error, DiagnosticError) else "inspection-error"
+        overall, payload = "UNVERIFIED", preflight_error(code)
+    launching = args.launch is not None
+    if launching and payload["launch_safe"]:
+        try:
+            os.execve(executable, [executable] + args.launch, env)
+        except OSError:
+            overall, payload = "UNVERIFIED", preflight_error("codex-exec-failed")
+    return report_preflight(overall, payload, args.json,
+                            sys.stderr if launching else sys.stdout)
 
 
 def handle_format(args):
@@ -389,13 +567,15 @@ def parser():
     error = sub.add_parser("error")
     error.add_argument("kind", choices=("status", "ready", "doctor", "diagnose",
                                         "diagnose-url", "diagnose-process", "diagnose-name", "diagnose-codex",
-                                        "test-url", "inspect-process", "inspect-name"))
+                                        "test-url", "inspect-process", "inspect-name", "codex-preflight"))
     error.add_argument("code")
     codex = sub.add_parser("codex")
     codex.add_argument("--port", required=True, type=int)
     codex.add_argument("--json", action="store_true")
-    codex.add_argument("--launch-advice", action="store_true", help=argparse.SUPPRESS)
     codex.add_argument("--report-command", choices=("diagnose-codex",), default="diagnose-codex")
+    preflight = sub.add_parser("codex-preflight")
+    preflight.add_argument("--json", action="store_true")
+    preflight.add_argument("--launch", nargs=argparse.REMAINDER, default=None, help=argparse.SUPPRESS)
     for name, canonical, legacy in (("process", "diagnose-process", "inspect-process"),
                                     ("name", "diagnose-name", "inspect-name")):
         child = sub.add_parser(name)
@@ -416,8 +596,12 @@ def main(argv=None):
         if args.command == "error":
             if not re.fullmatch(r"[a-z0-9-]+", args.code):
                 raise DiagnosticError("invalid-internal-error")
+            if args.kind == "codex-preflight":
+                return report_preflight("UNVERIFIED", preflight_error(args.code), True, error=args.code)
             emit_json(args.kind, "UNVERIFIED", error=args.code)
             return 2
+        if args.command == "codex-preflight":
+            return handle_preflight(args)
         if args.command == "format":
             if not 1024 <= (args.port or 0) <= 65535:
                 raise DiagnosticError("invalid-internal-port")

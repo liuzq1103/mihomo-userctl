@@ -1,5 +1,12 @@
 # Architecture and data flow
 
+## v0.6 Codex runtime gate
+
+`mihomoctl codex preflight` uses the four levels in [first-run.md](first-run.md) to decide launch;
+`mihomoctl codex` runs the same gate. Mismatched candidates are BLOCKED; incomplete inspection is UNVERIFIED.
+Neither launches Codex nor stops existing processes. Installer connectivity, disk loader changes or new CLI
+variables cannot prove an old service's route. Local transport should bypass the proxy; remote/model traffic needs real verification.
+
 Public directories hold installation material; private per-user installation is the default, and administrator-shared runtime is an explicitly selected option.
 
 Ordinary shells, explicit terminal proxy entry and a verified CODEX_REMOTE_PAYLOAD hook are distinct
@@ -110,3 +117,8 @@ Stable launchers resolve `current` once per invocation and load a complete immut
 `generations/<id>` directory. The installer owns the operation lock, transaction
 backup, atomic publication and rollback. Metadata records original XDG/startup
 paths and file hashes; the updater invokes this same installer. See [updates](update.md).
+
+## v0.7 Control Plane
+
+Use [nodes and dashboards](control-plane.md) to opt into an independently authenticated loopback controller.
+See [fixed-link installation](quick-install.md) for bootstrap. These features do not bypass Codex preflight or change direct-by-default shells.

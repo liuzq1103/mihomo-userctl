@@ -24,8 +24,9 @@ while credential files remain non-executable data parsed by a whitelist.
 
 Mihoro's example onboarding enables the service and exposes a dashboard
 controller. This project's invariant is a disabled, manually started service,
-an authenticated loopback-only Mixed listener, no controller, no dashboard,
-and no TUN or routing changes.
+an authenticated loopback-only Mixed listener, and no TUN or routing changes.
+v0.7 adds an opt-in authenticated loopback controller, terminal selector and static dashboard;
+see [control plane](control-plane.md). The fixed-link [bootstrap](quick-install.md) calls the existing control-layer installer.
 
 Mihoro exports three lower-case proxy variables. This project manages a strict
 set of eight upper/lower-case variables and reports partial state as

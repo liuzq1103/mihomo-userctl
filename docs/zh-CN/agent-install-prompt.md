@@ -66,9 +66,14 @@ Listener readiness 不等于代理节点证据。按 deployment-contract.md 分�
 结尾必须按 deployment-contract.md 交接订阅：给出实际绝对配置路径和
 proxy-providers.<实际名称>.url 的准确位置，提醒仅在服务器本地填写。订阅未填不等于完整可用；
 已存在则说明保留，file provider 则给实际导入位置，并列出填写后的检查与授权验收步骤。
-安装及交付还须遵循同版本 first-run.md：根据普通终端、已验证 Remote hook 或 VS Code
-给出实际入口，不把裸 codex 或 with_proxy 说成所有场景通用。选择 Codex 验收时运行
-mihomoctl diagnose codex；其 UNVERIFIED/退出码 2 不代表模型失败，HTTP 通过不代表 WebSocket 通过。
-发现旧进程先报告并指导用户保存工作、正常退出和重连；不自动 kill、删 socket 或清空认证。
-最终分别报告控制层安装、HTTP 就绪、实际客户端模型回复，以及待登录/重连/订阅事项。
+Codex 交付严格按同版本 first-run.md 状态机：控制层安装 → mihomoctl doctor →
+仅已选择启动时 mihomoctl start → 获准公开探测时 mihomoctl codex preflight。
+退出 0 才通过实际入口进行已授权模型验收；退出 1 为 BLOCKED，不运行 Codex、不发模型请求，
+指导保存工作并正常重连旧客户端；退出 2 为 UNVERIFIED，不启动、不宣称成功。
+post-install 验收不得直接运行裸 codex；mihomoctl codex 内部重新执行门禁。
+需要深度排查时运行 mihomoctl diagnose codex，其 UNVERIFIED/退出 2 不代表模型失败。
+安装 Agent 自己的网络可用性不是目标 Codex 的验收证据；修改 .bashrc 仅改变磁盘，
+不会追溯修改已有 Agent/app-server/Extension Host/tmux/Notebook 进程。
+不自动 kill、删 socket 或清空认证；WebSocket 须区分本地与远程 transport，模型未测为 UNVERIFIED。
+分别报告四层状态及待订阅、登录、重连事项，不用 HTTP 通过代替实际模型回复。
 ```

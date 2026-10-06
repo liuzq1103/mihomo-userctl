@@ -1,8 +1,31 @@
 # Changelog
 
-All notable changes follow a simplified Keep a Changelog format.
+## [0.7.0] - 2026-10-06
 
-## [Unreleased]
+### Control Plane
+
+- Add authenticated loopback Controller API commands for groups, nodes, selection, latency, traffic and redacted connection chains.
+- Add a terminal selector, bundled browser panel and SHA256-pinned local MetaCubeXD static archive installation.
+- Back up and validate controller configuration with Mihomo before replacement; never restart a service automatically.
+- Add a standalone release bootstrap, preserving the existing control-layer-only installer contract.
+- Controller commands require PyYAML; existing proxy and Codex commands keep their dependencies and behavior.
+- Preserve pre-v0.7 installation receipts during upgrades.
+
+
+### Codex Reliability (includes previously unreleased v0.6 work)
+
+- Add `mihomoctl codex preflight [--json]` with shared diagnostics/v1 output and
+  SAFE_TO_LAUNCH (0), BLOCKED (1), UNVERIFIED (2) policy decisions.
+- Change `mihomoctl codex` from warning-only to a fail-closed gate: mismatched
+  candidates or incomplete inspection never launch the child. No processes are stopped.
+- Reuse listener and authentication probes; reject anonymous HTTP/SOCKS access and
+  measure authenticated HTTP egress without implying model or remote transport success.
+- Retain offline diagnosis and legacy websocket field; distinguish DIRECT_EXPECTED
+  local transport from unverified remote transport and model requests.
+- Document four evidence levels and deterministic post-install handoff; installer
+  agent connectivity and disk changes cannot prove an existing app-server's route.
+- Make Chinese the default README, add English overview and retain the old Chinese link.
+- Preserve ordinary status, generic exec/direct/shell hooks and service lifecycle behavior.
 
 ## [0.5.0] - 2026-09-28
 

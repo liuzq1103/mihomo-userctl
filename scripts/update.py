@@ -159,6 +159,10 @@ def validate(source, tag):
         required = list(installer.RUNTIME) + ["install.sh", "examples/bashrc-loader.bash",
                     "tests/test.sh", "tests/docs-test.sh", "tests/secret-scan.sh", "tests/audit-test.sh",
                     "tests/test_acceptance.py", "tests/test_diagnostics.py", "tests/test_rules.py"]
+        if version(tag) >= (0, 6, 0):
+            required.append("tests/test_codex_preflight.py")
+        if version(tag) >= (0, 7, 0):
+            required.extend(("tests/test_controller.py", "bootstrap.py", "tests/test_bootstrap.py"))
         if any(not (source / name).is_file() for name in required):
             raise UpdateError("target-release-is-incomplete", 2)
         for file, pattern in (("install.sh", r"^VERSION=([^\n]+)$"),
@@ -183,6 +187,12 @@ def validate(source, tag):
                      [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_rules.py"],
                      ["bash", "tests/audit-test.sh"], ["bash", "tests/docs-test.sh"],
                      ["bash", "tests/secret-scan.sh"]]
+        if (source / "tests/test_codex_preflight.py").is_file():
+            commands.insert(1, [sys.executable, "-m", "unittest", "discover", "-s", "tests",
+                                "-p", "test_codex_preflight.py"])
+        for pattern in ("test_controller.py", "test_bootstrap.py"):
+            if (source / "tests" / pattern).is_file():
+                commands.insert(1, [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", pattern])
         for command in commands:
             try:
                 proc = subprocess.run(command, cwd=source, env=env, capture_output=True, timeout=180)

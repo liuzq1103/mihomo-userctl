@@ -7,7 +7,7 @@ Use the shared [deployment parameters and delivery contract](deployment-contract
 ```text
 Install the requested tools for this ordinary Ubuntu account from pre-downloaded local material.
 Archive directory: <absolute path, for example /mnt/nas/public/software>
-Source version: <exact published version, for example v0.5.0; clarify ambiguous candidates>
+Source version: <exact published version, for example v0.7.0; clarify ambiguous candidates>
 Runtime: <personal installation by default; administrator-shared Node/npm/Codex only if selected>
 Selected tools: <mihomo by default; codex/node/opencode optional; reuse suitable existing tools>
 Install mihomo-userctl controller: <yes by default>
@@ -74,10 +74,12 @@ claims. Do not claim independent signature verification.
 Finish with deployment-contract.md's subscription handoff: actual absolute path/provider URL key,
 local editing and authorized follow-up checks. Preserve existing subscriptions; file providers use
 their actual import location. Never request links in chat or report missing setup as fully usable.
-Follow the same release's first-run.md for entry-specific handoff: ordinary terminal, verified Remote
-hook or VS Code. Neither plain codex nor with_proxy is a universal entry. When Codex acceptance is
-selected, run mihomoctl diagnose codex; UNVERIFIED/exit 2 is not a failed model request, and HTTP
-success is not WebSocket proof. Guide users to save work, quit and reconnect old clients; never
-automatically kill processes, delete sockets or clear credentials. Report installation, HTTP readiness,
-actual client model reply and pending login/reconnect/subscription separately.
+For Codex delivery follow first-run.md: install → mihomoctl doctor → mihomoctl start only if selected →
+mihomoctl codex preflight only when public probing is authorized. Exit 0 permits authorized real-client
+acceptance; exit 1 is BLOCKED: no Codex or model request, guide safe client reconnect; exit 2 is UNVERIFIED: no launch.
+Never run bare codex for post-install acceptance; mihomoctl codex repeats the gate. Use mihomoctl diagnose codex
+for offline diagnosis; its UNVERIFIED/exit 2 does not mean model failure. WebSocket needs local/remote distinction.
+The installation agent's own connectivity is not Codex evidence; .bashrc changes disk state, not existing
+Agent/app-server/Extension Host/tmux/Notebook environments. Never kill or delete sockets/authentication/sessions.
+Report four levels and pending subscription/login/reconnect; HTTP success cannot replace an actual model reply.
 ```

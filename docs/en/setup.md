@@ -369,3 +369,8 @@ core, unit, and config. See [rollback order](acceptance.md#5-rollback-order).
 
 For later controller-only updates, use [the update guide](update.md) or
 [update prompt](agent-update-prompt.md). Installation and updates require Python 3.8+.
+
+## v0.7 Control Plane
+
+Use [nodes and dashboards](control-plane.md) to opt into an independently authenticated loopback controller.
+See [fixed-link installation](quick-install.md) for bootstrap. These features do not bypass Codex preflight or change direct-by-default shells.

@@ -1,5 +1,12 @@
 # 安全模型
 
+## v0.6 Codex 运行时门禁
+
+`mihomoctl codex preflight` 按 [first-run.md](first-run.md) 的四层状态决定是否允许启动，
+`mihomoctl codex` 内部执行同一门禁。旧候选进程环境不匹配为 BLOCKED；检查不完整为 UNVERIFIED，
+均不启动、不停止任何旧进程。安装 Agent 联网、磁盘 loader 更新或新 CLI 的变量不证明旧服务已代理。
+本地 transport 应直连，远程 transport/模型请求仍需独立实测。
+
 共享 Node/npm/Codex 时遵循[共享运行时规范](shared-runtime.md)：公共程序及 npm 目录不允许
 普通用户改写，认证和会话不进入共享目录；核对有效 CODEX_HOME，保留各用户私有状态。
 普通用户流程不调整公共目录权限、不代其他用户登录，也不通过删除 `.codex` 或 `.nvm` 来迁移。
@@ -110,3 +117,8 @@ systemctl --user stop <白名单校验后的服务名>
 `diagnose url` 不打印完整目标 URL，也不识别所选节点。JSON 由已安装的统一报告模块
 集中序列化；正常失败仍在 stdout 生成一个可解析对象，stderr 只给稳定诊断，不转发
 外部工具原始错误。
+
+## v0.7 Control Plane
+
+需要查看或切换节点时，按[节点管理与面板](control-plane.md)启用独立认证 loopback controller。
+快速安装入口见[固定链接安装](quick-install.md)。这些功能不绕过 Codex preflight，也不改变普通 Shell 默认直连。

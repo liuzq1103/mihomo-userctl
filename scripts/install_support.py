@@ -24,7 +24,9 @@ RUNTIME = {"src/common.bash": "common.bash", "src/shell.bash": "shell.bash",
            "src/mihomoctl": "mihomoctl", "completions/mihomoctl.bash": "completion.bash",
             "scripts/update.py": "update.py", "scripts/install_support.py": "install_support.py",
             "scripts/acceptance.py": "acceptance.py", "scripts/diagnostics.py": "diagnostics.py",
-            "scripts/rules.py": "rules.py", "scripts/reporting.py": "reporting.py"}
+            "scripts/rules.py": "rules.py", "scripts/reporting.py": "reporting.py",
+            "scripts/controller.py": "controller.py", "scripts/dashboard.html": "dashboard.html"}
+RUNTIME_060 = frozenset(RUNTIME.values()) - {"controller.py", "dashboard.html"}
 RUNTIME_020 = frozenset(("common.bash", "shell.bash", "mihomoctl", "completion.bash",
                          "update.py", "install_support.py", "acceptance.py"))
 RUNTIME_021 = frozenset(("common.bash", "shell.bash", "mihomoctl", "completion.bash",
@@ -195,7 +197,8 @@ def verify_generation(record):
     root = Path(record["install_root"])
     generation = root / "generations" / record["generation"]
     legacy = {"0.2.0": RUNTIME_020, "0.2.1": RUNTIME_021}
-    expected_runtime = legacy.get(record.get("version"), frozenset(RUNTIME.values()))
+    release = tuple(int(n) for n in record.get("version", "0.0.0").split("."))
+    expected_runtime = legacy.get(record.get("version"), RUNTIME_060 if release < (0, 7, 0) else frozenset(RUNTIME.values()))
     if (set(record["runtime_hashes"]) != expected_runtime or
             set(record["bootstrap_hashes"]) != {"mihomoctl", "common.bash", "shell.bash", "completion.bash"}):
         raise InstallError("incomplete-installation-integrity-record")
