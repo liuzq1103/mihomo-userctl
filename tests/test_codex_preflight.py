@@ -94,6 +94,31 @@ class PreflightTests(unittest.TestCase):
         (proc / "comm").write_text("worker\n")
         self.assertEqual(self.check("UNVERIFIED")["unverified_entries"], 1)
 
+    def test_identified_non_candidate_does_not_need_environment_or_identity(self):
+        proc = self.fixture()
+        (proc / "comm").write_text("helper\n")
+        (proc / "environ").unlink()
+        (proc / "stat").unlink()
+        with patch.object(d.os, "readlink", return_value="/usr/bin/python3"), \
+                patch.object(d, "read_environment", side_effect=AssertionError("non-candidate read")):
+            self.check("SAFE_TO_LAUNCH")
+
+    def test_non_dumpable_helpers_use_corroborated_identity_not_environment(self):
+        for pid, name in enumerate(("(sd-pam)", "fusermount3", "sshd"), 50):
+            proc = self.fixture(pid=pid)
+            (proc / "comm").write_text(name + "\n")
+            (proc / "cmdline").write_bytes((name + (": user@pts/0" if name == "sshd" else "")).encode() + b"\0")
+            (proc / "environ").unlink()
+        with patch.object(d.os, "readlink", side_effect=PermissionError), \
+                patch.object(d, "read_environment", side_effect=AssertionError("helper environ read")):
+            self.check("SAFE_TO_LAUNCH")
+
+    def test_helper_name_alone_does_not_suppress_unclassified_process(self):
+        proc = self.fixture()
+        (proc / "comm").write_text("sshd\n")
+        with patch.object(d.os, "readlink", side_effect=PermissionError):
+            self.assertEqual(self.check("UNVERIFIED")["unverified_entries"], 1)
+
     def test_zombie_non_candidate_does_not_block(self):
         proc = self.fixture()
         (proc / "comm").write_text("worker\n")

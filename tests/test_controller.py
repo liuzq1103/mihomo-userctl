@@ -166,7 +166,8 @@ class ControllerTests(unittest.TestCase):
                 while time.monotonic() < deadline:
                     if select.select([master], [], [], .1)[0]:
                         data += os.read(master, 65536)
-                        if b'MIHOMO' in data:
+                        # Wait for the complete first frame before injecting keys.
+                        if b'q quit' in data:
                             break
                 # Enter the current group, move down to Node B, confirm.
                 os.write(master, b'\n\x1bOB\n')

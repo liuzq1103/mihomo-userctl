@@ -123,9 +123,15 @@ class AcceptanceTests(unittest.TestCase):
 
     def test_socks_rejection_and_bypass_over_real_loopback(self):
         for response, expected in ((b"\x05\xff", "PASS"), (b"\x05\x00", "FAIL"),
-                                    (b"\x05\x02", "UNVERIFIED"), (b"", "UNVERIFIED")):
+                                    (b"\x05\x02", "PASS"), (b"\x05\x03", "UNVERIFIED"),
+                                    (b"\x04\x02", "UNVERIFIED"), (b"\x05", "UNVERIFIED"), (b"", "UNVERIFIED")):
             with peer(response, fragment=True) as port:
                 self.assertEqual(a.socks_no_auth(port, 2).status, expected)
+
+    def test_socks_required_auth_has_distinct_evidence(self):
+        with peer(b"\x05\x02", fragment=True) as port:
+            result = a.socks_no_auth(port, 2)
+        self.assertEqual(result.evidence, "method-02-authentication-required-unoffered")
 
     def test_socks_connection_error_is_unverified(self):
         with patch.object(a.socket, "create_connection", side_effect=TimeoutError):

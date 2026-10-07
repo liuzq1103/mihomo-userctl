@@ -105,7 +105,7 @@ mihomoctl codex preflight
 mihomoctl codex
 ```
 
-In v0.7.0, `mihomoctl codex preflight` checks proxy configuration, service, authentication, HTTP egress
+In v0.8.0, `mihomoctl codex preflight` checks proxy configuration, service, authentication, HTTP egress
 and same-user Codex processes. Only `0 / SAFE_TO_LAUNCH` permits launch; `1 / BLOCKED` and
 `2 / UNVERIFIED` never launch. `mihomoctl codex` runs this same full gate internally; running preflight
 separately is optional and supports `--json`. Direct/inconsistent old processes block; incomplete
@@ -167,12 +167,16 @@ unchanged. See [troubleshooting](docs/en/troubleshooting.md) for more cases.
 
 ## Update and uninstall
 
-The current version is v0.7.0. Preview changes before upgrading.
+The current version is v0.8.0. Preview changes before upgrading.
+
+v0.8.0 adds node search, explicit manual-group conversion and backed-up local JavaScript policy overrides,
+plus SOCKS authentication-rejection evidence and non-dumpable helper classification fixes.
+See [TUI and overrides](docs/en/tui-overrides.md).
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version v0.7.0 --dry-run
-mihomoctl update --version v0.7.0
+mihomoctl update --version v0.8.0 --dry-run
+mihomoctl update --version v0.8.0
 ```
 
 Updates affect only the control layer, preserving configuration, credentials, port, loader and service

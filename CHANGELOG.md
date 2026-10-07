@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.8.0] - 2026-10-07
+
+### TUI and policy overrides
+
+- Add node search, a compact group sidebar, persistent manual/automatic group status, and latency labels.
+- Add explicit automatic-to-manual group preview and validated, backed-up policy writes from CLI and TUI; activation requires a separate restart.
+- Run trusted local JavaScript `main(config)` with Node.js; restrict accepted changes to groups, rules and rule providers, preserving server listeners and credentials.
+- Add optional FlClash-rules compatibility for existing local provider caches; generated groups reference providers with exact-name filters instead of copying proxy credentials.
+- Add opt-in connection destination and matched-rule details for routing diagnosis; default output stays redacted.
+
+### Acceptance fixes
+
+- Distinguish SOCKS5 method 02 (username/password required, although unoffered) from method 00 (anonymous access accepted); retain separate evidence codes and incomplete-handshake uncertainty.
+- Filter positively identified non-Codex executables before reading process identity/environment; keep unknown live executables and unreadable Codex candidates UNVERIFIED.
+- Preserve published v0.7.0 artifacts and its fixed acceptance contract; these changes apply only to v0.8.0 and later.
+
 ## [0.7.0] - 2026-10-06
 
 ### Control Plane

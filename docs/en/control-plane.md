@@ -1,5 +1,7 @@
 # Nodes and dashboards
 
+For node search, explicit manual-group conversion and local JavaScript policy previews, see [TUI and overrides](tui-overrides.md).
+
 [English overview](../../README.en.md) · [简体中文](../zh-CN/control-plane.md)
 
 v0.7 uses the Mihomo Controller API to show nodes, current group selections and active connection chains.

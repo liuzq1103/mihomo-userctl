@@ -59,6 +59,10 @@ Commands:
   select GROUP NODE     Select a member of a manual Selector group and verify the result
   latency NODE          Probe one node against a public HTTPS test target
   tui                   Interactive terminal node selector
+  manual GROUP [--apply] Preview or save conversion of an automatic group to manual
+  override --script FILE [--apply]
+                        Run trusted JS main(config); preview or validate/back up/save policy
+  connections --details Opt in to private destination host and matched-rule details
   ui | dashboard        Show local dashboard URL and SSH forwarding instructions
   logs [--lines N] [--follow]
                         Read the user-service journal
@@ -479,7 +483,7 @@ case $command_name in
   inspect-process) cmd_diagnose_process process inspect-process "$@" ;;
   inspect-name) cmd_diagnose_process name inspect-name "$@" ;;
   rules) cmd_rules "$@" ;;
-  controller|nodes|groups|select|latency|connections|traffic|ui|dashboard|tui)
+  controller|nodes|groups|select|latency|connections|traffic|ui|dashboard|tui|override|manual)
     cmd_controller "$command_name" "$@" ;;
   logs|log) cmd_logs "$@" ;;
   update)

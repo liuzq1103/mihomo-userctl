@@ -42,6 +42,8 @@ mihomoctl groups --config /ABSOLUTE/config.yaml
 
 ## 日常命令
 
+新增手动组转换、节点搜索、JavaScript 覆写预览与备份应用，见 [TUI 与覆写](tui-overrides.md)。
+
 ```bash
 mihomoctl nodes
 mihomoctl groups --json

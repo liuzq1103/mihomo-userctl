@@ -273,12 +273,12 @@ def codex_snapshot(root=Path("/proc")):
         if owner != uid:
             continue
         try:
-            identity = process_identity(root, pid)
             name = (entry / "comm").read_text().rstrip("\n")
         except (DiagnosticError, OSError, UnicodeError):
             unavailable += int(entry.exists())
             continue
         argv = None
+        identity = None
         if name != "codex":
             # Linux comm can be changed or truncated. Match the executable without reading argv.
             try:
@@ -286,6 +286,19 @@ def codex_snapshot(root=Path("/proc")):
                 if executable.endswith(" (deleted)"):
                     executable = executable[:-10]
             except OSError:
+                # dumpable=0 helpers can expose comm/cmdline while denying exe
+                # and environ. Corroborate a narrow helper identity without
+                # reading its environment; unknown/unreadable identities remain
+                # incomplete. This is classification, not a hostile-UID boundary.
+                if name in ("(sd-pam)", "fusermount3", "sshd"):
+                    try:
+                        with (entry / "cmdline").open("rb") as stream:
+                            command = stream.read(4096).split(b"\0", 1)[0]
+                        executable_name = command.split(b":", 1)[0].rsplit(b"/", 1)[-1]
+                        if executable_name == name.encode() and read_status(root, pid)[0] == uid:
+                            continue
+                    except (OSError, DiagnosticError):
+                        pass
                 # Zombies cannot serve requests. Every other live, unclassified
                 # same-UID process must be counted, not silently treated as safe.
                 try:
@@ -301,6 +314,7 @@ def codex_snapshot(root=Path("/proc")):
                 if Path(executable).name not in ("node", "nodejs", "bash", "sh"):
                     continue
                 try:
+                    identity = process_identity(root, pid)
                     if read_status(root, pid)[0] != uid or process_identity(root, pid) != identity:
                         raise DiagnosticError("process-changed")
                     with (entry / "cmdline").open("rb") as stream:
@@ -313,6 +327,8 @@ def codex_snapshot(root=Path("/proc")):
                     unavailable += int(entry.exists())
                     continue
         try:
+            if identity is None:
+                identity = process_identity(root, pid)
             if read_status(root, pid)[0] != uid or process_identity(root, pid) != identity:
                 raise DiagnosticError("process-changed")
             env = proxy_environment(read_environment(root, pid), expected)

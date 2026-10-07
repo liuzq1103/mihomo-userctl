@@ -30,4 +30,5 @@
 - [私有自定义规则契约与只读检查](rules.md)
 
 - [节点管理 / Nodes and dashboards](control-plane.md)
+- [TUI 手动选节点与 JavaScript 覆写](tui-overrides.md)
 - [快速安装 / Quick installation](quick-install.md)

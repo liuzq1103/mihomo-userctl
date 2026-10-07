@@ -99,7 +99,7 @@ mihomoctl codex preflight
 mihomoctl codex
 ```
 
-v0.7.0 的 `mihomoctl codex preflight` 检查代理配置、服务、认证、HTTP 出站和当前用户的 Codex 进程。
+v0.8.0 的 `mihomoctl codex preflight` 检查代理配置、服务、认证、HTTP 出站和当前用户的 Codex 进程。
 返回 `0 / SAFE_TO_LAUNCH` 才允许启动；`1 / BLOCKED` 或 `2 / UNVERIFIED` 都不启动。
 `mihomoctl codex` 内部执行同一完整门禁，不需要先手动运行 preflight；单独运行用于查看报告，
 支持 `--json`。旧进程 direct/inconsistent 会阻断，检查不完整会拒绝启动。
@@ -160,12 +160,15 @@ HTTP 检查只证明该次请求可用；真实客户端的远程传输和模型
 
 ## 更新与卸载
 
-当前版本为 v0.7.0；升级前先预览变更。
+当前版本为 v0.8.0；升级前先预览变更。
+
+v0.8.0 新增节点搜索、自动组转手动组和本地 JavaScript 覆写预览/备份应用，
+并修正 SOCKS 认证拒绝证据与不可读辅助进程分类。详见 [TUI 与覆写](docs/zh-CN/tui-overrides.md)。
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version v0.7.0 --dry-run
-mihomoctl update --version v0.7.0
+mihomoctl update --version v0.8.0 --dry-run
+mihomoctl update --version v0.8.0
 ```
 
 更新仅升级控制层，保留配置、凭据、端口、loader 和服务 active/enabled 状态；

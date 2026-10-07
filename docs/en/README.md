@@ -30,4 +30,5 @@ Reference by responsibility:
 - [Private custom-rule contract and read-only checks](rules.md)
 
 - [节点管理 / Nodes and dashboards](control-plane.md)
+- [TUI selection and JavaScript overrides](tui-overrides.md)
 - [快速安装 / Quick installation](quick-install.md)

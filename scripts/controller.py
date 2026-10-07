@@ -26,7 +26,7 @@ except ImportError:
     import install_support as files
 
 SCHEMA = "mihomo-userctl.controller/v1"
-COMMANDS = ("controller", "nodes", "groups", "select", "latency", "connections", "traffic", "ui", "dashboard", "tui")
+COMMANDS = ("controller", "nodes", "groups", "select", "latency", "connections", "traffic", "ui", "dashboard", "tui", "override", "manual")
 LIMIT = 8 * 1024 * 1024
 TEST_URL = "https://www.gstatic.com/generate_204"
 
@@ -209,7 +209,7 @@ def select(client, group, node):
     return {"group": group, "selected": node, "existing_connections": "unchanged"}
 
 
-def snapshot(client, command):
+def snapshot(client, command, details=False):
     if command in ("nodes", "groups"):
         rows = proxies(client)
         return {command: [row for row in rows.values() if ("members" in row) == (command == "groups")]}
@@ -228,8 +228,159 @@ def snapshot(client, command):
         rows.append({"chains": [label(n) for n in item.get("chains", [])],
                      "rule": label(item.get("rule", "")),
                      "upload": number(item.get("upload", 0)), "download": number(item.get("download", 0))})
+        if details:
+            metadata = item.get("metadata") or {}
+            if not isinstance(metadata, dict):
+                raise ControlError("controller-connections-invalid")
+            rows[-1]["host"] = label(metadata.get("host", ""))
+            rows[-1]["rule_payload"] = label(item.get("rulePayload", ""))
     return {"connections": rows, "uploadTotal": number(raw.get("uploadTotal", 0)),
             "downloadTotal": number(raw.get("downloadTotal", 0))}
+
+
+POLICY_KEYS = ("proxy-groups", "rules", "rule-providers")
+# This executes a trusted user's script. Node vm is NOT a security sandbox.
+OVERRIDE_RUNNER = r'''
+const fs = require('fs'), vm = require('vm');
+const config = JSON.parse(fs.readFileSync(0, 'utf8'));
+let failed = false;
+const context = vm.createContext({console: {log() {}, warn() {}, error() {failed = true;}}});
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), context, {timeout: 3000});
+context.input = config;
+const result = vm.runInContext('main(input)', context, {timeout: 3000});
+if (failed || !result || typeof result !== 'object' || Array.isArray(result)) process.exit(2);
+process.stdout.write(JSON.stringify(result));
+'''
+
+
+def flclash_input(data, home_dir=None):
+    """Adapt a provider-based server config to the user's desktop script contract."""
+    import yaml
+    adapted = json.loads(json.dumps(data))
+    providers = data.get("proxy-providers", {})
+    home = Path(home_dir or str(Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "mihomo"))
+    nodes = list(adapted.get("proxies", []))
+    provider_nodes = {}
+    for name, provider in providers.items():
+        if not isinstance(provider, dict) or not provider.get("path"):
+            raise ControlError("flclash-provider-needs-local-cache")
+        path = Path(provider["path"])
+        path = private(path if path.is_absolute() else home / path)
+        if path.stat().st_size > LIMIT:
+            raise ControlError("flclash-provider-cache-too-large")
+        cached = yaml.safe_load(path.read_text(encoding="utf-8"))
+        entries = cached.get("proxies") if isinstance(cached, dict) else None
+        if not isinstance(entries, list) or any(not isinstance(n, dict) or not isinstance(n.get("name"), str) for n in entries):
+            raise ControlError("flclash-provider-cache-invalid")
+        for entry in entries:
+            provider_nodes.setdefault(entry["name"], []).append(name)
+        nodes.extend(entries)
+    adapted["proxies"] = nodes
+    groups = adapted.setdefault("proxy-groups", [])
+    names = {g.get("name") for g in groups}
+    for name, choices in (("Ai+", []), ("漏网之鱼", ["DIRECT"])):
+        if name not in names:
+            groups.append({"name": name, "type": "select", "proxies": choices})
+    return adapted, provider_nodes
+
+
+def policy_candidate(config, script=None, group=None, flclash=False, home_dir=None):
+    text, data, tree = read_config(config)
+    if script:
+        script = private(Path(script))
+        if script.stat().st_size > LIMIT:
+            raise ControlError("override-script-too-large")
+        node = shutil.which("node")
+        if not node:
+            raise ControlError("override-requires-node")
+        input_data, provider_nodes = flclash_input(data, home_dir) if flclash else (data, {})
+        result = subprocess.run([node, "-e", OVERRIDE_RUNNER, str(script)],
+                                input=json.dumps(input_data), capture_output=True, text=True, encoding="utf-8",
+                                env=acceptance.clean_environment(), timeout=10)
+        if result.returncode or len(result.stdout.encode()) > LIMIT:
+            raise ControlError("override-failed-check-script-input-groups-and-inline-proxies", 1)
+        try:
+            changed = json.loads(result.stdout)
+        except ValueError:
+            raise ControlError("override-result-invalid") from None
+        if not isinstance(changed, dict):
+            raise ControlError("override-result-invalid")
+        if flclash:
+            if changed.get("proxies") != input_data.get("proxies"):
+                raise ControlError("flclash-script-must-preserve-nodes")
+            if "proxies" in data:
+                changed["proxies"] = data["proxies"]
+            else:
+                changed.pop("proxies", None)
+            inline_names = {n["name"] for n in data.get("proxies", [])}
+            for g in changed.get("proxy-groups", []):
+                choices = g.get("proxies", [])
+                cached_names = [n for n in choices if n in provider_nodes and n not in inline_names]
+                if cached_names:
+                    g["proxies"] = [n for n in choices if n not in cached_names]
+                    g["use"] = list(dict.fromkeys(p for n in cached_names for p in provider_nodes[n]))
+                    g["filter"] = "^(?:" + "|".join(re.sub(r'([\\.^$|?*+()\[\]{}])', r'\\\1', n) for n in cached_names) + ")$"
+                if g.get("name") == "Ai+":
+                    g["type"] = "select"
+                    g.pop("use", None)
+        # Prevent a desktop script from replacing listeners/auth/TUN/server policy.
+        if any(changed.get(k) != data.get(k) for k in set(data) | set(changed) if k not in POLICY_KEYS):
+            raise ControlError("override-may-only-change-groups-rules-rule-providers")
+        changes = {k: changed[k] for k in POLICY_KEYS if k in changed and changed[k] != data.get(k)}
+        if any(k in data and k not in changed for k in POLICY_KEYS):
+            raise ControlError("override-cannot-remove-policy-sections")
+    else:
+        groups = json.loads(json.dumps(data.get("proxy-groups", [])))
+        found = [row for row in groups if isinstance(row, dict) and row.get("name") == group]
+        if len(found) != 1 or found[0].get("type") not in ("select", "url-test", "fallback", "load-balance"):
+            raise ControlError("manual-requires-existing-policy-group", 1)
+        found[0]["type"] = "select"
+        for key in ("url", "interval", "tolerance", "lazy", "timeout", "max-failed-times", "expected-status", "strategy"):
+            found[0].pop(key, None)
+        changes = {} if groups == data.get("proxy-groups") else {"proxy-groups": groups}
+    profile = data.get("profile", {})
+    if not isinstance(profile, dict):
+        raise ControlError("config-profile-invalid")
+    if changes:
+        changes["profile"] = dict(profile, **{"store-selected": True})
+    updated = patch_config(text, tree, changes) if changes else text
+    if len(updated.encode()) > LIMIT:
+        raise ControlError("config-too-large")
+    summary = {"changed_sections": list(changes), "state": "preview" if changes else "unchanged",
+               "groups": [{"name": label(g["name"]), "type": label(g["type"])}
+                          for g in changes.get("proxy-groups", [])],
+               "rule_count": len(changes.get("rules", data.get("rules", []))),
+               "service": "unchanged"}
+    return text, updated, summary
+
+
+def apply_policy(config, original, updated, home_dir=None):
+    if original == updated:
+        return {"state": "unchanged", "service": "unchanged"}
+    home = Path(home_dir or str(Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "mihomo"))
+    private(home, True)
+    core = os.environ.get("MIHOMO_CORE_BIN") or shutil.which("mihomo")
+    if not core:
+        raise ControlError("mihomo-executable-missing")
+    fd, name = tempfile.mkstemp(prefix="policy-check-", suffix=".yaml", dir=config.parent)
+    os.close(fd)
+    candidate = Path(name)
+    try:
+        files.atomic_bytes(candidate, updated.encode())
+        result = subprocess.run([core, "-t", "-d", str(home), "-f", str(candidate)],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                env=acceptance.clean_environment(), timeout=30)
+        if result.returncode:
+            raise ControlError("mihomo-config-validation-failed", 1)
+        private(config)
+        if config.read_text(encoding="utf-8") != original:
+            raise ControlError("config-changed-during-policy-edit")
+        backup = config.with_name(config.name + ".before-policy-" + secrets.token_hex(8))
+        files.atomic_bytes(backup, original.encode())
+        files.atomic_bytes(config, updated.encode())
+        return {"state": "restart-required", "backup": str(backup), "service": "unchanged"}
+    finally:
+        candidate.unlink(missing_ok=True)
 
 
 def choose_port(requested):
@@ -364,7 +515,7 @@ def plain_tui(client):
             print("已确认切换；已有连接不强制断开。 / Selection confirmed; existing connections unchanged.")
 
 
-def tui(client, plain=False):
+def tui(client, plain=False, config=None, script=None, home_dir=None, details=False, flclash=False):
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise ControlError("tui-requires-interactive-terminal")
     if plain:
@@ -380,6 +531,8 @@ def tui(client, plain=False):
         window.timeout(1000)
         groups, group_index, node_index, focus = [], 0, 0, 0
         note, detail = "", []
+        query, pending = "", None
+        delays = {}
         last_refresh = 0
         def put(y, x, value, width, attr=0):
             # Curses counts terminal cells; avoid splitting wide node names.
@@ -410,33 +563,78 @@ def tui(client, plain=False):
                 window.refresh()
                 if window.getch() in (ord('q'), 27): return
                 continue
-            middle = width // 2
+            middle = min(max(26, width // 3), 42)
             group = groups[group_index] if groups else None
-            members = group.get("members", []) if group else []
+            members = [n for n in group.get("members", []) if query.casefold() in n.casefold()] if group else []
             node_index = min(node_index, max(0, len(members)-1))
             put(0, 1, "MIHOMO · 我的节点 / My nodes", width-2, curses.A_BOLD)
-            put(1, 1, "SSH 直接操作 · no port forwarding · existing connections unchanged", width-2)
+            put(1, 1, "Nodes | / Search | c Connections | o Override | m Manual group", width-2)
+            put(2, 1, "Group: " + (group["name"] if group else "none") + " | " +
+                ("MANUAL" if group and group["selectable"] else "AUTO / read-only") +
+                " | Filter: " + (query or "all"), width-2, curses.A_BOLD)
             put(3, 1, "策略组 / Groups", middle-2, curses.A_BOLD)
-            put(3, middle, "节点 / Nodes  [*] current selection", width-middle-1, curses.A_BOLD)
+            put(3, middle, "节点 / Nodes ({})  [*] selected".format(len(members)), width-middle-1, curses.A_BOLD)
+            for y in range(3, height-6):
+                put(y, middle-1, "│", 1, curses.A_DIM)
             available = max(1, height-11)
             start = max(0, group_index-available+1)
             for index in range(start, min(len(groups), start+available)):
                 row = groups[index]
-                put(4+index-start, 1, row["name"]+" ["+row["type"]+"]", middle-2,
+                put(4+index-start, 1, ("> " if index == group_index else "  ")+row["name"]+" ["+row["type"]+"]", middle-2,
                     curses.A_REVERSE if index == group_index and focus == 0 else curses.A_NORMAL)
             start = max(0, node_index-available+1)
             for index in range(start, min(len(members), start+available)):
                 name = members[index]
-                put(4+index-start, middle, ("[*] " if group.get("selected") == name else "[ ] ")+name,
+                suffix = "  {} ms".format(delays[name]) if name in delays else ""
+                put(4+index-start, middle, ("[*] " if group.get("selected") == name else "[ ] ")+name+suffix,
                     width-middle-1, curses.A_REVERSE if index == node_index and focus == 1 else curses.A_NORMAL)
             put(height-6, 1, "当前 / Current: " + (group.get("selected") or "dynamic") if group else "No groups", width-2)
             put(height-5, 1, note, width-2)
             for index, line in enumerate(detail[:2]):
                 put(height-4+index, 1, line, width-2)
-            put(height-2, 1, "↑↓ browse  Tab/←→ pane  Enter select  r refresh  t latency  c chains  f traffic  q quit", width-2)
+            put(height-2, 1, "↑↓ browse Tab pane Enter select / search m manual o script y apply r refresh t test q quit", width-2)
             window.refresh()
             key = window.getch()
             if key in (ord('q'), 27): return
+            if key == ord('/'):
+                put(height-5, 1, "Search (empty clears): ", width-2); window.refresh()
+                window.timeout(-1); curses.echo(); curses.curs_set(1)
+                try:
+                    query = window.getstr(height-5, 24, min(120, width-26)).decode("utf-8", errors="replace")
+                finally:
+                    curses.noecho(); curses.curs_set(0); window.timeout(1000)
+                node_index = 0
+                continue
+            if key in (ord('m'), ord('o'), ord('y')):
+                try:
+                    if not config:
+                        raise ControlError("policy-edit-requires-config")
+                    if key == ord('y'):
+                        if pending is None:
+                            note = "Preview with m or o first."
+                            continue
+                        with files.locked(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))):
+                            result = apply_policy(config, pending[0], pending[1], home_dir)
+                        detail = ["Backup: " + result.get("backup", "none"), "Exit; run mihomoctl restart when ready."]
+                        note = "Saved; running policy unchanged until restart."
+                        pending = None
+                    else:
+                        if key == ord('o') and not script:
+                            note = "Start with tui --script /ABSOLUTE/trusted-override.js"
+                            continue
+                        if key == ord('m') and (not group or group["name"] == "GLOBAL"):
+                            raise ControlError("choose-configured-policy-group")
+                        pending = policy_candidate(config, script=script if key == ord('o') else None,
+                                                   group=group["name"] if group else None, flclash=flclash,
+                                                   home_dir=home_dir)
+                        summary = pending[2]
+                        note = "PREVIEW: " + ", ".join(summary["changed_sections"]) + " | y saves, q cancels"
+                        detail = ["Groups: " + ", ".join(g["name"] for g in summary["groups"]),
+                                  "Rules: {} | existing connections unchanged; restart required".format(summary["rule_count"])]
+                except (ControlError, files.InstallError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+                    pending = None
+                    note = "FAIL: " + (error.code if isinstance(error, ControlError) else "policy-operation-failed")
+                continue
             if key in (9, curses.KEY_LEFT, curses.KEY_RIGHT): focus = 1-focus
             elif key in (curses.KEY_UP, curses.KEY_DOWN):
                 step = -1 if key == curses.KEY_UP else 1
@@ -453,8 +651,8 @@ def tui(client, plain=False):
                     continue
                 try:
                     if key == ord('c'):
-                        rows = snapshot(client, "connections")["connections"]
-                        detail = [" ← ".join(row["chains"]) for row in rows[:2]] or ["No active connections"]
+                        rows = snapshot(client, "connections", details)["connections"]
+                        detail = [(row.get("host", "") + " | " if details else "") + " ← ".join(row["chains"]) for row in rows[:2]] or ["No active connections"]
                         note = "Active chains (first 2); use mihomoctl connections for all."
                     elif key == ord('f'):
                         values = snapshot(client, "traffic")
@@ -464,8 +662,12 @@ def tui(client, plain=False):
                             name = members[node_index]
                             note = "Testing public HTTPS target..."; put(height-5, 1, note, width-2); window.refresh()
                             raw = client.request("/proxies/"+quote(name, safe="")+"/delay?"+urlencode({"url": TEST_URL,"timeout":5000}))
-                            detail = [name+": "+str(number(raw.get("delay")))+" ms; model UNVERIFIED"]
+                            delays[name] = number(raw.get("delay"))
+                            detail = [name+": "+str(delays[name])+" ms; model UNVERIFIED"]
                         else:
+                            if not group["selectable"]:
+                                note = "自动组只读 / Auto group: m previews conversion to manual; y saves."
+                                continue
                             select(client, group["name"], members[node_index])
                             groups = snapshot(client, "groups")["groups"]
                             note = "已确认切换 / Selection confirmed; existing connections unchanged"
@@ -490,14 +692,37 @@ def main(argv=None):
     parser.add_argument("--archive")
     parser.add_argument("--sha256")
     parser.add_argument("--plain", action="store_true", help="Use a numbered terminal menu instead of fullscreen TUI")
+    parser.add_argument("--script", help="Trusted local JS main(config); Node vm is not a security sandbox")
+    parser.add_argument("--apply", action="store_true", help="Validate, back up and save the preview; restart separately")
+    parser.add_argument("--details", action="store_true", help="Opt in to private host/rule details for connections/TUI")
+    parser.add_argument("--flclash-compat", action="store_true", help="Adapt local provider caches and missing Ai+/fallback groups for FlClash-rules")
     args = parser.parse_args(argv)
     if args.plain and args.command != "tui":
         raise ControlError("plain-requires-tui")
+    if args.script and args.command not in ("override", "tui") or args.apply and args.command not in ("override", "manual"):
+        raise ControlError("policy-options-require-override-manual-or-tui")
+    if args.details and args.command not in ("connections", "tui"):
+        raise ControlError("details-requires-connections-or-tui")
+    if args.flclash_compat and (not args.script or args.command not in ("override", "tui")):
+        raise ControlError("flclash-compat-requires-script")
+    if args.plain and args.script:
+        raise ControlError("script-preview-requires-fullscreen-tui-or-override-command")
     config = Path(args.config or str(Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "mihomo/config.yaml"))
     setup_requested = args.command == "controller" and args.values == ["setup"]
-    if not setup_requested and any(v is not None for v in (args.home_dir, args.port, args.archive, args.sha256)):
+    if not setup_requested and (any(v is not None for v in (args.port, args.archive, args.sha256)) or
+                                args.home_dir is not None and args.command not in ("override", "manual", "tui")):
         raise ControlError("setup-options-require-controller-setup")
-    if setup_requested:
+    if args.command in ("override", "manual"):
+        if (args.command == "override" and (not args.script or args.values) or
+                args.command == "manual" and len(args.values) != 1):
+            raise ControlError("invalid-options")
+        with files.locked(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))):
+            original, updated, payload = policy_candidate(config, script=args.script,
+                                                         group=args.values[0] if args.values else None,
+                                                         flclash=args.flclash_compat, home_dir=args.home_dir)
+            if args.apply:
+                payload.update(apply_policy(config, original, updated, args.home_dir))
+    elif setup_requested:
         if bool(args.archive) != bool(args.sha256):
             raise ControlError("dashboard-requires-archive-and-sha256")
         with files.locked(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))):
@@ -518,7 +743,7 @@ def main(argv=None):
         client = Client(port, token)
         client.verify()
         if args.command in ("nodes", "groups", "connections", "traffic"):
-            payload = snapshot(client, args.command)
+            payload = snapshot(client, args.command, args.details)
         elif args.command == "select":
             payload = select(client, *args.values)
         elif args.command == "latency":
@@ -529,7 +754,7 @@ def main(argv=None):
         elif args.command == "tui":
             if args.json:
                 raise ControlError("tui-does-not-support-json")
-            payload = tui(client, args.plain)
+            payload = tui(client, args.plain, config, args.script, args.home_dir, args.details, args.flclash_compat)
         elif args.command in ("ui", "dashboard"):
             if not data.get("external-ui"):
                 raise ControlError("dashboard-not-configured")

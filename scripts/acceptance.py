@@ -175,7 +175,8 @@ def http_no_auth(url, port, timeout):
 
 
 def socks_no_auth(port, timeout):
-    # RFC 1928: offer ONLY method 00 (no authentication). FF must reject it.
+    # Offer ONLY method 00. FF is the RFC rejection; some cores instead
+    # request username/password (02). Neither permits anonymous access.
     # No CONNECT request, DNS lookup, credentials, or outbound target is needed.
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=timeout) as conn:
@@ -190,6 +191,8 @@ def socks_no_auth(port, timeout):
         return Result("UNVERIFIED", "socks5h-no-auth", "no-handshake-evidence")
     if response == b"\x05\xff":
         return Result("PASS", "socks5h-no-auth", "method-ff-no-acceptable-auth-method")
+    if response == b"\x05\x02":
+        return Result("PASS", "socks5h-no-auth", "method-02-authentication-required-unoffered")
     if response == b"\x05\x00":
         return Result("FAIL", "socks5h-no-auth", "method-00-authentication-bypass")
     return Result("UNVERIFIED", "socks5h-no-auth", "unexpected-or-incomplete-handshake")
