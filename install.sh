@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION=0.8.0
+VERSION=0.9.0
 BEGIN_MARKER='# >>> mihomo-userctl managed loader >>>'
 END_MARKER='# <<< mihomo-userctl managed loader <<<'
 
@@ -13,6 +13,7 @@ usage() {
 Usage: ./install.sh [--port PORT] [--bashrc PATH] [--dry-run]
        ./install.sh --rollback BACKUP
        ./install.sh --suggest-port
+       ./install.sh [--port PORT] --with-textual [--tui-python PYTHON] [--wheelhouse DIR]
 
 The first installation requires --port. Existing installations may omit it;
 an explicitly requested port must match the existing configuration.
@@ -30,6 +31,10 @@ bashrc_set=0
 source_record=
 rollback_path=
 preserve_service_state=0
+with_textual=0
+tui_python=python3
+wheelhouse=
+tui_python_set=0
 original_args=("$@")
 while (( $# )); do
   case $1 in
@@ -40,15 +45,20 @@ while (( $# )); do
     --preserve-service-state) preserve_service_state=1; shift ;;
     --rollback) [[ $# -ge 2 ]] || die "missing backup path"; rollback_path=$2; shift 2 ;;
     --suggest-port) suggest_only=1; shift ;;
+    --with-textual) with_textual=1; shift ;;
+    --tui-python) [[ $# -ge 2 && -n ${2:-} ]] || die '--tui-python requires an executable'; tui_python=$2; tui_python_set=1; shift 2 ;;
+    --wheelhouse) [[ $# -ge 2 && -n ${2:-} ]] || die '--wheelhouse requires a directory'; wheelhouse=$2; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
 done
+(( with_textual || (! tui_python_set && ${#wheelhouse} == 0) )) || die '--tui-python/--wheelhouse require --with-textual'
+[[ -z $rollback_path || $with_textual == 0 ]] || die '--rollback cannot install optional dependencies'
 
 [[ $(uname -s) == Linux ]] || die 'Linux is required'
 [[ -n ${BASH_VERSION:-} ]] || die 'run this installer with Bash'
 if ((suggest_only)); then
-  [[ -z $port && $dry_run -eq 0 && $bashrc_set -eq 0 ]] ||
+  [[ -z $port && $dry_run -eq 0 && $bashrc_set -eq 0 && $with_textual -eq 0 ]] ||
     die '--suggest-port cannot be combined with installation options'
   for command in ss id; do
     command -v "$command" >/dev/null 2>&1 || die "missing command: $command"
@@ -138,6 +148,7 @@ if (( dry_run )); then
     note "would append the managed loader to $bashrc"
   fi
   note 'would preserve client.env, Mihomo, systemd service, subscriptions, and caches'
+  (( ! with_textual )) || note 'would create an isolated hash-locked Textual environment (no system pip)'
   exit 0
 fi
 
@@ -202,7 +213,13 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 prepare_args=(prepare "$script_dir" "$bashrc" "$backup_root")
 [[ -z $source_record ]] || prepare_args+=("$source_record")
-generation=$(python3 "$support" "${prepare_args[@]}") || die 'generation preparation failed'
+generation=$(MIHOMO_INSTALL_WITH_TEXTUAL=$with_textual python3 "$support" "${prepare_args[@]}") || die 'generation preparation failed'
+if (( with_textual )); then
+  textual_args=("$generation" "$tui_python")
+  [[ -z $wheelhouse ]] || textual_args+=("$wheelhouse")
+  python3 "$generation/controller_deps.py" "${textual_args[@]}" || die 'optional Textual environment failed; active installation unchanged'
+  python3 "$generation/controller_deps.py" --register "$generation" "$backup_root" || die 'optional Textual receipt failed'
+fi
 
 mkdir -p -- "$bin_home" "$lib_dir" "$config_dir"
 chmod 700 -- "$lib_dir" "$config_dir"

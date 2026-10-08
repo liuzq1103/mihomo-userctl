@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.0] - 2026-10-08
+
+- Split the existing Controller facade into configuration, API, services, policy, transactions, state and frontend modules; preserve curses/plain and CLI contracts.
+- Freeze v0.7/v0.8 runtime receipt sets before adding new generation files.
+- Gate start/restart under the user operation lock with before/after socket UID, binding and service ownership checks; never change ports or kill occupants.
+- Add an explicitly selected optional Textual console, bounded latency jobs, read-only connections, runtime observations, rule counts, logs, providers and diagnostics.
+- Install a private hash-locked UI environment, support offline wheels, reuse it on compatible updates and retain generation rollback.
+- Add provider refresh, DNS queries, runtime-only mode changes and node-only private subscription preview/apply with digest, drift, validation, backup and atomic replacement.
+- Keep Codex preflight, direct-by-default shells, per-process proxy boundaries and existing security diagnostics unchanged.
+- Add live socket/API/PTY, state, optional frontend and offline dependency regression tests; real systemd/multi-UID/SSH acceptance remains a separate gate.
+
 ## [0.8.0] - 2026-10-07
 
 ### TUI and policy overrides

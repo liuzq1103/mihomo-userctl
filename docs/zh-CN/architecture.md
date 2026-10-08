@@ -41,9 +41,35 @@
 | systemd | 用户服务生命周期、active/enabled 状态、日志和进程监督 |
 | 用户 | Mihomo 核心版本；订阅、节点、provider 与私有规则；是否启动或 enable 服务；是否重开终端或重连长期客户端；是否修改或应用 `config.yaml` |
 
-控制器不实现 Controller 客户端、Dashboard、订阅管理、provider 下载、通用 YAML
-编辑器、TUN、透明/系统代理、UID 防火墙隔离、system service、linger、cron、sudo、
-自动核心升级、进程终止或私有规则生成。
+### 已实现与仍不实现
+
+自 v0.7 起，控制器**已经实现**独立认证的 loopback Controller 客户端与浏览器面板：
+`controller setup`、`controller status`、`controller token`、`nodes`、`groups`、
+`select`、`latency`、`connections`、`traffic`、`tui`、`ui`/`dashboard`，
+以及 `manual`（自动组转手动组）与 `override`（本地 JavaScript 策略覆写）两条入口。
+详见[节点管理与面板](control-plane.md)与[TUI 与覆写](tui-overrides.md)。
+这些能力都需显式启用，不改变普通 Shell 默认直连，也不绕过 Codex preflight。
+
+仍然**不实现**的部分属于明确的范围边界，不是待办项：
+
+- 完整配置订阅导入与自动订阅/provider 更新（v0.9 增加显式节点导入与 Provider 刷新）；
+- 通用 YAML 编辑器；
+- TUN、透明代理与系统代理，不修改系统路由；
+- UID 级防火墙隔离；认证是凭据边界，不是网络隔离；
+- system service 与 `loginctl enable-linger`；
+- cron 或任何自动更新调度；更新是显式触发的 `mihomoctl update`；
+- sudo 与任何提权路径；
+- 自动核心升级；`install.sh` 与 `mihomoctl update` 只升级控制层，不升级 Mihomo 核心；
+- 进程终止，包括为了腾出端口而清理无法确认归属的进程；
+- 私有规则生成；`rules status/check` 只是只读检查器。
+
+`mihomoctl init`、`mihomoctl adopt`、`mihomoctl core`、
+`mihomoctl geodata`、`mihomoctl run`、`mihomoctl trace` **当前不存在**。
+运行时安装与 adoption 仍不属于本版本范围。
+
+### v0.9 控制台分层
+
+原 Controller 保留兼容 facade，分离 `controller_config`、`controller_api`、`controller_service`、`controller_policy`、`controller_transaction`、`controller_dashboard`、`controller_runtime`、`controller_state`、`controller_subscriptions`、`controller_legacy`、`controller_textual` 和 `controller_deps`。UI 调用共享服务，State 只持有安全投影与有界任务；Bash 保留 Shell/子进程环境边界，不增加 daemon/RPC。先冻结历史运行时收据集合，再新增 generation 模块。已实现范围见[控制台指南](console.md)，真实主机验收见[验收文档](console-acceptance.md)。
 
 ## 组件职责
 
@@ -114,8 +140,11 @@ axel → 服务器网络接口 → 目标站点
   └─ 子 Shell退出，父 Shell仍为 direct
 ```
 
-Mihomo 内部的域名规则、策略组、节点选择和最终 fallback 不属于
-`mihomo-userctl`；本项目只决定程序是否进入 Mihomo。任何数据集或科研站点的
+默认路径（`proxy_on`、`mihomoctl exec`、`mihomoctl direct`）不生成任何策略。
+自 v0.8 起，显式启用的 `mihomoctl override --script` 会生成
+`proxy-groups` / `rules` / `rule-providers` 候选，`--flclash-compat` 用于适配用户
+自己审阅过的 FlClash-rules 脚本；两者都要求显式指定可信本地脚本，并在保存前校验。
+本项目只决定程序是否进入 Mihomo。任何数据集或科研站点的
 专属规则都应留在用户自己的 Mihomo 配置中，而不是进入公共控制层。
 
 ## 三种 Codex 启动路径

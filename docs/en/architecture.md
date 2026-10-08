@@ -43,10 +43,37 @@ opted-in process -> 127.0.0.1:<port> -> user Mihomo -> routing policy
 | systemd | User-service lifecycle, active/enabled state, logs, and process supervision |
 | User | Mihomo core version; subscriptions, nodes, providers and private rules; whether to start/enable the service; whether to reopen a terminal or reconnect a long-lived client; whether to edit or apply `config.yaml` |
 
-The controller does not implement a Controller client, dashboard, subscription
-manager, provider downloader, general YAML editor, TUN, transparent/system
-proxying, UID firewall isolation, system service, linger, cron, sudo, automatic
-core upgrades, process termination, or private-rule generation.
+### Implemented and still not implemented
+
+Since v0.7 the controller **does implement** an independently authenticated loopback
+Controller client and a browser dashboard: `controller setup`, `controller status`,
+`controller token`, `nodes`, `groups`, `select`, `latency`, `connections`,
+`traffic`, `tui`, `ui`/`dashboard`, plus `manual` (convert an automatic group to
+manual) and `override` (local JavaScript policy override). See
+[nodes and dashboards](control-plane.md) and [TUI and overrides](tui-overrides.md).
+All of these require explicit opt-in, do not change direct-by-default shells, and do
+not bypass Codex preflight.
+
+The following remain **not implemented**. They are scope boundaries, not backlog items:
+
+- Full configuration subscription import and automatic provider/subscription updates (v0.9 adds explicit node-only import and provider refresh);
+- A general YAML editor;
+- TUN, transparent proxying and system proxying; system routes are never modified;
+- UID-level firewall isolation; authentication is a credential boundary, not network isolation;
+- System services and `loginctl enable-linger`;
+- Cron or any scheduled auto-update; updates are the explicit `mihomoctl update` command;
+- sudo or any privilege-escalation path;
+- Automatic core upgrades; `install.sh` and `mihomoctl update` upgrade the control layer only;
+- Process termination, including clearing a port held by a process whose ownership cannot be confirmed;
+- Private rule generation; `rules status/check` is a read-only checker only.
+
+`mihomoctl init`, `mihomoctl adopt`, `mihomoctl core`,
+`mihomoctl geodata`, `mihomoctl run` and `mihomoctl trace` **do not exist today**.
+Runtime installation and adoption remain outside this release.
+
+### v0.9 console components
+
+The existing controller is now a compatibility facade over `controller_config`, `controller_api`, `controller_service`, `controller_policy`, `controller_transaction`, `controller_dashboard`, `controller_runtime`, `controller_state`, `controller_subscriptions`, `controller_legacy`, `controller_textual` and `controller_deps`. UI code calls shared services; state holds safe projections and bounded jobs. Bash retains shell/process environment semantics. There is no new daemon or RPC boundary. Historical runtime receipt sets remain frozen before new modules are added. See the [console guide](console.md) for the implemented subset and [acceptance](console-acceptance.md) for outstanding host validation.
 
 ## Components
 
@@ -80,9 +107,13 @@ and socket inodes; it never returns environment values, command lines, or remote
 addresses. `acceptance.py` supplies both full acceptance and the narrower
 `diagnose url` probe path, so HTTP/SOCKS checks have one implementation.
 
-The controller does not generate Mihomo policy and does not contain desktop
-Clash/FlClash rules. That separation prevents server lifecycle code and PC rule
-generation from becoming one coupled deployment.
+The control layer ships no desktop Clash/FlClash rules, and the default paths
+(`proxy_on`, `mihomoctl exec`, `mihomoctl direct`) generate no Mihomo policy at all.
+Since v0.8 the opt-in `mihomoctl override --script` entry point does generate a
+`proxy-groups` / `rules` / `rule-providers` candidate, and `--flclash-compat`
+adapts a user's own reviewed FlClash-rules script to it; both require an explicit
+trusted local script and both validate before saving. That separation prevents
+server lifecycle code and PC rule generation from becoming one coupled deployment.
 
 ## Three Codex launch paths
 

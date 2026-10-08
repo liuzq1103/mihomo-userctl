@@ -25,10 +25,17 @@ class PolicyTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.config = self.root / "config.yaml"
         self.original = '# keep listener\nmixed-port: 17890\nsecret: private\nproxy-groups:\n  - name: Proxy\n    type: url-test\n    use: [subscription]\n    url: https://example.com\n    interval: 300\nrules: ["MATCH,DIRECT"]\n'
-        self.config.write_text(self.original, encoding="utf-8")
-        self.private = patch.object(c, "private", side_effect=lambda p, directory=False: Path(p))
-        self.private.start()
-        self.addCleanup(self.private.stop)
+        # Keep this fixture byte-identical on Windows; CRLF preservation has
+        # separate transaction coverage in test_console.py.
+        self.config.write_bytes(self.original.encode("utf-8"))
+        if sys.platform == "win32":
+            # Ownership semantics are exercised by Linux integration tests.
+            for function in (c.read_config, c.policy_candidate, c.apply_policy, c.setup):
+                mocked_private = patch.dict(function.__globals__, {"private": lambda p, directory=False: Path(p)})
+                mocked_private.start()
+                self.addCleanup(mocked_private.stop)
+        else:
+            self.config.chmod(0o600)
 
     def script(self, source):
         path = self.root / "override.js"

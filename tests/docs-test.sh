@@ -28,6 +28,8 @@ fi
 expected=(
   README.md
   control-plane.md
+  console.md
+  console-acceptance.md
   quick-install.md
   acceptance.md
   agent-install-prompt.md

@@ -1,6 +1,9 @@
 # mihomo-userctl
 
-**在 Linux 服务器上，让 Codex 按需走代理。**
+v0.9.0 增加 [Server-first 控制台](docs/zh-CN/console.md)：现有 curses/plain 保留默认行为，可显式选择 Textual，提供运行观测、批量测速、只读连接、Provider、日志与安全节点订阅。安装方式、键盘操作和 [验收边界](docs/zh-CN/console-acceptance.md)见专题文档。
+
+**在共享 Linux 服务器与远程开发环境中，作为用户级 Mihomo Runtime Manager，
+并提供 workload-aware 的代理接入与验证层。**
 
 [English](README.en.md) · [快速开始](#快速开始) · [中文文档](docs/zh-CN/README.md)
 
@@ -22,10 +25,39 @@
 
 **如果你的应用已经稳定联网，通常不需要迁移。**
 [Mihomo](https://github.com/MetaCubeX/mihomo) 负责实际代理与路由；
-[Mihoro](https://github.com/spencerwooo/mihoro) 已提供无 root、每用户实例和内核、订阅、服务管理。
-本项目的价值在于把指定进程接入、Codex 排错和共享服务器部署流程整理成现成工具。
-它依赖 Mihomo，不提高节点速度，提供节点查看、切换和面板入口，但不替你管理订阅或保证模型请求成功。
-详细职责见[架构](docs/zh-CN/architecture.md)与[Mihoro 对比](docs/zh-CN/mihoro-inspiration.md)。
+[Mihoro](https://github.com/spencerwooo/mihoro) 在 provisioning、core、订阅与
+geodata 管理上覆盖了更大的生命周期范围。本项目的价值在于把指定进程接入、
+workload 排错与共享服务器部署流程整理成现成工具。
+
+两者**不互斥**，也不需要互相替换：
+
+| | 更擅长 | mihomo-userctl 更强调 |
+| --- | --- | --- |
+| **Mihoro** | provisioning、Mihomo core、订阅、geodata | — |
+| **mihomo-userctl** | — | shared-server 端口协调、per-user 凭据、per-process 代理、workload adapter、runtime 诊断与证据、remote development |
+
+已经使用 Mihoro 的用户**无需重装**。本项目当前不接管也不修改 Mihoro 创建的
+binary、配置或服务。
+
+本项目依赖 Mihomo，不提高节点速度，提供节点查看、切换和面板入口，
+v0.9 增加显式的节点级订阅导入，不导入完整配置，也不保证模型请求成功。详细职责见[架构](docs/zh-CN/architecture.md)、
+[Mihoro 对比](docs/zh-CN/mihoro-inspiration.md)。
+
+## 明确不做（non-goals）
+
+以下是明确的范围边界，不是待办项，也不会在路线图中被当作承诺：
+
+- **不做 FlClash / Clash Verge 的 replacement**，不生成桌面端 Clash 规则。
+- **不做桌面 GUI**；可选的浏览器面板只是本地 Dashboard 入口。
+- **不做 TUN 或透明代理**，不修改系统路由。
+- **不做通用 YAML editor**；`rules status/check` 只是只读检查器。
+- **不做无 root 的强 UID 网络隔离**；回环端口是全主机资源，认证是凭据边界，
+  不等于跨 UID 防火墙隔离。
+- **环境变量不是网络强制策略**：它只在进程创建时继承，进程自身可以修改。
+- **readiness 通过不等于模型 E2E 成功**：`SAFE_TO_LAUNCH` 只代表本地代理前置条件成立。
+- **不接管用户的 crontab**，不做定时自动更新；更新是显式触发的 `mihomoctl update`。
+- **不终止无法确认归属的进程**，包括为了腾出端口。
+- **不安装或升级 Mihomo 核心**；`install.sh` 与 `mihomoctl update` 只升级控制层。
 
 ## 适合哪些环境
 
@@ -160,15 +192,15 @@ HTTP 检查只证明该次请求可用；真实客户端的远程传输和模型
 
 ## 更新与卸载
 
-当前版本为 v0.8.0；升级前先预览变更。
+当前版本为 v0.9.0。升级前先预览变更；可选 Textual 依赖须按[控制台指南](docs/zh-CN/console.md)显式安装。
 
 v0.8.0 新增节点搜索、自动组转手动组和本地 JavaScript 覆写预览/备份应用，
 并修正 SOCKS 认证拒绝证据与不可读辅助进程分类。详见 [TUI 与覆写](docs/zh-CN/tui-overrides.md)。
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version v0.8.0 --dry-run
-mihomoctl update --version v0.8.0
+mihomoctl update --version v0.9.0 --dry-run
+mihomoctl update --version v0.9.0
 ```
 
 更新仅升级控制层，保留配置、凭据、端口、loader 和服务 active/enabled 状态；
@@ -216,6 +248,8 @@ mihomoctl connections [--json]
 mihomoctl traffic [--json]
 mihomoctl ui [--json]
 mihomoctl dashboard [--json]
+mihomoctl manual GROUP [--json] [--apply]
+mihomoctl override --script FILE [--json] [--flclash-compat] [--apply]
 
 mihomoctl logs [--lines N] [--follow]
 mihomoctl version

@@ -34,3 +34,25 @@ jobs:
         run: bash tests/secret-scan.sh
       - name: Whitespace
         run: git diff --check
+  textual:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.9', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Prepare hash-locked optional UI and offline wheels
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r scripts/textual-requirements.txt
+          python -m pip download --require-hashes --only-binary=:all: -r scripts/textual-requirements.txt -d "$RUNNER_TEMP/tui-wheels"
+          chmod 700 "$RUNNER_TEMP/tui-wheels"
+      - name: Optional frontend, services and offline installer
+        env:
+          MIHOMO_TEST_WHEELHOUSE: ${{ runner.temp }}/tui-wheels
+        run: |
+          python -m unittest discover -s tests -p test_textual.py -v
+          python -m unittest discover -s tests -p test_console.py -v
+          python -m unittest discover -s tests -p test_update.py -k optional_textual -v

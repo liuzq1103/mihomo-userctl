@@ -31,6 +31,7 @@ NEXT = BASE.rsplit(".", 1)[0] + "." + str(int(BASE.rsplit(".", 1)[1]) + 1)
 TAG = "v" + NEXT
 COMMIT = "a" * 40
 SECRET = "private-fixture-" + "0123456789abcdef"
+WHEELHOUSE = os.environ.get("MIHOMO_TEST_WHEELHOUSE")
 
 
 def put(path, text, mode=0o600):
@@ -77,6 +78,24 @@ class FakeRelease:
 
 
 class SourceTests(unittest.TestCase):
+    def test_v070_v080_receipts_keep_exact_historical_controller_set(self):
+        for version in ("0.7.0", "0.7.1", "0.8.0"):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                generation = root / "generations" / ("d" * 32)
+                generation.mkdir(parents=True)
+                hashes = {}
+                for name in ins.RUNTIME_080:
+                    put(generation / name, "historical " + name, 0o644)
+                    hashes[name] = ins.digest(generation / name)
+                record = {"install_root": str(root), "generation": generation.name,
+                          "version": version, "runtime_hashes": hashes,
+                          "bootstrap_hashes": {n: "fixture" for n in ("mihomoctl", "common.bash", "shell.bash", "completion.bash")}}
+                ins.verify_generation(record)
+                hashes["controller_api.py"] = "unexpected"
+                with self.assertRaises(ins.InstallError):
+                    ins.verify_generation(record)
+
     def test_pre_controller_receipts_accept_exact_old_module_set(self):
         for version in ("0.2.2", "0.3.4", "0.4.0", "0.5.0", "0.6.0"):
             with self.subTest(version=version), tempfile.TemporaryDirectory() as folder:
@@ -276,6 +295,56 @@ esac
         proc = subprocess.run(["bash", str(source / "install.sh"), "--bashrc", str(self.startup),
                                "--preserve-service-state"], capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    @unittest.skipUnless(WHEELHOUSE, "optional offline wheelhouse integration")
+    def test_optional_textual_offline_install_preserved_update_and_bad_hash_rollback(self):
+        proc = subprocess.run(["bash", str(self.source / "install.sh"), "--bashrc", str(self.startup),
+                               "--preserve-service-state", "--with-textual", "--tui-python", sys.executable,
+                               "--wheelhouse", WHEELHOUSE], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        record = ins.metadata(self.root)
+        ins.verify_installed(record)
+        environment = record["textual_environment"]
+        check = subprocess.run([environment["path"] + "/bin/python", "-I", "-c", "import textual,yaml; print(textual.__version__)"], capture_output=True, text=True)
+        self.assertEqual(check.returncode, 0, check.stderr)
+        self.assertIn("8.2.8", check.stdout)
+        self.assertEqual(Path(environment["path"]).stat().st_mode & 0o777, 0o700)
+        config = self.base / "node-preview-config.yaml"
+        source = self.base / "node-preview-source.yaml"
+        put(config, "proxies: []\n", 0o600)
+        put(source, "proxies: [{name: fixture, type: direct}]\n", 0o600)
+        # -S makes the bootstrap interpreter unable to import site PyYAML.
+        # Control commands must still use the registered private environment.
+        dispatcher = self.root / os.readlink(self.root / "current") / "controller_deps.py"
+        preview = subprocess.run([sys.executable, "-S", str(dispatcher), "--run", "controller.py",
+                                  "subscription", "preview", "--config", str(config),
+                                  "--source-file", str(source), "--json"], capture_output=True, text=True)
+        self.assertEqual(preview.returncode, 0, preview.stdout + preview.stderr)
+        self.assertEqual(json.loads(preview.stdout)["state"], "preview")
+        private_python = Path(environment["path"]) / "bin/python"
+        saved_python = private_python.with_name("python.saved")
+        private_python.rename(saved_python)
+        try:
+            fallback = subprocess.run([str(self.bin), "controller", "token", "--config", str(config)],
+                                      capture_output=True, text=True)
+            self.assertEqual(fallback.returncode, 2)
+            self.assertEqual(json.loads(fallback.stdout)["error"]["code"], "controller-not-configured-as-loopback")
+        finally:
+            saved_python.rename(private_python)
+        old_pointer = os.readlink(self.root / "current")
+        # A normal update reuses the private environment without downloading.
+        self.assertEqual(self.run_update("--version", TAG)[0], 3)
+        self.assertEqual(ins.metadata(self.root)["textual_environment"], environment)
+        ins.rollback(self.backup())
+        self.assertEqual(os.readlink(self.root / "current"), old_pointer)
+        bad_wheels = self.base / "bad-wheels"; bad_wheels.mkdir(mode=0o700)
+        put(bad_wheels / "pip-25.2-py3-none-any.whl", "tampered wheel")
+        failed = subprocess.run(["bash", str(self.source / "install.sh"), "--bashrc", str(self.startup),
+                                 "--preserve-service-state", "--with-textual", "--wheelhouse", str(bad_wheels)], capture_output=True, text=True)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertEqual(os.readlink(self.root / "current"), old_pointer)
+        ins.verify_installed(ins.metadata(self.root))
+        self.assert_no_service_mutations()
 
     def snapshot(self):
         # All active files, core/provider/config content and modes; exclude private

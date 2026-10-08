@@ -32,3 +32,5 @@ Reference by responsibility:
 - [节点管理 / Nodes and dashboards](control-plane.md)
 - [TUI selection and JavaScript overrides](tui-overrides.md)
 - [快速安装 / Quick installation](quick-install.md)
+
+v0.9.0 implements a narrower [server-first console and node-only subscription](console.md), with separate [acceptance checks](console-acceptance.md). The broader runtime/core/adoption roadmap remains deferred.

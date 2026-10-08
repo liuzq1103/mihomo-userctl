@@ -163,6 +163,8 @@ def validate(source, tag):
             required.append("tests/test_codex_preflight.py")
         if version(tag) >= (0, 7, 0):
             required.extend(("tests/test_controller.py", "bootstrap.py", "tests/test_bootstrap.py"))
+        if version(tag) >= (0, 9, 0):
+            required.extend(("tests/test_console.py", "tests/test_textual.py"))
         if any(not (source / name).is_file() for name in required):
             raise UpdateError("target-release-is-incomplete", 2)
         for file, pattern in (("install.sh", r"^VERSION=([^\n]+)$"),
@@ -190,7 +192,7 @@ def validate(source, tag):
         if (source / "tests/test_codex_preflight.py").is_file():
             commands.insert(1, [sys.executable, "-m", "unittest", "discover", "-s", "tests",
                                 "-p", "test_codex_preflight.py"])
-        for pattern in ("test_controller.py", "test_bootstrap.py"):
+        for pattern in ("test_controller.py", "test_bootstrap.py", "test_console.py", "test_textual.py"):
             if (source / "tests" / pattern).is_file():
                 commands.insert(1, [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", pattern])
         for command in commands:

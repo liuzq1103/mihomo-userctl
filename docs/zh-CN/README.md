@@ -32,3 +32,5 @@
 - [节点管理 / Nodes and dashboards](control-plane.md)
 - [TUI 手动选节点与 JavaScript 覆写](tui-overrides.md)
 - [快速安装 / Quick installation](quick-install.md)
+
+v0.9.0 实现较小范围的 [Server-first 控制台与节点订阅](console.md)，[验收](console-acceptance.md)单独进行；更广的 runtime/core/adoption 路线仍后置。

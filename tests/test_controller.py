@@ -26,6 +26,7 @@ import fcntl
 import struct
 import termios
 from scripts import controller as c
+from scripts.controller_service import ConsoleService
 
 TOKEN = "fixture-" + "a" * 40
 ROWS = {"Proxy / 中文": {"type": "Selector", "now": "Node A", "all": ["Node A", "Node B"]},
@@ -49,6 +50,25 @@ class Server(BaseHTTPRequestHandler):
             data = {"connections": [{"metadata": {"host": "PRIVATE-HOST"}, "chains": ["Node B", "Proxy"], "rule": "Match"}]}
         elif self.path == "/traffic":
             data = {"up": 10, "down": 20}
+        elif self.path == "/memory":
+            data = {"inuse": 4096, "oslimit": 0, "private": "DO-NOT-PRINT"}
+        elif self.path == "/rules":
+            data = {"rules": [{"type": "Domain", "payload": "PRIVATE-HOST"}, {"type": "Match"}]}
+        elif self.path == "/providers/proxies":
+            data = {"providers": {"provider / fixture": {"vehicleType": "HTTP", "updatedAt": "now", "proxies": [{"password": "DO-NOT-PRINT"}], "url": "PRIVATE-URL"}}}
+        elif self.path == "/providers/rules":
+            data = {"providers": {"rules fixture": {"vehicleType": "Inline", "behavior": "Domain", "ruleCount": 7, "updatedAt": "now", "payload": ["PRIVATE-HOST"], "url": "PRIVATE-URL"}}}
+        elif self.path == "/configs":
+            data = {"mode": getattr(self.server, "mode", "rule"), "secret": TOKEN}
+        elif self.path.startswith("/dns/query?"):
+            data = {"Answer": [{"name": "example.com", "type": 1, "TTL": 60, "data": "192.0.2.1"}]}
+        elif self.path.startswith("/logs?"):
+            self.send_response(200); self.end_headers()
+            for message in ("private host PRIVATE-HOST", TOKEN + " PRIVATE-LOG-CREDENTIAL", "https://user:pass@example.com/?token=private-value\x1b[31m"):
+                self.wfile.write(json.dumps({"type": "info", "payload": message}).encode() + b"\n")
+            return
+        elif self.path == "/unsupported":
+            self.send_response(404); self.end_headers(); return
         elif "/delay?" in self.path:
             data = {"delay": 32}
         else:
@@ -60,12 +80,79 @@ class Server(BaseHTTPRequestHandler):
         self.server.puts += 1
         if self.headers.get("Authorization") != "Bearer " + TOKEN:
             self.send_response(401); self.end_headers(); return
+        if self.path.startswith("/providers/proxies/"):
+            self.send_response(204); self.end_headers(); return
         value = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         self.server.rows["Proxy / 中文"]["now"] = value["name"]
         self.send_response(204); self.end_headers()
 
+    def do_PATCH(self):
+        if self.headers.get("Authorization") != "Bearer " + TOKEN:
+            self.send_response(401); self.end_headers(); return
+        self.server.patch = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        self.server.mode = self.server.patch["mode"]
+        self.send_response(204); self.end_headers()
+
 
 class ControllerTests(unittest.TestCase):
+    def service(self, root, details=False):
+        config = Path(root) / "config.yaml"
+        config.write_text('external-controller: 127.0.0.1:' + str(self.server.server_port) + '\nsecret: ' + TOKEN + '\nproxies: [{name: test, type: ss, password: PRIVATE-LOG-CREDENTIAL}]\n')
+        config.chmod(0o600)
+        return ConsoleService(config, details=details)
+
+    @unittest.skipUnless(importlib.util.find_spec("yaml"), "optional Controller YAML dependency")
+    def test_new_services_whitelist_and_mode_only_patch(self):
+        with tempfile.TemporaryDirectory() as root:
+            service = self.service(root)
+            result = [service.read(page) for page in ("rules", "providers", "memory")]
+            value = json.dumps(result)
+            self.assertEqual(result[0]["providers"][0]["rules"], 7)
+            for private in (TOKEN, "PRIVATE-HOST", "PRIVATE-URL", "DO-NOT-PRINT"):
+                self.assertNotIn(private, value)
+            self.assertEqual(service.mode("direct")["shell"], "unchanged")
+            self.assertEqual(self.server.patch, {"mode": "direct"})
+            self.assertEqual(service.dns("example.com")["answers"][0]["data"], "192.0.2.1")
+            self.assertEqual(service.provider_refresh("provider / fixture")["state"], "refresh-requested")
+
+    def test_capability_404_is_distinct_from_redirect_and_authentication(self):
+        with self.assertRaisesRegex(c.ControlError, "capability-unsupported"):
+            self.client.request("/unsupported", optional=True)
+        with self.assertRaisesRegex(c.ControlError, "request-failed"):
+            self.client.request("/redirect", optional=True)
+        with self.assertRaisesRegex(c.ControlError, "authentication-failed"):
+            c.Client(self.server.server_port, "wrong").request("/unsupported", optional=True)
+
+    def test_plain_menu_selector_switch_and_automatic_group_remains_read_only(self):
+        with contextlib.redirect_stdout(io.StringIO()), patch.object(sys.stdin, "isatty", return_value=True), patch.object(sys.stdout, "isatty", return_value=True), patch("builtins.input", side_effect=["2", "1", "2", "q"]):
+            result = c.plain_tui(self.client)
+        self.assertEqual(result["state"], "closed")
+        self.assertEqual(self.server.puts, 1)
+        self.assertEqual(self.server.rows["Proxy / 中文"]["now"], "Node B")
+
+    def test_conflicting_engines_rejected_before_configuration_or_network(self):
+        with self.assertRaisesRegex(c.ControlError, "conflicting-tui-engines"):
+            c.main(["tui", "--plain", "--engine", "textual"])
+
+    @unittest.skipUnless(importlib.util.find_spec("yaml"), "optional Controller YAML dependency")
+    def test_log_stream_private_projection_and_detail_credential_redaction(self):
+        for details in (False, True):
+            with self.subTest(details=details), tempfile.TemporaryDirectory() as root:
+                service = self.service(root, details)
+                stop, rows = threading.Event(), []
+                def emit(value=None, error=""):
+                    self.assertFalse(error)
+                    if value:
+                        rows.append(value)
+                    if len(rows) >= 4:
+                        stop.set()
+                service.logs(emit, stop)
+                output = json.dumps(rows)
+                for credential in (TOKEN, "PRIVATE-LOG-CREDENTIAL", "user:pass", "private-value", "\\u001b"):
+                    self.assertNotIn(credential, output)
+                if not details:
+                    self.assertNotIn("PRIVATE-HOST", output)
+
     def setUp(self):
         # The updater's own fixture PATH contains a fake ss for its proxy tests.
         # This suite measures a real disposable loopback server instead.
@@ -128,7 +215,7 @@ class ControllerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); lib = root / "lib"; lib.mkdir(mode=0o700)
             source = Path(c.__file__).resolve().parents[1]
-            for name in ("controller.py", "acceptance.py", "reporting.py", "install_support.py", "dashboard.html"):
+            for name in ("controller.py", "acceptance.py", "reporting.py", "install_support.py", "dashboard.html") + tuple(n + ".py" for n in c._COMPONENTS):
                 shutil.copyfile(source / "scripts" / name, lib / name)
                 (lib / name).chmod(0o644)
             shutil.copyfile(source / "src/common.bash", lib / "common.bash")
@@ -185,6 +272,36 @@ class ControllerTests(unittest.TestCase):
                 if process.poll() is None:
                     process.terminate(); process.wait(timeout=5)
                 os.close(master)
+
+    @unittest.skipUnless(importlib.util.find_spec("textual"), "optional Textual PTY integration")
+    def test_textual_real_pty_quit_ctrl_c_and_terminal_restore(self):
+        for key in (b"q", b"\x03"):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as folder:
+                config = Path(folder) / "config.yaml"
+                config.write_text('external-controller: 127.0.0.1:' + str(self.server.server_port) + '\nsecret: ' + TOKEN + '\n')
+                config.chmod(0o600)
+                master, slave = pty.openpty()
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
+                original = termios.tcgetattr(slave)
+                process = subprocess.Popen([sys.executable, c.__file__, "tui", "--engine", "textual", "--config", str(config)],
+                                           stdin=slave, stdout=slave, stderr=slave, env=dict(os.environ, TERM="xterm-256color"))
+                os.close(slave)
+                output = b""
+                try:
+                    deadline = time.monotonic() + 10
+                    while time.monotonic() < deadline and b"USER RUNTIME" not in output:
+                        if select.select([master], [], [], .1)[0]:
+                            output += os.read(master, 65536)
+                    self.assertIn(b"USER RUNTIME", output)
+                    fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 14, 60, 0, 0))
+                    os.write(master, key)
+                    self.assertEqual(process.wait(timeout=5), 0)
+                    self.assertEqual(termios.tcgetattr(master), original)
+                    self.assertNotIn(TOKEN.encode(), output)
+                finally:
+                    if process.poll() is None:
+                        process.terminate(); process.wait(timeout=5)
+                    os.close(master)
 
 
 @unittest.skipUnless(importlib.util.find_spec("yaml"), "optional controller PyYAML dependency")

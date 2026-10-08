@@ -1,6 +1,9 @@
 # mihomo-userctl
 
-**Run Codex through your proxy, on demand, on a Linux server.**
+v0.9.0 adds the [server-first console](docs/en/console.md): existing curses/plain remain available, with explicitly selected Textual, runtime observations, batch latency, read-only connections, providers, logs and safe node-only subscriptions. See the guide and [acceptance boundaries](docs/en/console-acceptance.md).
+
+**For shared Linux servers and remote development: a user-level Mihomo Runtime Manager
+with a workload-aware proxy control and verification layer.**
 
 [简体中文](README.md) · [Quick start](#quick-start) · [English documentation](docs/en/README.md)
 
@@ -22,11 +25,45 @@ its environment; use `mihomoctl direct -- COMMAND` to clear the child's proxy va
 
 **If your applications already connect reliably, you usually do not need to migrate.**
 [Mihomo](https://github.com/MetaCubeX/mihomo) handles proxy protocols and routing.
-[Mihoro](https://github.com/spencerwooo/mihoro) already offers rootless per-user instances and core,
-subscription and service management. This project packages explicit process entry, Codex diagnostics
-and shared-server deployment procedures. It depends on Mihomo; it does not make nodes faster, manage
-subscriptions or guarantee model connectivity. Node selection and dashboard access are now available. See [architecture](docs/en/architecture.md)
-and the [Mihoro comparison](docs/en/mihoro-inspiration.md).
+[Mihoro](https://github.com/spencerwooo/mihoro) covers a wider lifecycle: provisioning,
+core, subscription and geodata management. This project packages explicit process entry,
+workload diagnostics and shared-server deployment procedures.
+
+The two are **not mutually exclusive** and neither replaces the other:
+
+| | Stronger at | mihomo-userctl emphasises |
+| --- | --- | --- |
+| **Mihoro** | provisioning, Mihomo core, subscription, geodata | — |
+| **mihomo-userctl** | — | shared-server port coordination, per-user credentials, per-process proxy, workload adapters, runtime diagnostics and evidence, remote development |
+
+If you already use Mihoro you **do not need to reinstall anything**. This project does
+not currently take over or modify a binary, configuration or service created by Mihoro.
+
+This project depends on Mihomo. It does not make nodes faster, and it offers node
+inspection, selection and dashboard access. v0.9 adds explicit node-only subscription import, excluding full configuration management, and
+does not guarantee model connectivity. See [architecture](docs/en/architecture.md),
+the [Mihoro comparison](docs/en/mihoro-inspiration.md).
+
+## Explicit non-goals
+
+These are deliberate scope boundaries, not backlog items, and are never promises:
+
+- **Not a FlClash / Clash Verge replacement**; it does not generate desktop Clash rules.
+- **No desktop GUI**; the optional browser panel is only a local dashboard entry point.
+- **No TUN or transparent proxying**; system routes are never modified.
+- **Not a general YAML editor**; `rules status/check` is a read-only checker.
+- **No rootless strong UID network isolation**; loopback ports are host-wide resources and
+  authentication is a credential boundary, not a cross-UID firewall.
+- **Environment variables are not enforced network policy**: they are inherited only at
+  process creation, and a process can change its own environment.
+- **Readiness is not model E2E success**: `SAFE_TO_LAUNCH` only means local proxy
+  preconditions hold.
+- **It does not take over your crontab** and performs no scheduled auto-update; updates
+  are the explicit `mihomoctl update` command.
+- **It does not terminate processes whose ownership it cannot confirm**, including to
+  free a port.
+- **It does not install or upgrade the Mihomo core**; `install.sh` and `mihomoctl update`
+  upgrade the control layer only.
 
 ## Supported environments
 
@@ -167,7 +204,7 @@ unchanged. See [troubleshooting](docs/en/troubleshooting.md) for more cases.
 
 ## Update and uninstall
 
-The current version is v0.8.0. Preview changes before upgrading.
+The current version is v0.9.0. Preview changes before upgrading; install optional Textual dependencies explicitly using the [console guide](docs/en/console.md).
 
 v0.8.0 adds node search, explicit manual-group conversion and backed-up local JavaScript policy overrides,
 plus SOCKS authentication-rejection evidence and non-dumpable helper classification fixes.
@@ -175,8 +212,8 @@ See [TUI and overrides](docs/en/tui-overrides.md).
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version v0.8.0 --dry-run
-mihomoctl update --version v0.8.0
+mihomoctl update --version v0.9.0 --dry-run
+mihomoctl update --version v0.9.0
 ```
 
 Updates affect only the control layer, preserving configuration, credentials, port, loader and service
@@ -224,6 +261,8 @@ mihomoctl connections [--json]
 mihomoctl traffic [--json]
 mihomoctl ui [--json]
 mihomoctl dashboard [--json]
+mihomoctl manual GROUP [--json] [--apply]
+mihomoctl override --script FILE [--json] [--flclash-compat] [--apply]
 
 mihomoctl logs [--lines N] [--follow]
 mihomoctl version

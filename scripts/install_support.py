@@ -27,6 +27,12 @@ RUNTIME = {"src/common.bash": "common.bash", "src/shell.bash": "shell.bash",
             "scripts/rules.py": "rules.py", "scripts/reporting.py": "reporting.py",
             "scripts/controller.py": "controller.py", "scripts/dashboard.html": "dashboard.html"}
 RUNTIME_060 = frozenset(RUNTIME.values()) - {"controller.py", "dashboard.html"}
+RUNTIME_080 = frozenset(RUNTIME.values())
+# Frozen historical sets must be defined before extending this release's files.
+for _component in ("types", "config", "api", "service", "policy", "transaction", "dashboard",
+                   "legacy", "state", "runtime", "subscriptions", "textual", "deps"):
+    RUNTIME["scripts/controller_" + _component + ".py"] = "controller_" + _component + ".py"
+RUNTIME["scripts/textual-requirements.txt"] = "textual-requirements.txt"
 RUNTIME_020 = frozenset(("common.bash", "shell.bash", "mihomoctl", "completion.bash",
                          "update.py", "install_support.py", "acceptance.py"))
 RUNTIME_021 = frozenset(("common.bash", "shell.bash", "mihomoctl", "completion.bash",
@@ -198,13 +204,28 @@ def verify_generation(record):
     generation = root / "generations" / record["generation"]
     legacy = {"0.2.0": RUNTIME_020, "0.2.1": RUNTIME_021}
     release = tuple(int(n) for n in record.get("version", "0.0.0").split("."))
-    expected_runtime = legacy.get(record.get("version"), RUNTIME_060 if release < (0, 7, 0) else frozenset(RUNTIME.values()))
+    expected_runtime = legacy.get(record.get("version"), RUNTIME_060 if release < (0, 7, 0) else
+                                  RUNTIME_080 if release < (0, 9, 0) else frozenset(RUNTIME.values()))
     if (set(record["runtime_hashes"]) != expected_runtime or
             set(record["bootstrap_hashes"]) != {"mihomoctl", "common.bash", "shell.bash", "completion.bash"}):
         raise InstallError("incomplete-installation-integrity-record")
     for name, expected in record["runtime_hashes"].items():
         if name not in expected_runtime or digest(safe_path(generation / name)) != expected:
             raise InstallError("installed-code-modified-review-local-customizations")
+    optional = record.get("textual_environment")
+    if optional:
+        environment = Path(optional["path"])
+        if (environment.name != "textual-env" or environment.parent.parent != root / "generations"
+                or not re.fullmatch(r"[a-f0-9]{32}", environment.parent.name)):
+            raise InstallError("invalid-textual-environment-record")
+        safe_path(environment, True)
+        interpreter = safe_path(environment / "bin/python")
+        if not interpreter.is_file() or not os.access(interpreter, os.X_OK):
+            raise InstallError("textual-environment-interpreter-missing")
+        if (environment.stat().st_mode & 0o077 or
+                digest(environment.parent / "textual-requirements.txt") != optional["lock_sha256"] or
+                digest(generation / "textual-requirements.txt") != optional["lock_sha256"]):
+            raise InstallError("textual-environment-integrity-mismatch")
 
 
 def verify_installed(record):
@@ -313,6 +334,13 @@ def prepare(source, bashrc, backup, source_record=None):
     if (root / "current").is_symlink():
         old = metadata(root)
         verify_installed(old)
+        if old.get("textual_environment") and os.environ.get("MIHOMO_INSTALL_WITH_TEXTUAL") != "1":
+            optional = old["textual_environment"]
+            if optional["lock_sha256"] != digest(generation / "textual-requirements.txt"):
+                raise InstallError("textual-lock-changed-reinstall-with-textual")
+            # Reuse the private environment without network or relocation.
+            # Old generations are retained by the existing rollback lifecycle.
+            record["textual_environment"] = optional
         if (old["bootstrap_hashes"] != record["bootstrap_hashes"] or
                 old["loader_sha256"] != record["loader_sha256"]):
             raise InstallError("bootstrap-layout-change-requires-reviewed-migration")

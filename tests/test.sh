@@ -24,6 +24,8 @@ chmod 700 "$XDG_DATA_HOME/mihomo-userctl" "$XDG_CONFIG_HOME/mihomo"
 cp "$ROOT/src/common.bash" "$ROOT/src/shell.bash" "$ROOT/completions/mihomoctl.bash" "$XDG_DATA_HOME/mihomo-userctl/"
 cp "$ROOT/scripts/acceptance.py" "$ROOT/scripts/diagnostics.py" "$ROOT/scripts/rules.py" \
   "$ROOT/scripts/reporting.py" "$XDG_DATA_HOME/mihomo-userctl/"
+cp "$ROOT/scripts/"controller*.py "$ROOT/scripts/install_support.py" "$XDG_DATA_HOME/mihomo-userctl/"
+chmod 644 "$XDG_DATA_HOME/mihomo-userctl/"*.py
 mv "$XDG_DATA_HOME/mihomo-userctl/mihomoctl.bash" "$XDG_DATA_HOME/mihomo-userctl/completion.bash"
 chmod 644 "$XDG_DATA_HOME/mihomo-userctl/common.bash" "$XDG_DATA_HOME/mihomo-userctl/shell.bash" \
   "$XDG_DATA_HOME/mihomo-userctl/completion.bash" "$XDG_DATA_HOME/mihomo-userctl/acceptance.py" \
@@ -93,6 +95,10 @@ p.write_text(p.read_text().replace('Path("/proc")', 'Path(' + repr(sys.argv[2]) 
 p = runtime / 'acceptance.py'
 p.write_text(p.read_text() + '\nhttp_no_auth = lambda *a: Result("PASS", "http-no-auth", "fixture-407")\n'
              + 'socks_no_auth = lambda *a: Result("PASS", "socks5h-no-auth", "fixture-ff")\n')
+# This Shell suite uses fake listeners; the real gate is covered by live socket
+# ownership tests in test_console.py. Patch only the disposable copied module.
+p = runtime / 'controller_runtime.py'
+p.write_text(p.read_text().replace('gate(service, ports)', 'None').replace('gate(service, ports, after=True)', 'None'))
 PY
 cat > "$TEST_ROOT/bin/curl" <<'EOF'
 #!/usr/bin/env bash

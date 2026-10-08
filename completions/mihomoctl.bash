@@ -1,7 +1,7 @@
 _mihomoctl_complete() {
   local current=${COMP_WORDS[COMP_CWORD]}
   local previous=${COMP_WORDS[COMP_CWORD-1]}
-  local commands='start stop restart status ready doctor codex exec direct diagnose rules logs version update controller nodes groups select latency connections traffic tui ui dashboard override manual help'
+  local commands='start stop restart status ready doctor codex exec direct diagnose rules logs version update controller nodes groups select latency connections traffic tui ui dashboard override manual providers provider dns mode subscription help'
   if (( COMP_CWORD == 1 )); then
     mapfile -t COMPREPLY < <(compgen -W "$commands" -- "$current")
   elif [[ ${COMP_WORDS[1]} == controller ]]; then
@@ -11,7 +11,13 @@ _mihomoctl_complete() {
   elif [[ ${COMP_WORDS[1]} =~ ^(nodes|groups|traffic|ui|dashboard)$ ]]; then
     mapfile -t COMPREPLY < <(compgen -W '--json --config' -- "$current")
   elif [[ ${COMP_WORDS[1]} == tui ]]; then
-    mapfile -t COMPREPLY < <(compgen -W '--plain --config --script --flclash-compat --home-dir --details' -- "$current")
+    mapfile -t COMPREPLY < <(compgen -W '--plain --engine curses textual plain --theme dark light --ascii --config --script --flclash-compat --home-dir --details' -- "$current")
+  elif [[ ${COMP_WORDS[1]} == subscription ]]; then
+    mapfile -t COMPREPLY < <(compgen -W 'preview apply --source-file --url-file --stdin --sha256 --config --home-dir --json' -- "$current")
+  elif [[ ${COMP_WORDS[1]} == mode ]]; then
+    mapfile -t COMPREPLY < <(compgen -W 'rule global direct --config --json' -- "$current")
+  elif [[ ${COMP_WORDS[1]} == provider ]]; then
+    mapfile -t COMPREPLY < <(compgen -W 'refresh --config --json' -- "$current")
   elif [[ ${COMP_WORDS[1]} =~ ^(override|manual)$ ]]; then
     mapfile -t COMPREPLY < <(compgen -W '--script --flclash-compat --apply --config --home-dir --json' -- "$current")
   elif [[ ${COMP_WORDS[1]} == logs ]]; then
