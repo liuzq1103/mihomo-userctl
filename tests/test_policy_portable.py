@@ -40,6 +40,8 @@ class PolicyTests(unittest.TestCase):
     def script(self, source):
         path = self.root / "override.js"
         path.write_text(source, encoding="utf-8")
+        if sys.platform != 'win32':
+            path.chmod(0o600)
         return path
 
     def test_manual_keeps_provider_members_and_listener(self):
@@ -99,6 +101,8 @@ class PolicyTests(unittest.TestCase):
     def test_provider_compat_preserves_cache_and_listener(self):
         cache = self.root / 'provider.yaml'
         cache.write_text('proxies:\n  - {name: "US (BGP)+", type: ss, password: private}\n  - {name: "香港", type: ss}\n', encoding='utf-8')
+        if sys.platform != 'win32':
+            cache.chmod(0o600)
         self.config.write_text(self.original + 'proxy-providers:\n  subscription:\n    path: ' + str(cache).replace('\\', '/') + '\n', encoding='utf-8')
         script = self.script('function main(c) { c["proxy-groups"].push({name: "Ai稳定选择", type: "select", proxies: c.proxies.filter(n => !n.name.includes("香港")).map(n => n.name)}); c.rules.unshift("DOMAIN-SUFFIX,openai.com,Ai稳定选择"); return c; }')
         _, updated, summary = c.policy_candidate(self.config, script=script, flclash=True)
@@ -115,6 +119,8 @@ class PolicyTests(unittest.TestCase):
     def test_actual_flclash_rules_script(self):
         cache = self.root / 'subscription.yaml'
         cache.write_text('proxies:\n  - {name: "美国-BGP-01", type: ss}\n  - {name: "香港-BGP-01", type: ss}\n', encoding='utf-8')
+        if sys.platform != 'win32':
+            cache.chmod(0o600)
         self.config.write_text(self.original + 'proxy-providers:\n  subscription:\n    path: ' + str(cache).replace('\\', '/') + '\n', encoding='utf-8')
         _, updated, _ = c.policy_candidate(self.config, script=os.environ['MIHOMO_USERCTL_TEST_OVERRIDE'], flclash=True)
         data = yaml.safe_load(updated)
