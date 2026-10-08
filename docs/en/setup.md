@@ -214,6 +214,12 @@ chmod 600 "$HOME/.config/mihomo/config.yaml"
 Replace `PORT_SELECTED_BY_USER` with the confirmed numeric value before running
 the config test.
 
+`mihomoctl start` and `restart` re-check this port before acting: the
+`type: mixed` listener port must equal `MIHOMO_PORT` from `mihomo-shell.conf`
+exactly, written as a plain integer. A legacy top-level `mixed-port` key, when
+present, takes priority and listener entries are then not consulted; keep a
+single port source and never mix both forms.
+
 ## 6. Create the user service
 
 Create `~/.config/systemd/user/mihomo.service`:

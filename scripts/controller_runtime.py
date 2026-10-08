@@ -112,7 +112,17 @@ def configured_ports(config, mixed):
             from controller_config import read_config, endpoint
         text, data, _ = read_config(config)
         digest = hashlib.sha256(text.encode()).hexdigest()
-        if data.get("mixed-port") != ports[0]:
+        if "mixed-port" in data:
+            matched = data["mixed-port"] == ports[0]
+        else:
+            entries = data.get("listeners")
+            # Documented listeners-only layout: any mixed entry binds the port,
+            # as an exact int; malformed shapes cannot establish a match.
+            matched = isinstance(entries, list) and any(
+                isinstance(entry, dict) and entry.get("type") == "mixed"
+                and type(entry.get("port")) is int and entry["port"] == ports[0]
+                for entry in entries)
+        if not matched:
             raise ControlError("configured-port-mismatch")
         if data.get("external-controller"):
             controller_port, _ = endpoint(data)

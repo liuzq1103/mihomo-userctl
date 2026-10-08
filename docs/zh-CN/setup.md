@@ -211,6 +211,11 @@ chmod 600 "$HOME/.config/mihomo/config.yaml"
 
 运行配置测试前，把 `PORT_SELECTED_BY_USER` 替换为刚确认的纯数字端口。
 
+`mihomoctl start`/`restart` 会在动作前复核该端口：`type: mixed` listener 的
+`port` 必须是与 `mihomo-shell.conf` 中 `MIHOMO_PORT` 完全一致的纯整数，不一致
+即阻断动作。若存在旧式顶层 `mixed-port` 键，则以它为准，不再查看 listeners；
+只保留单一端口来源，不要两种写法混用。
+
 ## 6. 创建用户级 systemd service
 
 创建 `~/.config/systemd/user/mihomo.service`：

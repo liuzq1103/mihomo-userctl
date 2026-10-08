@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1] - 2026-10-08
+
+- Fix start/restart rejecting the documented listeners-only configuration: recognize mixed listeners whose integer port matches MIHOMO_PORT without requiring a top-level mixed-port.
+- Preserve legacy mixed-port matching, mismatch rejection and the existing runtime ownership, authentication and configuration checks.
+- Add regression tests for listener types, multiple listeners, malformed ports, Controller conflicts, configuration drift and mocked start/restart actions; exercise an existing listeners-only configuration in the Shell suite.
+- Clarify port matching and legacy precedence in the bilingual setup guides.
+
 ## [0.9.0] - 2026-10-08
 
 - Split the existing Controller facade into configuration, API, services, policy, transactions, state and frontend modules; preserve curses/plain and CLI contracts.

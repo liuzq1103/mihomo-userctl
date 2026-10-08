@@ -303,6 +303,25 @@ chmod 644 "$XDG_CONFIG_HOME/mihomo/client.env"
 assert 'credentials wider than mode 600 are rejected' bash -c 'set +e; mihomoctl ready >/dev/null 2>&1; [[ $? == 2 ]]'
 chmod 600 "$XDG_CONFIG_HOME/mihomo/client.env"
 
+# A real listeners-only config (the documented layout, with a fictitious extra
+# listener) makes start/restart validate the mixed listener instead of passing
+# through the absent-config compatibility path.
+cat > "$XDG_CONFIG_HOME/mihomo/config.yaml" <<'EOF'
+listeners:
+  - name: side-listener
+    type: http
+    listen: 127.0.0.1
+    port: 25001
+  - name: mixed-loopback
+    type: mixed
+    listen: 127.0.0.1
+    port: 28443
+    udp: false
+    users:
+      - username: fixture-user
+        password: fixture-password
+EOF
+chmod 600 "$XDG_CONFIG_HOME/mihomo/config.yaml"
 printf 'inactive\n' > "$TEST_ROOT/service-state"
 assert 'start waits for readiness but keeps shell unchanged' "$HOME/.local/bin/mihomoctl" start
 assert 'stop releases the configured port without killing anything' "$HOME/.local/bin/mihomoctl" stop

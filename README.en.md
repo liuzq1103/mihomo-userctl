@@ -204,7 +204,7 @@ unchanged. See [troubleshooting](docs/en/troubleshooting.md) for more cases.
 
 ## Update and uninstall
 
-The current version is v0.9.0. Preview changes before upgrading; install optional Textual dependencies explicitly using the [console guide](docs/en/console.md).
+The current version is v0.9.1. Preview changes before upgrading; install optional Textual dependencies explicitly using the [console guide](docs/en/console.md).
 
 v0.8.0 adds node search, explicit manual-group conversion and backed-up local JavaScript policy overrides,
 plus SOCKS authentication-rejection evidence and non-dumpable helper classification fixes.
@@ -212,8 +212,8 @@ See [TUI and overrides](docs/en/tui-overrides.md).
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version v0.9.0 --dry-run
-mihomoctl update --version v0.9.0
+mihomoctl update --version v0.9.1 --dry-run
+mihomoctl update --version v0.9.1
 ```
 
 Updates affect only the control layer, preserving configuration, credentials, port, loader and service

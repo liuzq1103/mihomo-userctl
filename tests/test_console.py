@@ -1,4 +1,5 @@
 """State, real socket ownership, bounded jobs and node-only transactions."""
+import hashlib
 import json
 import importlib.util
 import os
@@ -126,6 +127,158 @@ class RuntimeTests(unittest.TestCase):
             runtime.gate("mihomo", [port])
             with self.assertRaisesRegex(ControlError, "listener-missing"):
                 runtime.gate("mihomo", [port], after=True)
+
+
+@unittest.skipUnless(importlib.util.find_spec("yaml"), "optional Controller YAML dependency")
+class ConfiguredPortsTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.config = Path(self.tmp.name) / "config.yaml"
+
+    def configure(self, text):
+        self.config.write_text(text, encoding="utf-8")
+        self.config.chmod(0o600)
+        return text
+
+    def test_listeners_only_config_matching_the_port_is_accepted(self):
+        text = self.configure("listeners:\n- name: in\n  type: mixed\n  listen: 127.0.0.1\n"
+                              "  port: 25000\n  udp: false\n  users:\n"
+                              "  - {username: fixture-user, password: fixture-password}\n")
+        self.assertEqual(runtime.configured_ports(self.config, 25000),
+                         ([25000], hashlib.sha256(text.encode()).hexdigest()))
+
+    def test_listeners_only_config_with_wrong_port_is_blocked(self):
+        self.configure("listeners:\n- name: in\n  type: mixed\n  listen: 127.0.0.1\n  port: 25001\n")
+        with self.assertRaisesRegex(ControlError, "configured-port-mismatch"):
+            runtime.configured_ports(self.config, 25000)
+
+    def test_legacy_mixed_port_still_accepted_and_mismatch_blocked(self):
+        text = self.configure("mixed-port: 25000\n")
+        self.assertEqual(runtime.configured_ports(self.config, 25000),
+                         ([25000], hashlib.sha256(text.encode()).hexdigest()))
+        self.configure("mixed-port: 25001\n")
+        with self.assertRaisesRegex(ControlError, "configured-port-mismatch"):
+            runtime.configured_ports(self.config, 25000)
+
+    def test_non_mixed_listener_on_the_same_port_is_blocked(self):
+        for kind in ("http", "socks"):
+            with self.subTest(kind=kind):
+                self.configure("listeners:\n- type: %s\n  listen: 127.0.0.1\n  port: 25000\n" % kind)
+                with self.assertRaisesRegex(ControlError, "configured-port-mismatch"):
+                    runtime.configured_ports(self.config, 25000)
+
+    def test_mixed_entry_matches_from_any_position_or_count(self):
+        mixed, wrong, other = ("- {name: in, type: mixed, port: 25000}\n",
+                               "- {name: bad, type: mixed, port: 25001}\n",
+                               "- {name: side, type: http, port: 25002}\n")
+        for entries, accepted in ((mixed + other, True), (other + mixed, True),
+                                  (wrong + mixed, True), (mixed + mixed, True),
+                                  (wrong + other, False)):
+            with self.subTest(entries=entries):
+                self.configure("listeners:\n" + entries)
+                if accepted:
+                    self.assertEqual(runtime.configured_ports(self.config, 25000)[0], [25000])
+                else:
+                    with self.assertRaisesRegex(ControlError, "configured-port-mismatch"):
+                        runtime.configured_ports(self.config, 25000)
+
+    def test_legacy_mismatch_blocks_even_when_a_listener_would_match(self):
+        self.configure("mixed-port: 25001\nlisteners:\n- {type: mixed, port: 25000}\n")
+        with self.assertRaisesRegex(ControlError, "configured-port-mismatch"):
+            runtime.configured_ports(self.config, 25000)
+
+    def test_listener_port_shapes_and_structures_never_coerce(self):
+        for body in ('- {type: mixed, port: "25000"}\n', "- {type: mixed, port: 25000.0}\n",
+                     "- {type: mixed, port: true}\n", "- {type: mixed, port: null}\n",
+                     "- {type: mixed}\n", "- {port: 25000}\n", "- mixed\n"):
+            with self.subTest(body=body):
+                self.configure("listeners:\n" + body)
+                with self.assertRaisesRegex(ControlError, "configured-port-mismatch"):
+                    runtime.configured_ports(self.config, 25000)
+        for value in ("{name: in, type: mixed, port: 25000}", "mixed", ""):
+            with self.subTest(value=value):
+                self.configure("listeners: %s\n" % value)
+                with self.assertRaisesRegex(ControlError, "configured-port-mismatch"):
+                    runtime.configured_ports(self.config, 25000)
+
+    def test_controller_port_append_and_conflict(self):
+        secret = "secret: %s\n" % ("a" * 32)
+        for header in ("listeners:\n- {type: mixed, listen: 127.0.0.1, port: 25000}\n",
+                       "mixed-port: 25000\n"):
+            with self.subTest(header=header.splitlines()[0]):
+                self.configure(header + "external-controller: 127.0.0.1:26000\n" + secret)
+                self.assertEqual(runtime.configured_ports(self.config, 25000)[0], [25000, 26000])
+        self.configure("listeners:\n- {type: mixed, listen: 127.0.0.1, port: 25000}\n"
+                       "external-controller: 127.0.0.1:25000\n" + secret)
+        with self.assertRaisesRegex(ControlError, "controller-port-conflicts-with-proxy-port"):
+            runtime.configured_ports(self.config, 25000)
+
+    def test_digest_follows_file_bytes_and_absent_config_stays_compatible(self):
+        self.assertEqual(runtime.configured_ports(self.config, 25000), ([25000], None))
+        text = self.configure("listeners:\n- {type: mixed, listen: 127.0.0.1, port: 25000}\n")
+        first = runtime.configured_ports(self.config, 25000)[1]
+        self.assertEqual(first, hashlib.sha256(text.encode()).hexdigest())
+        self.configure(text + "# extra byte\n")
+        self.assertNotEqual(runtime.configured_ports(self.config, 25000)[1], first)
+
+
+@unittest.skipUnless(importlib.util.find_spec("yaml"), "optional Controller YAML dependency")
+class RuntimeActionTests(unittest.TestCase):
+    LISTENERS = ("listeners:\n- name: in\n  type: mixed\n  listen: 127.0.0.1\n"
+                 "  port: 25000\n  udp: false\n  users:\n"
+                 "  - {username: fixture-user, password: fixture-password}\n")
+
+    def dispatch(self, action, text, during_action=None):
+        outcome = {"gates": [], "error": None}
+        with tempfile.TemporaryDirectory() as folder:
+            config = Path(folder) / "config" / "mihomo" / "config.yaml"
+            config.parent.mkdir(parents=True, mode=0o700)
+            config.write_text(text, encoding="utf-8")
+            config.chmod(0o600)
+            def service(args, **_):
+                if during_action:
+                    during_action(config)
+                return subprocess.CompletedProcess(args, 0, "", "")
+            environment = {"HOME": folder, "XDG_CONFIG_HOME": str(config.parents[1]),
+                           "XDG_DATA_HOME": str(Path(folder) / "data")}
+            with patch.dict(os.environ, environment), \
+                 patch.object(sys, "argv", ["runtime", action, "mihomo", "25000"]), \
+                 patch.object(runtime, "gate", side_effect=lambda *_a, **_k: outcome["gates"].append(_k.get("after", False))), \
+                 patch.object(runtime.subprocess, "run", side_effect=service) as mutation:
+                try:
+                    outcome["code"] = runtime.main()
+                except ControlError as error:
+                    outcome["error"] = error
+            outcome["mutation"] = mutation
+        return outcome
+
+    def test_start_and_restart_pass_gates_and_digest_recheck(self):
+        for action in ("start", "restart"):
+            with self.subTest(action=action):
+                outcome = self.dispatch(action, self.LISTENERS)
+                self.assertIsNone(outcome["error"])
+                self.assertEqual(outcome["code"], 0)
+                self.assertEqual(outcome["gates"], [False, True])
+                self.assertEqual(outcome["mutation"].call_count, 1)
+                argv = outcome["mutation"].call_args.args[0]
+                self.assertEqual((argv[5], argv[6], argv[7]), (action, "mihomo", "25000"))
+
+    def test_port_mismatch_blocks_before_gates_and_service_action(self):
+        for action in ("start", "restart"):
+            with self.subTest(action=action):
+                outcome = self.dispatch(action, self.LISTENERS.replace("port: 25000", "port: 25001"))
+                self.assertRegex(str(outcome["error"]), "configured-port-mismatch")
+                self.assertEqual(outcome["gates"], [])
+                outcome["mutation"].assert_not_called()
+
+    def test_config_drift_during_action_fails_the_digest_recheck(self):
+        def append_comment(path):
+            path.write_text(path.read_text(encoding="utf-8") + "# drift\n", encoding="utf-8")
+            path.chmod(0o600)
+        outcome = self.dispatch("restart", self.LISTENERS, during_action=append_comment)
+        self.assertRegex(str(outcome["error"]), "config-changed-during-runtime-action")
+        self.assertEqual(outcome["gates"], [False, True])
 
 
 class DiagnosisTests(unittest.TestCase):
