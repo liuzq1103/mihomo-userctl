@@ -42,6 +42,7 @@ printf 'proxy_vars_present=%s/8\n' "$proxy_var_count"
 只从 [MetaCubeX/mihomo 官方 Releases](https://github.com/MetaCubeX/mihomo/releases)
 选择固定版本和与 CPU/指令集匹配的资产。不要把教程示例理解为“永远最新版”。
 
+核心不限定精确版本，可复用已有 Mihomo，以配置校验和 API 能力判断兼容性。
 下面是经过固定的 amd64 compatible 示例：Mihomo `v1.19.30`，资产
 `mihomo-linux-amd64-compatible-v1.19.30.gz`，SHA256
 `db214c7a2517e63c150d123178d16d102e03a241ccdae4e5e07ffbe9cf56c6f9`。
@@ -192,8 +193,8 @@ rules:
   - MATCH,DIRECT
 ```
 
-关键约束：没有全局 `mixed-port`、TUN、`external-controller`、Dashboard 或
-路由修改；Listener 只绑定 `127.0.0.1` 且必须认证；provider 缓存位于 Mihomo
+关键约束：没有全局 `mixed-port`、TUN 或系统路由修改；安装器可补齐仅绑定本机且有随机密钥的
+`external-controller`，Dashboard 为可选项。代理 Listener 只绑定 `127.0.0.1` 且必须认证；provider 缓存位于 Mihomo
 HomeDir；最后固定 `MATCH,DIRECT`。上面的域名和 `Proxy` 组只是通用示例，不是
 项目内置策略。数据集、科研站点、订阅节点和其他自定义路由必须由每位用户在
 自己的 Mihomo 配置中维护，不能写成公共项目的专属要求。

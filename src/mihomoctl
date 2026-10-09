@@ -54,20 +54,25 @@ Commands:
                         Back up and validate private controller/UI configuration; no restart
   controller status | controller token
                         Verify controller, or explicitly display secret in a private terminal
+  controller initialize [--port PORT] [--home-dir DIR]
+                        Initialize only the private loopback API; no dashboard or restart
   nodes | groups | connections | traffic [--json]
                         Inspect nodes, current selections, redacted routes, or one traffic sample
   select GROUP NODE     Select a member of a manual Selector group and verify the result
   latency NODE          Probe one node against a public HTTPS test target
   tui [--engine curses|textual|plain]
-                        Existing curses selector or optional server console; --plain is preserved
+                        Chinese task console when Textual is available, otherwise numbered menu
+  tui --stdin [--policy provider|nodes]
+                        Read private subscription YAML from stdin, then review in the current PTY
   providers | provider refresh NAME
                         Inspect providers or explicitly request a provider download
   dns NAME [TYPE]       Query the core DNS without changing system DNS
   mode rule|global|direct
                         Change only the core runtime mode, with readback confirmation
   subscription preview --source-file FILE | --url-file PRIVATE_FILE | --stdin
+                        Add --policy provider to retain provider groups and routing rules
   subscription apply ID --sha256 HASH
-                        Stage node-only changes, then validate/back up/save; restart separately
+                        Default: merge nodes. Provider mode replaces routing; restart separately
   manual GROUP [--apply] Preview or save conversion of an automatic group to manual
   override --script FILE [--apply]
                         Run trusted JS main(config); preview or validate/back up/save policy

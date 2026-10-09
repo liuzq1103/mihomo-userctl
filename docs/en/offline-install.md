@@ -120,3 +120,6 @@ when selected; private subscriptions belong only in personal directories. Report
 separately from network-dependent checks (UNVERIFIED without authorization; DEFERRED only when
 explicitly postponed). Untested target runtime compatibility remains UNVERIFIED. Follow the
 [deployment contract](deployment-contract.md) for reuse, startup authorization and Codex evidence.
+<!-- Core compatibility: package integrity and runtime capabilities are independent. -->
+
+The listed core version is a verified example, not an exact runtime restriction. Reuse an existing Mihomo core, or supply another version through a custom manifest with its file, architecture and trusted SHA256. Hash verification remains mandatory; runtime compatibility follows config validation and API capabilities.

@@ -7,6 +7,10 @@ v0.7 控制层通过 Mihomo Controller API 显示节点、策略组当前选择�
 
 ## 一次性启用
 
+安装时已有私有配置和核心会自动初始化本机控制器，不添加浏览器面板、不重启服务；已有合法地址与密钥保留。缺少配置、核心或依赖时管理工具仍可安装，之后运行 `mihomoctl tui` 进入设置重试。非本机监听和不安全密钥须先手动修正。旧安装可运行 `mihomoctl controller initialize`，再按需重启。
+
+下方 `controller setup` 是额外安装浏览器面板的兼容入口；只需 TUI 时使用 `controller initialize`。
+
 控制器命令额外需要 Python 的 **PyYAML**（`python3 -c 'import yaml'` 可检查）。
 基础代理和 Codex 命令不新增依赖。若缺失，可使用发行版提供的 python3-yaml，
 或在自己管理的 Python 环境安装 PyYAML 并让该环境的 python3 位于 PATH；工具不自动提权安装依赖。
@@ -111,6 +115,6 @@ SHA256 校验仅证明与提供的哈希一致，不证明来源可信。不会�
 
 Controller 密钥与代理认证独立。命令发送密钥前检查 loopback 绑定、socket UID 和匿名认证拒绝；
 这不抵御 root、同 UID 恶意进程或检查后的端口争抢。服务端 `/ui/` 静态内容不包含密钥；所有 API 仍需认证。
-目前未自动管理订阅、下载核心、修改系统路由或验收真实 Codex 模型请求。
+订阅策略导入见[控制台](console.md)；不自动定时刷新订阅、下载核心、修改系统路由或验收真实 Codex 模型请求。
 
 接口依据：[Mihomo API](https://wiki.metacubex.one/api/)、[外部控制和 UI 配置](https://wiki.metacubex.one/config/general/)。

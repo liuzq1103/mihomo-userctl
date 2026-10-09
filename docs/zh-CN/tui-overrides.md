@@ -8,6 +8,8 @@ Node vm 不是安全沙箱：只使用自己审阅过的本地脚本，不自动
 
 ## 节点选择
 
+默认自动选择中文 Textual 任务界面，缺少依赖时使用中文编号菜单；原 curses 操作可显式用 `--engine curses`。首页可初始化控制器及管理服务，订阅页可保留提供商自身的节点、分组与规则，详见[控制台](console.md)。
+
 ```bash
 mihomoctl tui
 ```
@@ -51,6 +53,8 @@ mihomoctl tui
 ```bash
 mihomoctl tui --script ~/.config/mihomo/override.js --flclash-compat
 ```
+
+缺少 Textual 时，脚本预览需显式添加 `--engine curses`；默认编号菜单不执行脚本。
 
 按 `o` 执行脚本并显示摘要，`y` 校验并保存，退出后按需重启再打开 TUI。
 默认仅预览，不输出完整配置、节点凭据、订阅地址或脚本错误内容。应用前运行 `mihomo -t`，

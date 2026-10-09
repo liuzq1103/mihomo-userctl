@@ -125,3 +125,6 @@ export PATH="$HOME/.local/bin:$PATH"
 Mihomo 配置如引用远程规则或 Geo 数据，维护者需要另行备齐与所选配置匹配的数据；
 私人订阅只在个人目录中导入。验收时把本地检查与需用户授权联网的端到端检查分开报告，
 按[安装参数与交付约定](deployment-contract.md)处理软件复用、启动授权和 Codex 分层证据。
+<!-- Core compatibility: package integrity and runtime capabilities are independent. -->
+
+文中的核心版本是已验证示例，不是精确版本限制。可复用已有 Mihomo，或用自定义离线清单指定其他版本的文件、架构和可信 SHA256。哈希校验仍必需；运行兼容性以配置校验和实际 API 能力为准。

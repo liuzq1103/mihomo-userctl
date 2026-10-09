@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Initialize a private loopback Controller during installation when core/config are present, without dashboard assets or service restart; preserve valid existing settings and expose first-run recovery in the console.
+- Automatically select the Chinese Textual task console or a dependency-free numbered menu; expose setup, lifecycle, node search/testing, subscription preview/save/restart and guarded backup recovery.
+- Add provider routing-policy import while retaining provider groups, references and rules, protecting host runtime settings, validating paths/references/core config, and preserving node-only CLI/plan compatibility.
+- Accept piped subscription YAML with `tui --stdin`, then restore PTY keyboard input for explicit review and saving.
+- Reuse existing cores through config/API capability checks; distinguish example package versions from runtime requirements while retaining archive hash checks.
+- Preserve core configuration during self-update; require explicit TUI initialization for old installations. Restrict provider caches to dedicated directories and retain pending configuration state for idempotent or in-progress starts.
+
 ## [0.9.1] - 2026-10-08
 
 - Fix start/restart rejecting the documented listeners-only configuration: recognize mixed listeners whose integer port matches MIHOMO_PORT without requiring a top-level mixed-port.

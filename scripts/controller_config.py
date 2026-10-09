@@ -22,6 +22,8 @@ def private(path, directory=False):
 
 
 def read_config(path):
+    if not path.exists() and not path.is_symlink():
+        raise ControlError("config-missing")
     try:
         import yaml
     except ImportError:

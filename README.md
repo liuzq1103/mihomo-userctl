@@ -1,6 +1,6 @@
 # mihomo-userctl
 
-v0.9.0 增加 [Server-first 控制台](docs/zh-CN/console.md)：现有 curses/plain 保留默认行为，可显式选择 Textual，提供运行观测、批量测速、只读连接、Provider、日志与安全节点订阅。安装方式、键盘操作和 [验收边界](docs/zh-CN/console-acceptance.md)见专题文档。
+新增[中文任务控制台](docs/zh-CN/console.md)：自动选择可用 Textual，否则进入编号菜单；保留显式 curses/plain。支持运行观测、批量测速、连接、Provider、日志及提供商节点/分组/规则导入。安装方式、键盘操作和[验收边界](docs/zh-CN/console-acceptance.md)见专题文档。
 
 **在共享 Linux 服务器与远程开发环境中，作为用户级 Mihomo Runtime Manager，
 并提供 workload-aware 的代理接入与验证层。**
@@ -40,7 +40,7 @@ workload 排错与共享服务器部署流程整理成现成工具。
 binary、配置或服务。
 
 本项目依赖 Mihomo，不提高节点速度，提供节点查看、切换和面板入口，
-v0.9 增加显式的节点级订阅导入，不导入完整配置，也不保证模型请求成功。详细职责见[架构](docs/zh-CN/architecture.md)、
+订阅支持节点合并或提供商策略导入，并保留本机运行设置；不保证模型请求成功。详细职责见[架构](docs/zh-CN/architecture.md)、
 [Mihoro 对比](docs/zh-CN/mihoro-inspiration.md)。
 
 ## 明确不做（non-goals）

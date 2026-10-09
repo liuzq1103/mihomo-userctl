@@ -92,7 +92,7 @@ class PolicyTests(unittest.TestCase):
 
     def test_details_opt_in(self):
         class Client:
-            def request(self, path):
+            def request(self, path, **kwargs):
                 return {'connections': [{'metadata': {'host': 'chatgpt.com'}, 'rulePayload': 'chatgpt.com', 'chains': ['Hong Kong', 'Proxy']}]}
         self.assertNotIn('chatgpt.com', json.dumps(c.snapshot(Client(), 'connections')))
         self.assertEqual(c.snapshot(Client(), 'connections', True)['connections'][0]['host'], 'chatgpt.com')

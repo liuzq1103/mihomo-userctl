@@ -19,7 +19,8 @@ python3 mihomo-userctl-bootstrap.py --version vX.Y.Z --port YOUR_PROXY_PORT
 已有安装保留原端口与安装路径约定。预览仍会下载发布包，但不安装控制层。
 
 它只安装 **mihomo-userctl 控制层**：不会替你准备订阅、Mihomo 核心、配置和用户服务；
-不会自动启动服务、修改全局代理或提权。首次完整部署继续看[安装指南](setup.md)，
+已有私有配置和核心时会自动补齐本机控制器；缺少时提示之后在 TUI 初始化。
+不会自动启动或重启服务、修改全局代理或提权。首次完整部署继续看[安装指南](setup.md)，
 已有本地软件包看[离线安装](offline-install.md)，已有实例看[节点与面板](control-plane.md)。
 依赖和授权要求不因快捷入口改变。已安装用户升级优先使用[原有更新命令](update.md)。
 

@@ -1,5 +1,6 @@
 """User-level controller component; no global proxy or daemon."""
 import argparse
+import importlib.util
 import hashlib
 import http.client
 import json
@@ -48,8 +49,8 @@ try:
     from .controller_service import proxies, select, snapshot
     from .controller_policy import POLICY_KEYS, OVERRIDE_RUNNER, flclash_input, policy_candidate
     from .controller_transaction import apply_policy
-    from .controller_dashboard import choose_port, archive_ui, setup
-    from .controller_legacy import plain_tui, tui
+    from .controller_dashboard import choose_port, archive_ui, setup, initialize
+    from .controller_legacy import plain_tui, plain_console, tui
 except ImportError:
     from controller_types import SCHEMA, COMMANDS, ControlError, Parser, LIMIT, TEST_URL, label, number
     from controller_config import private, read_config, patch_config, endpoint
@@ -57,8 +58,29 @@ except ImportError:
     from controller_service import proxies, select, snapshot
     from controller_policy import POLICY_KEYS, OVERRIDE_RUNNER, flclash_input, policy_candidate
     from controller_transaction import apply_policy
-    from controller_dashboard import choose_port, archive_ui, setup
-    from controller_legacy import plain_tui, tui
+    from controller_dashboard import choose_port, archive_ui, setup, initialize
+    from controller_legacy import plain_tui, plain_console, tui
+
+def stdin_preview(service, policy):
+    """Consume a pipe before starting the UI, then restore keyboard input from the PTY."""
+    if sys.stdin.isatty() or not sys.stdout.isatty():
+        raise ControlError("tui-stdin-requires-pipe-and-terminal-output")
+    try:
+        terminal = open("/dev/tty", "r", encoding="utf-8")
+    except OSError:
+        raise ControlError("tui-stdin-requires-controlling-terminal") from None
+    try:
+        try:
+            from .controller_subscriptions import Subscriptions
+        except ImportError:
+            from controller_subscriptions import Subscriptions
+        preview = Subscriptions(service.config, service.home_dir).preview(stdin=True, policy=policy)
+        os.dup2(terminal.fileno(), 0)
+        sys.stdin = sys.__stdin__ = os.fdopen(0, "r", encoding="utf-8", closefd=False)
+        return preview
+    finally:
+        terminal.close()
+
 
 def main(argv=None):
     parser = Parser(description=__doc__)
@@ -74,9 +96,10 @@ def main(argv=None):
     parser.add_argument("--engine", choices=("curses", "textual", "plain"))
     parser.add_argument("--theme", choices=("dark", "light"), default=None)
     parser.add_argument("--ascii", action="store_true", dest="ascii_only")
-    parser.add_argument("--source-file", help="Private node-list YAML, never a full config")
+    parser.add_argument("--source-file", help="Private YAML: node list or provider routing policy selected by --policy")
     parser.add_argument("--url-file", help="Private file containing one HTTPS subscription URL")
     parser.add_argument("--stdin", action="store_true", dest="source_stdin")
+    parser.add_argument("--policy", choices=("nodes", "provider"), default=None)
     parser.add_argument("--script", help="Trusted local JS main(config); Node vm is not a security sandbox")
     parser.add_argument("--apply", action="store_true", help="Validate, back up and save the preview; restart separately")
     parser.add_argument("--details", action="store_true", help="Opt in to private host/rule details for connections/TUI")
@@ -86,11 +109,26 @@ def main(argv=None):
         raise ControlError("engine-options-require-tui")
     if args.plain and args.engine not in (None, "plain"):
         raise ControlError("conflicting-tui-engines")
-    engine = "plain" if args.plain else args.engine or "curses"
+    engine = "plain" if args.plain else args.engine
+    if engine is None and args.command == "tui":
+        try:
+            from .controller_deps import interpreter
+        except ImportError:
+            from controller_deps import interpreter
+        try:
+            executable, _ = interpreter()
+        except (files.InstallError, ControlError, OSError, ValueError, KeyError, TypeError):
+            executable = None
+        engine = "textual" if executable or importlib.util.find_spec("textual") else "plain"
     if (args.theme or args.ascii_only) and engine != "textual":
         raise ControlError("theme-options-require-textual")
-    if (args.source_file or args.url_file or args.source_stdin) and (args.command != "subscription" or args.values != ["preview"]):
+    tui_stdin = args.command == "tui" and args.source_stdin and not (args.source_file or args.url_file)
+    if tui_stdin and engine == "curses":
+        raise ControlError("tui-stdin-requires-textual-or-plain")
+    if (args.source_file or args.url_file or args.source_stdin) and not tui_stdin and (args.command != "subscription" or args.values != ["preview"]):
         raise ControlError("source-options-require-subscription-preview")
+    if args.policy is not None and not tui_stdin and (args.command != "subscription" or args.values != ["preview"]):
+        raise ControlError("policy-requires-subscription-preview")
     if args.plain and args.command != "tui":
         raise ControlError("plain-requires-tui")
     if args.script and args.command not in ("override", "tui") or args.apply and args.command not in ("override", "manual"):
@@ -103,7 +141,10 @@ def main(argv=None):
         raise ControlError("script-preview-requires-fullscreen-tui-or-override-command")
     config = Path(args.config or str(Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "mihomo/config.yaml"))
     setup_requested = args.command == "controller" and args.values == ["setup"]
-    if not setup_requested and (any(v is not None for v in (args.port, args.archive)) or
+    initialize_requested = args.command == "controller" and args.values == ["initialize"]
+    if initialize_requested and (args.archive or args.sha256):
+        raise ControlError("initialize-does-not-install-dashboard")
+    if not (setup_requested or initialize_requested) and (any(v is not None for v in (args.port, args.archive)) or
                                 args.sha256 is not None and args.command != "subscription" or
                                 args.home_dir is not None and args.command not in ("override", "manual", "tui", "subscription")):
         raise ControlError("setup-options-require-controller-setup")
@@ -124,8 +165,22 @@ def main(argv=None):
                 from controller_textual import run
             except ImportError:
                 raise ControlError("textual-environment-incomplete-use-engine-curses") from None
-        payload = run(ConsoleService(config, args.home_dir, args.details, args.script, args.flclash_compat),
-                      ascii_only=args.ascii_only, theme=args.theme or "dark")
+        service = ConsoleService(config, args.home_dir, args.details, args.script, args.flclash_compat)
+        preview = stdin_preview(service, args.policy or "provider") if tui_stdin else None
+        payload = run(service, ascii_only=args.ascii_only, theme=args.theme or "dark", initial_preview=preview)
+    elif args.command == "tui" and engine == "plain":
+        if args.json or args.values:
+            raise ControlError("invalid-options")
+        try:
+            from .controller_service import ConsoleService
+        except ImportError:
+            from controller_service import ConsoleService
+        service = ConsoleService(config, args.home_dir, args.details)
+        preview = stdin_preview(service, args.policy or "provider") if tui_stdin else None
+        try:
+            payload = plain_console(service, initial_preview=preview)
+        except (EOFError, KeyboardInterrupt):
+            payload = {"state": "closed", "shell": "unchanged"}
     elif args.command == "subscription":
         try:
             from .controller_subscriptions import Subscriptions
@@ -133,7 +188,7 @@ def main(argv=None):
             from controller_subscriptions import Subscriptions
         subscriptions = Subscriptions(config, args.home_dir)
         if args.values == ["preview"] and not args.sha256:
-            payload = subscriptions.preview(args.source_file, args.url_file, args.source_stdin)
+            payload = subscriptions.preview(args.source_file, args.url_file, args.source_stdin, args.policy or "nodes")
         elif len(args.values) == 2 and args.values[0] == "apply" and args.sha256:
             payload = subscriptions.apply(args.values[1], args.sha256)
         else:
@@ -164,6 +219,9 @@ def main(argv=None):
                                                          flclash=args.flclash_compat, home_dir=args.home_dir)
             if args.apply:
                 payload.update(apply_policy(config, original, updated, args.home_dir))
+    elif initialize_requested:
+        with files.locked(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))):
+            payload = initialize(config, args.home_dir, args.port)
     elif setup_requested:
         if bool(args.archive) != bool(args.sha256):
             raise ControlError("dashboard-requires-archive-and-sha256")
@@ -222,5 +280,12 @@ if __name__ == "__main__":
         rc = error.rc if isinstance(error, ControlError) else 2
         command = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in COMMANDS else "controller"
         print(json.dumps({"schema": SCHEMA, "command": command, "overall": "FAIL" if rc == 1 else "UNVERIFIED",
-                          "error": {"code": code}}))
+                          "error": {"code": code, "message": {
+                              "controller-not-configured-as-loopback": "控制器需配置为 127.0.0.1:端口；运行 mihomoctl tui 进入设置，或运行 mihomoctl controller initialize。已有非本机监听须先手动修正。",
+                              "controller-secret-must-be-32-to-256-url-safe-characters": "已有控制器密钥不符合要求；请在私有配置中设置 32–256 位 URL 安全随机密钥，再重启。",
+                              "mihomo-executable-missing": "找不到 Mihomo 核心；安装或将已有核心加入 PATH 后重试，不要求精确版本。",
+                              "config-missing": "缺少私有 Mihomo 配置；请按 setup.md 创建权限为 600 的 config.yaml，再运行初始化。",
+                              "controller-unreachable": "控制器暂不可达；配置保存后需运行 mihomoctl restart，或在 TUI 首页启动服务。",
+                              "controller-capability-unsupported": "当前核心不支持此 API；其他功能仍可使用。"
+                          }.get(code, "操作未完成；请检查私有配置及运行环境，修正后重试。")}}, ensure_ascii="--json" in sys.argv))
         sys.exit(rc)

@@ -33,6 +33,50 @@ def choose_port(requested):
         return probe.getsockname()[1]
 
 
+def initialize(config, home_dir=None, requested=None):
+    """Initialize only the local API, without installing dashboard assets."""
+    try:
+        from .controller_transaction import apply_policy, find_core
+    except ImportError:
+        from controller_transaction import apply_policy, find_core
+    text, data, tree = read_config(config)
+    if data.get("external-controller"):
+        port, _ = endpoint(data)
+        return {"state": "unchanged", "endpoint": "127.0.0.1:" + str(port)}
+    if any(data.get(k) for k in ("external-controller-tls", "external-controller-unix", "external-controller-pipe", "external-doh-server")):
+        raise ControlError("additional-controller-listeners-not-supported")
+    occupied = {data.get(k) for k in ("mixed-port", "port", "socks-port", "redir-port", "tproxy-port")}
+    listeners = data.get("listeners")
+    if listeners is None:
+        listeners = []
+    if not isinstance(listeners, list):
+        raise ControlError("config-listeners-invalid")
+    occupied.update(row.get("port") for row in listeners if isinstance(row, dict))
+    port = choose_port(requested)
+    attempts = 0
+    while port in occupied:
+        if requested is not None:
+            raise ControlError("controller-port-conflicts-with-proxy")
+        attempts += 1
+        if attempts >= 32:
+            raise ControlError("controller-port-unavailable")
+        port = choose_port(None)
+    profile = data.get("profile", {})
+    if not isinstance(profile, dict):
+        raise ControlError("config-profile-invalid")
+    changes = {"external-controller": "127.0.0.1:" + str(port),
+               "secret": secrets.token_urlsafe(32),
+               "profile": dict(profile, **{"store-selected": True}),
+               "external-controller-cors": {"allow-origins": [], "allow-private-network": False}}
+    find_core()
+    home = Path(home_dir or str(Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "mihomo"))
+    files.safe_path(home, True)
+    home.mkdir(mode=0o700, parents=True, exist_ok=True)
+    private(home, True)
+    result = apply_policy(config, text, patch_config(text, tree, changes), home_dir)
+    return dict(result, endpoint=changes["external-controller"])
+
+
 def archive_ui(archive, checksum, destination):
     if not checksum or not re.fullmatch(r"[a-f0-9]{64}", checksum):
         raise ControlError("dashboard-requires-pinned-sha256")

@@ -7,6 +7,10 @@ use only scripts you reviewed. Configs, scripts and provider caches must be curr
 
 ## Terminal controls
 
+The default selects the Chinese Textual task console when available, otherwise a Chinese numbered menu. Use `--engine curses` for the original controls below. Home exposes controller initialization and service actions; Subscriptions retains provider nodes, groups and routing rules. See [the console guide](console.md).
+
+Without Textual, add `--engine curses` explicitly for TUI script previews; the numbered menu does not execute scripts.
+
 `mihomoctl tui` shows the active group even while node focus is selected. `[*]` marks the real selection; highlight marks the cursor.
 Use arrows and Tab to navigate, Enter to select a manual group's member, `/` to filter (empty clears), `t` for latency,
 `c` for connection chains, `f` for traffic, `r` to refresh and `q` to quit.

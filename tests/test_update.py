@@ -296,6 +296,50 @@ esac
                                "--preserve-service-state"], capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
+    def test_install_initializes_existing_config_without_restarting_active_service(self):
+        import yaml
+        config = self.config / "mihomo/config.yaml"
+        put(config, 'mixed-port: 28443\nmode: rule\nproxies: []\n', 0o600)
+        put(self.state, "active")
+        with patch.dict(os.environ, {"PATH": str(self.home / ".local/bin") + ":" + os.environ["PATH"]}):
+            self.install(self.source)
+            first = config.read_bytes()
+            value = yaml.safe_load(first)
+            self.assertTrue(value["external-controller"].startswith("127.0.0.1:"))
+            self.assertGreaterEqual(len(value["secret"]), 32)
+            self.assertNotIn("external-ui", value)
+            self.install(self.source)
+        self.assertEqual(config.read_bytes(), first)
+        self.assertEqual(self.state.read_text(), "active")
+        self.assert_no_service_mutations()
+
+    def test_install_initializes_with_missing_or_old_launcher(self):
+        import yaml
+        config = self.config / "mihomo/config.yaml"
+        for old_launcher in (False, True):
+            # Model an unmanaged/first install, not a damaged managed receipt.
+            shutil.rmtree(self.root)
+            put(config, 'mixed-port: 28443\nproxies: []\n', 0o600)
+            if old_launcher:
+                put(self.bin, '#!/bin/sh\nexit 99\n', 0o755)
+            else:
+                self.bin.unlink()
+            self.install(self.source)
+            value = yaml.safe_load(config.read_text())
+            self.assertTrue(value["external-controller"].startswith("127.0.0.1:"))
+            self.assertGreaterEqual(len(value["secret"]), 32)
+        self.assert_no_service_mutations()
+
+    def test_install_warns_but_preserves_exposed_or_missing_core_config(self):
+        config = self.config / "mihomo/config.yaml"
+        (self.home / ".local/bin/mihomo").rename(self.home / ".local/bin/mihomo.saved")
+        for text in ('mixed-port: 28443\nexternal-controller: 0.0.0.0:29000\nsecret: unsafe\n',
+                     'mixed-port: 28443\nproxies: []\n'):
+            put(config, text, 0o600)
+            self.install(self.source)
+            self.assertEqual(config.read_text(), text)
+        self.assert_no_service_mutations()
+
     @unittest.skipUnless(WHEELHOUSE, "optional offline wheelhouse integration")
     def test_optional_textual_offline_install_preserved_update_and_bad_hash_rollback(self):
         proc = subprocess.run(["bash", str(self.source / "install.sh"), "--bashrc", str(self.startup),
@@ -384,6 +428,19 @@ esac
         self.assertIn("available=yes", self.run_update("--check")[1])
         self.assertIn("UNVERIFIED\tplanned-final-checks", output)
         self.assertEqual(self.snapshot(), before)
+        self.assert_no_service_mutations()
+
+    def test_update_preserves_valid_config_without_controller(self):
+        config = self.config / "mihomo/config.yaml"
+        put(config, 'mixed-port: 28443\nproxies: []\n', 0o600)
+        before = config.read_bytes()
+        rc, output = self.run_update("--version", TAG)
+        self.assertEqual(rc, 3, output)
+        self.assertNotIn("FAIL\tfinal-check", output)
+        self.assertEqual(ins.metadata(self.root)["version"], NEXT)
+        self.assertEqual(config.read_bytes(), before)
+        self.assertFalse(list(config.parent.glob("config.yaml.before-policy-*")))
+        self.assertFalse(config.with_name(config.name + ".userctl-state.json").exists())
         self.assert_no_service_mutations()
 
     def test_zip_install_source_removed_custom_paths_preservation_and_repeated_update(self):

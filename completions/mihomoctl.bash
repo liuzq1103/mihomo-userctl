@@ -5,15 +5,15 @@ _mihomoctl_complete() {
   if (( COMP_CWORD == 1 )); then
     mapfile -t COMPREPLY < <(compgen -W "$commands" -- "$current")
   elif [[ ${COMP_WORDS[1]} == controller ]]; then
-    mapfile -t COMPREPLY < <(compgen -W 'setup status token --port --home-dir --config --archive --sha256 --json' -- "$current")
+    mapfile -t COMPREPLY < <(compgen -W 'initialize setup status token --port --home-dir --config --archive --sha256 --json' -- "$current")
   elif [[ ${COMP_WORDS[1]} == connections ]]; then
     mapfile -t COMPREPLY < <(compgen -W '--json --config --details' -- "$current")
   elif [[ ${COMP_WORDS[1]} =~ ^(nodes|groups|traffic|ui|dashboard)$ ]]; then
     mapfile -t COMPREPLY < <(compgen -W '--json --config' -- "$current")
   elif [[ ${COMP_WORDS[1]} == tui ]]; then
-    mapfile -t COMPREPLY < <(compgen -W '--plain --engine curses textual plain --theme dark light --ascii --config --script --flclash-compat --home-dir --details' -- "$current")
+    mapfile -t COMPREPLY < <(compgen -W '--plain --engine curses textual plain --theme dark light --ascii --config --script --flclash-compat --home-dir --details --stdin --policy provider nodes' -- "$current")
   elif [[ ${COMP_WORDS[1]} == subscription ]]; then
-    mapfile -t COMPREPLY < <(compgen -W 'preview apply --source-file --url-file --stdin --sha256 --config --home-dir --json' -- "$current")
+    mapfile -t COMPREPLY < <(compgen -W 'preview apply --policy nodes provider --source-file --url-file --stdin --sha256 --config --home-dir --json' -- "$current")
   elif [[ ${COMP_WORDS[1]} == mode ]]; then
     mapfile -t COMPREPLY < <(compgen -W 'rule global direct --config --json' -- "$current")
   elif [[ ${COMP_WORDS[1]} == provider ]]; then

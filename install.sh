@@ -162,7 +162,6 @@ backup_manifest=$backup_root/manifest.tsv
 : > "$backup_manifest"
 chmod 600 -- "$backup_manifest"
 note "backup=$backup_root"
-
 backup_names=(common.bash shell.bash completion.bash mihomoctl mihomo-shell.conf bashrc)
 for index in "${!managed_targets[@]}"; do
   target=${managed_targets[$index]}
@@ -341,6 +340,19 @@ transaction_active=0
 trap - EXIT INT TERM
 note "installed mihomo-userctl $VERSION"
 note "backup=$backup_root"
+# Released updaters already pass both flags; preserve their core-config contract
+# even when the updater itself predates automatic controller initialization.
+if [[ -n $source_record && $preserve_service_state == 1 ]]; then
+  note 'Core configuration preserved during self-update. Run mihomoctl tui to initialize the controller if needed.'
+elif [[ -f $config_dir/config.yaml ]]; then
+  if ! "$bin_file" controller initialize; then
+    note 'Controller setup incomplete. Run mihomoctl tui for setup/retry, or mihomoctl controller initialize.'
+  else
+    note 'Controller configuration checked. If changed, run mihomoctl restart when ready.'
+  fi
+else
+  note 'Mihomo config is missing. Create your private config, then run mihomoctl tui for setup.'
+fi
 note 'the Mihomo service was not enabled or started'
 note 'next: finish your private subscription/configuration, then run mihomoctl start when ready'
 note 'terminal Codex: run mihomoctl codex preflight; only SAFE_TO_LAUNCH permits acceptance via mihomoctl codex'

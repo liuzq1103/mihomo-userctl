@@ -9,6 +9,10 @@ Mihomo still handles traffic. Ordinary shells remain direct and Codex preflight 
 
 ## Enable once
 
+Installation initializes a private loopback controller when config and core already exist, without dashboard assets or service restart. Valid endpoints and secrets are preserved. Missing config, core or dependencies leave setup incomplete but allow installation; use `mihomoctl tui` to retry. Exposed endpoints and unsafe secrets require manual correction. Existing installations may run `mihomoctl controller initialize`, then restart when ready.
+
+`controller setup` below remains the optional dashboard installation command; TUI-only setup uses `controller initialize`.
+
 Controller commands require **PyYAML** (`python3 -c 'import yaml'`). Existing proxy/Codex commands do not.
 Use your distribution's python3-yaml or install PyYAML in a user-managed Python environment whose python3 is on PATH.
 The tool does not install dependencies with elevated privileges.

@@ -20,6 +20,58 @@ from scripts import controller_runtime as runtime
 
 
 class RealCoreTests(unittest.TestCase):
+    def test_initialize_and_provider_policy_validate_with_real_core(self):
+        from scripts.controller_dashboard import initialize
+        from scripts.controller_config import read_config, endpoint
+        with tempfile.TemporaryDirectory(prefix="muc-real-policy-") as folder:
+            root = Path(folder)
+            config, source = root / "config.yaml", root / "provider.yaml"
+            config.write_text('mixed-port: 25000\nbind-address: 127.0.0.1\nallow-lan: false\nmode: rule\ngeo-auto-update: false\nproxies: []\nproxy-groups: [{name: Old, type: select, proxies: [DIRECT]}]\nrules: ["MATCH,Old"]\n')
+            config.write_text(config.read_text() + 'listeners: null\n')
+            config.chmod(0o600)
+            (root / "providers").mkdir(mode=0o700)
+            (root / "rules").mkdir(mode=0o700)
+            nodes = root / "providers/local.yaml"
+            nodes.write_text('proxies: [{name: ProviderNode, type: ss, server: 127.0.0.1, port: 9, cipher: aes-128-gcm, password: private-fixture}]\n')
+            nodes.chmod(0o600)
+            rule_file = root / "rules/sites.txt"
+            rule_file.write_text('example.com\n')
+            rule_file.chmod(0o600)
+            source.write_text('''mixed-port: 1
+secret: provider-secret
+proxies: [{name: Imported, type: ss, server: 127.0.0.1, port: 9, cipher: aes-128-gcm, password: private-fixture}]
+proxy-providers: {Local: {type: file, path: ./providers/local.yaml}}
+proxy-groups:
+- {name: 自动, type: url-test, use: [Local], proxies: [Imported], url: "https://example.com", interval: 300}
+- {name: 出口, type: select, proxies: [自动, Imported, DIRECT]}
+rule-providers: {Sites: {type: file, behavior: domain, format: text, path: ./rules/sites.txt}}
+rules: ["RULE-SET,Sites,出口", "MATCH,出口"]
+''')
+            source.chmod(0o600)
+            with patch.dict(os.environ, {"MIHOMO_CORE_BIN": CORE, "XDG_DATA_HOME": str(root / "data")}):
+                initialize(config, str(root))
+                _, initial, _ = read_config(config)
+                endpoint(initial)
+                sub = Subscriptions(config, str(root))
+                plan = sub.preview(source_file=source, policy="provider")
+                sub.apply(plan["id"], plan["sha256"])
+                _, final, _ = read_config(config)
+                self.assertEqual([g["name"] for g in final["proxy-groups"]], ["自动", "出口"])
+                self.assertEqual(final["external-controller"], initial["external-controller"])
+                self.assertEqual(final["secret"], initial["secret"])
+                self.assertEqual(final["mixed-port"], 25000)
+                self.assertEqual(final["rules"], ["RULE-SET,Sites,出口", "MATCH,出口"])
+                self.assertEqual(final["proxy-providers"]["Local"]["type"], "file")
+                self.assertEqual(final["rule-providers"]["Sites"]["path"], "./rules/sites.txt")
+                source.write_text('rules: ["MATCH,GLOBAL"]\n')
+                plan = sub.preview(source_file=source, policy="provider")
+                sub.apply(plan["id"], plan["sha256"])
+                self.assertEqual(read_config(config)[1]["rules"], ["MATCH,GLOBAL"])
+                source.write_text('proxy-groups: [{name: GLOBAL, type: select, proxies: [DIRECT]}]\nrules: ["MATCH,GLOBAL"]\n')
+                plan = sub.preview(source_file=source, policy="provider")
+                sub.apply(plan["id"], plan["sha256"])
+                self.assertEqual(read_config(config)[1]["proxy-groups"][0]["name"], "GLOBAL")
+
     def test_authenticated_core_selection_mode_and_node_transaction(self):
         with tempfile.TemporaryDirectory(prefix="muc-real-core-") as folder:
             root = Path(folder)

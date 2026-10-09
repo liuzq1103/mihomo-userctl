@@ -89,6 +89,7 @@ def gate(service, ports, after=False):
                     raise ControlError("port-collision", 1) from None
     if after and props.get("ActiveState") != "active":
         raise ControlError("service-not-active-after-start", 1)
+    return props
 
 
 def summary(service, port):
@@ -146,7 +147,7 @@ def main():
         raise ControlError("unsafe-runtime-module")
     with files.locked(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))):
         ports, digest = configured_ports(config, int(raw_port))
-        gate(service, ports)
+        before = gate(service, ports)
         # Run the existing Bash action/readiness implementation while retaining
         # the same-UID lock; no secrets are added to argv.
         # Fixed code and positional arguments, never an environment-variable
@@ -180,6 +181,10 @@ exit "$rc"
             if client.port != ports[1]:
                 raise ControlError("configured-port-changed")
             client.verify()
+        receipt = config.with_name(config.name + ".userctl-state.json")
+        if receipt.exists() and (action == "restart" or before.get("ActiveState") in ("inactive", "failed")):
+            files.safe_path(receipt)
+            receipt.unlink()
         print("service=up ready=up endpoint=127.0.0.1:{} shell=unchanged".format(ports[0]))
     return 0
 

@@ -21,7 +21,7 @@ except ImportError:
     from controller_types import ControlError, LIMIT, TEST_URL, label, number
 
 def proxies(client):
-    raw = client.request("/proxies").get("proxies")
+    raw = client.request("/proxies", optional=True).get("proxies")
     if not isinstance(raw, dict):
         raise ControlError("controller-proxies-invalid")
     result = {}
@@ -46,7 +46,7 @@ def select(client, group, node):
         raise ControlError("selection-requires-Selector-group", 1)
     if node not in rows[group]["members"]:
         raise ControlError("node-not-in-group", 1)
-    client.request("/proxies/" + quote(group, safe=""), "PUT", {"name": node})
+    client.request("/proxies/" + quote(group, safe=""), "PUT", {"name": node}, optional=True)
     if proxies(client).get(group, {}).get("selected") != node:
         raise ControlError("selection-not-confirmed", 1)
     return {"group": group, "selected": node, "existing_connections": "unchanged"}
@@ -57,9 +57,9 @@ def snapshot(client, command, details=False, id_key=None):
         rows = proxies(client)
         return {command: [row for row in rows.values() if ("members" in row) == (command == "groups")]}
     if command == "traffic":
-        raw = client.request("/traffic", stream=True)
+        raw = client.request("/traffic", stream=True, optional=True)
         return {k: number(raw.get(k, 0)) for k in ("up", "down", "upTotal", "downTotal")}
-    raw = client.request("/connections")
+    raw = client.request("/connections", optional=True)
     connections = raw.get("connections") or []
     if not isinstance(connections, list):
         raise ControlError("controller-connections-invalid")
@@ -96,6 +96,54 @@ class ConsoleService:
         self.home_dir, self.details = home_dir, details
         self.script, self.flclash = script, flclash
         self._connection_key = secrets.token_bytes(32)
+        self.pending_restart = False
+        self.backup = None
+        try:
+            from .controller_transaction import pending_state
+        except ImportError:
+            from controller_transaction import pending_state
+        try:
+            receipt = pending_state(self.config)
+            self.pending_restart = bool(receipt)
+            self.backup = receipt.get("backup")
+        except (ControlError, files.InstallError, OSError, ValueError, TypeError):
+            pass
+
+    def initialize(self):
+        try:
+            from .controller_dashboard import initialize
+        except ImportError:
+            from controller_dashboard import initialize
+        with files.locked(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))):
+            result = initialize(self.config, self.home_dir)
+        return self.saved(result)
+
+    def saved(self, result):
+        if result.get("state") == "restart-required":
+            self.pending_restart = True
+            self.backup = result.get("backup")
+        return result
+
+    def restore(self):
+        if not self.backup:
+            raise ControlError("configuration-backup-unavailable")
+        try:
+            from .controller_config import read_config
+            from .controller_transaction import apply_policy
+        except ImportError:
+            from controller_config import read_config
+            from controller_transaction import apply_policy
+        with files.locked(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))):
+            try:
+                from .controller_transaction import pending_state
+            except ImportError:
+                from controller_transaction import pending_state
+            receipt = pending_state(self.config)
+            if not receipt or receipt.get("backup") != self.backup:
+                raise ControlError("configuration-changed-restore-cancelled")
+            original, _, _ = read_config(self.config)
+            restored, _, _ = read_config(Path(self.backup))
+            return self.saved(apply_policy(self.config, original, restored, self.home_dir))
 
     def client(self):
         try:
@@ -136,6 +184,14 @@ class ConsoleService:
         if action in ("start", "stop", "restart"):
             if result.returncode:
                 raise ControlError("runtime-action-failed", 1 if result.returncode == 1 else 2)
+            if action in ("start", "restart"):
+                try:
+                    from .controller_transaction import pending_state
+                except ImportError:
+                    from controller_transaction import pending_state
+                self.pending_restart = bool(pending_state(self.config))
+                if not self.pending_restart:
+                    self.backup = None
             return {"action": action, "state": "confirmed", "shell": "unchanged"}
         try:
             value = json.loads(result.stdout)
@@ -146,6 +202,23 @@ class ConsoleService:
         return value
 
     def read(self, page):
+        if page == "overview":
+            try:
+                client = self.client()
+            except (ControlError, OSError) as error:
+                return {"controller": "unavailable", "error": getattr(error, "code", "config-missing"),
+                        "pending_restart": self.pending_restart, "groups": []}
+            value = {"controller": "connected", "authentication": "PASS", "listener": "PASS",
+                     "core": label(client.request("/version").get("version", "unknown")),
+                     "pending_restart": self.pending_restart, "capabilities": {}}
+            for key, operation in (("groups", lambda: snapshot(client, "groups")["groups"]),
+                                   ("connections", lambda: len(snapshot(client, "connections")["connections"])),
+                                   ("mode", lambda: label(client.request("/configs", optional=True).get("mode", "unknown")))):
+                try:
+                    value[key] = operation()
+                except ControlError as error:
+                    value["capabilities"][key] = error.code
+            return value
         if page == "runtime":
             return self.shell("status")
         if page == "diagnostics":
@@ -156,6 +229,9 @@ class ConsoleService:
                 from .controller_config import read_config
             except ImportError:
                 from controller_config import read_config
+            if not self.config.exists():
+                return {"configuration": "missing", "nodes": 0, "groups": 0,
+                        "service": "Create a private Mihomo config first"}
             _, data, _ = read_config(self.config)
             return {"configuration": "private", "nodes": len(data.get("proxies") or []),
                     "groups": len(data.get("proxy-groups") or []),
@@ -169,13 +245,6 @@ class ConsoleService:
         if page == "memory":
             raw = client.request("/memory", stream=True, optional=True)
             return {key: number(raw.get(key, 0)) for key in ("inuse", "oslimit")}
-        if page == "overview":
-            version = client.request("/version")
-            return {"authentication": "PASS", "listener": "PASS",
-                    "core": label(version.get("version", "unknown")),
-                    "groups": snapshot(client, "groups")["groups"],
-                    "traffic": snapshot(client, "traffic"),
-                    "connections": len(snapshot(client, "connections")["connections"])}
         if page == "rules":
             raw = client.request("/rules", optional=True).get("rules", [])
             if not isinstance(raw, list):
@@ -268,7 +337,7 @@ class ConsoleService:
         if node not in proxies(client):
             raise ControlError("unknown-node", 1)
         raw = client.request("/proxies/" + quote(node, safe="") + "/delay?" +
-                             urlencode({"url": TEST_URL, "timeout": 5000}))
+                             urlencode({"url": TEST_URL, "timeout": 5000}), optional=True)
         return {"name": node, "delay_ms": number(raw.get("delay")), "target": TEST_URL,
                 "model_request": "UNVERIFIED", "sampled_at": time.time()}
 
@@ -425,22 +494,22 @@ class ConsoleService:
                     raise ControlError("policy-preview-required")
                 original, updated, result = self._policy
                 self._policy = None
-                return dict(result, **apply_policy(self.config, original, updated, self.home_dir))
+                return self.saved(dict(result, **apply_policy(self.config, original, updated, self.home_dir)))
             original, updated, result = policy_candidate(self.config, group=group,
                     script=None if group else self.script, flclash=self.flclash, home_dir=self.home_dir)
             self._policy = (original, updated, result)
             return result
 
-    def subscription_preview(self, path, url=False):
+    def subscription_preview(self, path, url=False, policy="provider"):
         try:
             from .controller_subscriptions import Subscriptions
         except ImportError:
             from controller_subscriptions import Subscriptions
-        return Subscriptions(self.config, self.home_dir).preview(**{"url_file" if url else "source_file": path})
+        return Subscriptions(self.config, self.home_dir).preview(policy=policy, **{"url_file" if url else "source_file": path})
 
     def subscription_apply(self, identifier, digest):
         try:
             from .controller_subscriptions import Subscriptions
         except ImportError:
             from controller_subscriptions import Subscriptions
-        return Subscriptions(self.config, self.home_dir).apply(identifier, digest)
+        return self.saved(Subscriptions(self.config, self.home_dir).apply(identifier, digest))

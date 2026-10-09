@@ -1,4 +1,4 @@
-"""Private node-only subscription staging; no full configuration import."""
+"""Private node and routing-policy staging; preserve host runtime settings."""
 import hashlib
 import http.client
 import json
@@ -9,22 +9,79 @@ import secrets
 import ssl
 import sys
 import time
+from pathlib import PurePosixPath
 from urllib.parse import urlsplit
 
 try:
     from .controller_types import ControlError, LIMIT, label
     from .controller_config import private, read_config, patch_config
-    from .controller_transaction import apply_policy
+    from .controller_transaction import apply_policy, validate_candidate
     from . import install_support as files
 except ImportError:
     from controller_types import ControlError, LIMIT, label
     from controller_config import private, read_config, patch_config
-    from controller_transaction import apply_policy
+    from controller_transaction import apply_policy, validate_candidate
     import install_support as files
 
 
 def digest(content):
     return hashlib.sha256(content).hexdigest()
+
+
+POLICY_FIELDS = {"proxies": list, "proxy-providers": dict, "proxy-groups": list,
+                 "rules": list, "rule-providers": dict}
+
+
+def provider_policy(incoming):
+    """Keep provider routing intact while excluding host runtime settings."""
+    if not set(incoming).intersection(POLICY_FIELDS):
+        raise ControlError("subscription-routing-policy-missing", 1)
+    changes = {key: incoming.get(key, kind()) for key, kind in POLICY_FIELDS.items()}
+    if any(not isinstance(changes[key], kind) for key, kind in POLICY_FIELDS.items()):
+        raise ControlError("subscription-policy-shape-invalid", 1)
+    names = {"DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"}
+    for row in changes["proxies"] + changes["proxy-groups"]:
+        if not isinstance(row, dict) or not isinstance(row.get("type"), str):
+            raise ControlError("subscription-policy-entry-invalid", 1)
+        name = label(row.get("name"))
+        if not name or name in names:
+            raise ControlError("subscription-policy-name-invalid", 1)
+        names.add(name)
+    # Mihomo permits replacing its implicit GLOBAL group with an explicit one.
+    names.add("GLOBAL")
+    for field in ("proxy-providers", "rule-providers"):
+        for name, row in changes[field].items():
+            label(name)
+            if not isinstance(row, dict):
+                raise ControlError("subscription-provider-invalid", 1)
+            path = row.get("path")
+            if path is not None and (not isinstance(path, str) or not path or
+                    "\\" in path or ":" in path or PurePosixPath(path).is_absolute() or
+                    ".." in PurePosixPath(path).parts):
+                raise ControlError("subscription-provider-path-unsafe", 1)
+            if row.get("type") == "file" and not path:
+                raise ControlError("subscription-provider-path-required", 1)
+    for group in changes["proxy-groups"]:
+        members, providers = group.get("proxies", []), group.get("use", [])
+        if not isinstance(members, list) or not isinstance(providers, list):
+            raise ControlError("subscription-group-references-invalid", 1)
+        if any(not isinstance(n, str) or n not in names for n in members):
+            raise ControlError("subscription-group-reference-missing", 1)
+        if any(not isinstance(n, str) or n not in changes["proxy-providers"] for n in providers):
+            raise ControlError("subscription-provider-reference-missing", 1)
+    for rule in changes["rules"]:
+        if not isinstance(rule, str):
+            raise ControlError("subscription-rule-invalid", 1)
+        parts = [part.strip() for part in rule.split(",")]
+        if len(parts) < 2:
+            raise ControlError("subscription-rule-invalid", 1)
+        # Logical rules may contain nested commas; their policy remains last.
+        target = parts[-2] if parts[-1] == "no-resolve" else parts[-1]
+        if target not in names:
+            raise ControlError("subscription-rule-target-missing", 1)
+        if parts[0] == "RULE-SET" and (len(parts) < 3 or parts[1] not in changes["rule-providers"]):
+            raise ControlError("subscription-rule-provider-missing", 1)
+    return changes
 
 
 def download(url):
@@ -75,7 +132,38 @@ class Subscriptions:
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         private(self.root, True)
 
-    def preview(self, source_file=None, url_file=None, stdin=False):
+    def check_provider_paths(self, changes):
+        home = Path(self.home_dir or str(Path(self.data_home) / "mihomo"))
+        private(home, True)
+        used = set()
+        for field in ("proxy-providers", "rule-providers"):
+            for row in changes[field].values():
+                if row.get("type") == "http" and not row.get("path"):
+                    raise ControlError("subscription-provider-cache-path-required", 1)
+                if row.get("path"):
+                    target = home / row["path"]
+                    if home.resolve() not in target.resolve().parents:
+                        raise ControlError("subscription-provider-path-unsafe", 1)
+                    try:
+                        files.safe_path(target)
+                    except files.InstallError:
+                        raise ControlError("subscription-provider-path-unsafe", 1) from None
+                    resolved = target.resolve()
+                    # Downloaded content must never overwrite configuration or
+                    # core state. Preserve safe provider paths in dedicated trees.
+                    roots = {"providers", "proxy-providers", "proxy_provider", "proxy_providers",
+                             "rules", "rule-providers", "rule_provider", "rule_providers"}
+                    relative = resolved.relative_to(home.resolve())
+                    if (len(relative.parts) < 2 or relative.parts[0] not in roots or
+                            resolved == self.config.resolve() or
+                            resolved.name.startswith(self.config.name + ".") or
+                            resolved in used):
+                        raise ControlError("subscription-provider-cache-path-unsafe", 1)
+                    used.add(resolved)
+
+    def preview(self, source_file=None, url_file=None, stdin=False, policy="nodes"):
+        if policy not in ("nodes", "provider"):
+            raise ControlError("subscription-policy-invalid", 1)
         if sum(bool(value) for value in (source_file, url_file, stdin)) != 1:
             raise ControlError("choose-one-private-subscription-source")
         if stdin:
@@ -99,10 +187,12 @@ class Subscriptions:
             files.atomic_bytes(source, raw)
             try:
                 _, incoming, _ = read_config(source)
-                if set(incoming) != {"proxies"}:
+                for key in incoming:
+                    label(key)
+                if policy == "nodes" and set(incoming) != {"proxies"}:
                     raise ControlError("subscription-only-node-list-supported", 1)
-                nodes = incoming["proxies"]
-                if not isinstance(nodes, list) or not nodes or len(nodes) > 10000:
+                nodes = incoming.get("proxies", [])
+                if not isinstance(nodes, list) or (not nodes and policy == "nodes") or len(nodes) > 10000:
                     raise ControlError("subscription-node-list-invalid", 1)
                 names = set()
                 for node in nodes:
@@ -123,11 +213,16 @@ class Subscriptions:
                 existing_names = set(merged)
                 replaced = len(names.intersection(merged))
                 merged.update({node["name"]: node for node in nodes})
-                candidate = patch_config(original, tree, {"proxies": list(merged.values())}).encode("utf-8")
+                changes = provider_policy(incoming) if policy == "provider" else {"proxies": list(merged.values())}
+                if policy == "provider":
+                    self.check_provider_paths(changes)
+                    validate_candidate(self.config, self.home_dir, patch_config(original, tree, changes))
+                candidate = patch_config(original, tree, changes).encode("utf-8")
                 candidate_hash = digest(candidate)
                 plan = {"schema": 1, "id": identifier, "config": str(self.config.absolute()),
                         "original_sha256": digest(original.encode("utf-8")),
-                        "candidate_sha256": candidate_hash, "nodes": len(nodes), "replaced": replaced}
+                        "candidate_sha256": candidate_hash, "nodes": len(nodes), "replaced": replaced,
+                        "policy": policy}
                 files.atomic_bytes(self.root / (identifier + ".candidate.yaml"), candidate)
                 files.write_json(self.root / (identifier + ".json"), plan)
             except BaseException:
@@ -137,7 +232,16 @@ class Subscriptions:
                 "nodes": len(nodes), "added": len(nodes) - replaced, "replaced": replaced,
                 "changes": [{"name": node["name"], "type": label(node["type"]),
                              "action": "replace" if node["name"] in existing_names else "add"} for node in nodes],
-                "fields": ["proxies"], "service": "unchanged"}
+                "policy": policy, "fields": list(changes),
+                "ignored_fields": sorted(set(incoming) - set(changes)),
+                "removed": len(existing_names - names) if policy == "provider" else 0,
+                "removed_groups": (len({g.get("name") for g in data.get("proxy-groups", []) if isinstance(g, dict)} -
+                                       {g["name"] for g in changes["proxy-groups"]}) if policy == "provider" else 0),
+                "removed_rules": (sum(rule not in changes["rules"] for rule in data.get("rules", [])) if policy == "provider" else 0),
+                "group_changes": ([{"name": group["name"], "type": label(group["type"])}
+                                   for group in changes.get("proxy-groups", [])] if policy == "provider" else []),
+                "groups": len(changes.get("proxy-groups", [])),
+                "rules": len(changes.get("rules", [])), "service": "unchanged"}
 
     def apply(self, identifier, expected_hash):
         if not re.fullmatch(r"[0-9a-f]{32}", identifier) or not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
@@ -161,7 +265,13 @@ class Subscriptions:
             # file was edited. The existing JS policy allowlist is unaffected.
             _, before, _ = read_config(self.config)
             _, after, _ = read_config(candidate_path)
-            if {k: v for k, v in before.items() if k != "proxies"} != {k: v for k, v in after.items() if k != "proxies"}:
-                raise ControlError("subscription-may-only-change-proxies", 1)
+            policy = plan.get("policy", "nodes")
+            if policy not in ("nodes", "provider"):
+                raise ControlError("subscription-plan-invalid", 1)
+            allowed = set(POLICY_FIELDS) if policy == "provider" else {"proxies"}
+            if policy == "provider":
+                self.check_provider_paths(provider_policy(after))
+            if {k: v for k, v in before.items() if k not in allowed} != {k: v for k, v in after.items() if k not in allowed}:
+                raise ControlError("subscription-may-only-change-routing-policy" if policy == "provider" else "subscription-may-only-change-proxies", 1)
             result = apply_policy(self.config, original, candidate.decode("utf-8"), self.home_dir)
             return {"id": identifier, "sha256": expected_hash, **result}

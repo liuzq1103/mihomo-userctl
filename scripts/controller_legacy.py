@@ -21,6 +21,83 @@ except ImportError:
     from controller_policy import policy_candidate
     from controller_transaction import apply_policy
 
+def plain_console(service, initial_preview=None):
+    """Dependency-free task menu; controller failures do not prevent setup."""
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        raise ControlError("tui-requires-interactive-terminal")
+    def confirm(message):
+        return input(message + " [y/N]: ").strip().lower() == "y"
+
+    def clearing_warning(plan):
+        # The provider policy replaces every routing key, so removed_groups and
+        # removed_rules count local entries the new source does not contain.
+        # Approved contract; never downgrade or refuse behind the user's back.
+        units = []
+        for key, unit in (("removed_groups", "个本地分组"), ("removed_rules", "条本地规则")):
+            value = plan.get(key)
+            if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+                units.append("{} {}".format(value, unit))
+        if not units:
+            return
+        print("警告：此预览会移除本地的" + "、".join(units) +
+              "；提供商策略按订阅内容整体替换，不自动降级，可用 9 恢复备份回退。")
+    while True:
+        if initial_preview:
+            print("已收到标准输入订阅预览；选择 3 审阅并保存。")
+        print("\nMihomo 管理\n1. 首页状态  2. 选择节点  3. 导入订阅\n4. 初始化控制器  5. 启动  6. 停止  7. 重启生效\n8. 切换模式  9. 恢复备份  q. 退出")
+        choice = input("请选择: ").strip().lower()
+        try:
+            if choice == "q":
+                return {"state": "closed", "shell": "unchanged"}
+            if choice == "1":
+                try:
+                    runtime = service.read("runtime")
+                    print("服务状态：" + str(runtime.get("service", "未知")))
+                except (ControlError, OSError, ValueError, TypeError):
+                    print("服务状态：暂无法观测，可检查当前用户的 systemd 服务。")
+                value = service.read("overview")
+                print("控制器: {}  核心: {}  模式: {}".format(value.get("controller"), value.get("core", "未知"), value.get("mode", "未知")))
+                print("待重启: " + ("是" if value.get("pending_restart") else "否"))
+                if value.get("error"):
+                    print("尚未连接: " + value["error"] + "；可选 4 初始化，再选 7 重启或检查配置。")
+                for group in value.get("groups", []):
+                    print("{} → {}".format(group["name"], group.get("selected") or "自动"))
+            elif choice == "2":
+                plain_tui(service.client())
+            elif choice == "3":
+                if initial_preview:
+                    plan, initial_preview = initial_preview, None
+                else:
+                    policy = "nodes" if input("导入策略：1 提供商（节点/分组/规则整体替换） 2 仅合并节点 [1]: ").strip() == "2" else "provider"
+                    url = input("来源类型：1 YAML 文件 / 2 私有 URL 文件 [1]: ").strip() == "2"
+                    path = input("私有文件路径（请勿输入订阅 URL）: ").strip()
+                    plan = service.subscription_preview(path, url=url, policy=policy)
+                print("预览：策略 {}；节点 {}，分组 {}，规则 {}；移除节点 {}；忽略设置：{}".format(plan.get("policy", "provider"), plan.get("nodes", 0), plan.get("groups", 0), plan.get("rules", 0), plan.get("removed", 0), ", ".join(plan.get("ignored_fields", []))))
+                clearing_warning(plan)
+                if confirm("备份并保存此订阅策略？"):
+                    service.subscription_apply(plan["id"], plan["sha256"])
+                    print("已保存，尚未生效。选择 7 重启生效，或 9 恢复备份。")
+            elif choice == "4" and confirm("创建本机控制器和随机密钥？"):
+                result = service.initialize()
+                print("配置状态：" + result["state"] + "；如有变更，请选择 7 重启。")
+            elif choice in ("5", "6", "7"):
+                action = {"5": "start", "6": "stop", "7": "restart"}[choice]
+                if confirm("确认更改当前用户的代理服务？"):
+                    service.shell(action)
+                    print("操作已完成。")
+            elif choice == "8":
+                mode = {"1": "rule", "2": "global", "3": "direct"}.get(input("1 规则 / 2 全局 / 3 直连: ").strip())
+                if mode:
+                    service.mode(mode)
+                    print("运行模式已切换。")
+            elif choice == "9" and confirm("恢复本次操作前的配置？保存后仍需重启。"):
+                service.restore()
+                print("已恢复，请选择 7 重启。")
+        except (ControlError, files.InstallError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+            print("操作未完成：" + getattr(error, "code", "配置或环境不可用"))
+            print("检查私有配置与核心是否存在；重启失败可选 9 恢复备份。")
+
+
 def plain_tui(client):
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise ControlError("tui-requires-interactive-terminal")

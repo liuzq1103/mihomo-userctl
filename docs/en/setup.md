@@ -40,6 +40,8 @@ owner, or a step would require administrator privileges.
 
 ## 2. Install an official Mihomo release
 
+An existing Mihomo core can be reused. Runtime compatibility is checked through config validation and API capabilities, without requiring an exact core version. Offline package hashes remain mandatory.
+
 Choose a pinned version and CPU-compatible asset only from the official
 [MetaCubeX/mihomo Releases](https://github.com/MetaCubeX/mihomo/releases).
 The worked example below is pinned to `v1.19.30`, amd64-compatible asset, SHA256
@@ -195,7 +197,8 @@ rules:
   - MATCH,DIRECT
 ```
 
-Do not add a global `mixed-port`, TUN, external controller, dashboard, or route
+The installer may add an authenticated loopback controller; a dashboard remains optional.
+Do not add a global `mixed-port`, TUN, or system route
 changes. Keep the listener authenticated and loopback-only, store provider
 cache under the Mihomo home directory, and retain final `MATCH,DIRECT`. The
 domains and `Proxy` group above are neutral examples, not project policy.

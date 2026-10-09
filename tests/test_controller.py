@@ -244,7 +244,7 @@ class ControllerTests(unittest.TestCase):
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 100, 0, 0))
             original_terminal = termios.tcgetattr(slave)
-            process = subprocess.Popen([sys.executable, str(Path(c.__file__)), "tui", "--config", str(config)],
+            process = subprocess.Popen([sys.executable, str(Path(c.__file__)), "tui", "--engine", "curses", "--config", str(config)],
                                        stdin=slave, stdout=slave, stderr=slave, env=dict(os.environ, TERM="xterm-256color"))
             os.close(slave)
             data = b""
@@ -289,10 +289,10 @@ class ControllerTests(unittest.TestCase):
                 output = b""
                 try:
                     deadline = time.monotonic() + 10
-                    while time.monotonic() < deadline and b"USER RUNTIME" not in output:
+                    while time.monotonic() < deadline and "当前用户的代理服务".encode() not in output:
                         if select.select([master], [], [], .1)[0]:
                             output += os.read(master, 65536)
-                    self.assertIn(b"USER RUNTIME", output)
+                    self.assertIn("当前用户的代理服务".encode(), output)
                     fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 14, 60, 0, 0))
                     os.write(master, key)
                     self.assertEqual(process.wait(timeout=5), 0)

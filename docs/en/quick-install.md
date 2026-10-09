@@ -19,7 +19,7 @@ the release's `install.sh --suggest-port` and passes that port explicitly to the
 their port/path contract. A dry run downloads the release but does not install the control layer.
 
 This installs **the control layer only**. It does not prepare Mihomo, subscriptions, configuration or service units, start
-services, change global proxies or elevate privileges. Follow [full setup](setup.md), [local archives](offline-install.md),
+services, change global proxies or elevate privileges. If private config and core already exist, it initializes the loopback controller without restarting; otherwise retry setup from `mihomoctl tui`. Follow [full setup](setup.md), [local archives](offline-install.md),
 or [nodes and dashboards](control-plane.md) as appropriate. Existing dependencies and authorization remain applicable.
 Installed users should prefer the existing [update command](update.md).
 

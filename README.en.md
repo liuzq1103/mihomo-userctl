@@ -1,6 +1,6 @@
 # mihomo-userctl
 
-v0.9.0 adds the [server-first console](docs/en/console.md): existing curses/plain remain available, with explicitly selected Textual, runtime observations, batch latency, read-only connections, providers, logs and safe node-only subscriptions. See the guide and [acceptance boundaries](docs/en/console-acceptance.md).
+The [Chinese task console](docs/en/console.md) automatically selects available Textual or a numbered menu; explicit curses/plain remain available. It provides runtime observations, batch latency, read-only connections, providers, logs and provider nodes/groups/routing-policy import. See the guide and [acceptance boundaries](docs/en/console-acceptance.md).
 
 **For shared Linux servers and remote development: a user-level Mihomo Runtime Manager
 with a workload-aware proxy control and verification layer.**
@@ -40,7 +40,7 @@ If you already use Mihoro you **do not need to reinstall anything**. This projec
 not currently take over or modify a binary, configuration or service created by Mihoro.
 
 This project depends on Mihomo. It does not make nodes faster, and it offers node
-inspection, selection and dashboard access. v0.9 adds explicit node-only subscription import, excluding full configuration management, and
+inspection, selection and dashboard access. Subscriptions support node merging or provider routing-policy import while preserving host runtime settings, and
 does not guarantee model connectivity. See [architecture](docs/en/architecture.md),
 the [Mihoro comparison](docs/en/mihoro-inspiration.md).
 
