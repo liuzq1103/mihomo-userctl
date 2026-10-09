@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.9.2] - 2026-10-09
 
 - Initialize a private loopback Controller during installation when core/config are present, without dashboard assets or service restart; preserve valid existing settings and expose first-run recovery in the console.
 - Automatically select the Chinese Textual task console or a dependency-free numbered menu; expose setup, lifecycle, node search/testing, subscription preview/save/restart and guarded backup recovery.

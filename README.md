@@ -192,15 +192,15 @@ HTTP 检查只证明该次请求可用；真实客户端的远程传输和模型
 
 ## 更新与卸载
 
-当前版本为 v0.9.1。升级前先预览变更；可选 Textual 依赖须按[控制台指南](docs/zh-CN/console.md)显式安装。
+当前版本为 v0.9.2。升级前先预览变更；可选 Textual 依赖须按[控制台指南](docs/zh-CN/console.md)显式安装。
 
 v0.8.0 新增节点搜索、自动组转手动组和本地 JavaScript 覆写预览/备份应用，
 并修正 SOCKS 认证拒绝证据与不可读辅助进程分类。详见 [TUI 与覆写](docs/zh-CN/tui-overrides.md)。
 
 ```bash
 mihomoctl update --check
-mihomoctl update --version v0.9.1 --dry-run
-mihomoctl update --version v0.9.1
+mihomoctl update --version v0.9.2 --dry-run
+mihomoctl update --version v0.9.2
 ```
 
 更新仅升级控制层，保留配置、凭据、端口、loader 和服务 active/enabled 状态；
