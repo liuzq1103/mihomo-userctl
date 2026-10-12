@@ -114,14 +114,28 @@ provider/url-test 的健康检查也不能代替应用请求的规则命中证�
 若服务已在使用，禁止为验收随意停服。运行以下隔离回归检查，并在报告中区分
 仓库测试与目标机器实测：
 
+V1 前置依赖：Linux、Python 3.10+、声明的 PyYAML、`build`、`setuptools`、
+`wheel`、`scripts/textual-requirements.txt` 中的锁定 UI 依赖，以及 `shellcheck`、
+`iproute2`、`python3-venv`。须在联网构建环境提前备齐；离线机缺 `build` 时，
+打包测试和构建记 `UNVERIFIED`，不得改测试或联网补齐。
+隔离回归须用 `umask 022`；`0002` 导致的不安全权限拒绝是产品自身 fail-closed，
+不得放宽路径或 inventory 检查。`MIHOMO_CORE` 指向已核对固定版本和摘要的测试
+二进制，不替换或升级已有核心。真实核心回归出现任何 skip 都算失败。
+
 ```bash
-bash tests/test.sh
-python3 -m unittest discover -s tests -p 'test_*.py' -v
+umask 022
+python3 scripts/v1_ci.py --unit --report "$RUNNER_TEMP/unit.json"
+python3 scripts/v1_ci.py --real-core --core "$MIHOMO_CORE" --report "$RUNNER_TEMP/real-core.json"
 bash tests/audit-test.sh
-bash tests/docs-test.sh
-bash tests/secret-scan.sh
+python3 scripts/check_docs_v1.py
+python3 scripts/secret_scan.py
 git diff --check
 ```
+
+`RUNNER_TEMP` 为预先创建的私有证据目录，`MIHOMO_CORE` 为固定测试核心的绝对路径。
+复用 `v1_ci.py` 的 V1 套件选择，不跑全量历史 unittest discover；退役 0.x 的
+`test_update`、`test_bootstrap`、`test_codex_preflight`、`test_offline_install`
+保留为历史测试，不修改、删除或当作 V1 门禁。
 
 `tests/docs-test.sh` 与 `tests/secret-scan.sh` 只是薄封装，断言本体在
 `scripts/check_docs_v1.py` / `scripts/secret_scan.py`；`tests/audit-test.sh` 注入故障并确认

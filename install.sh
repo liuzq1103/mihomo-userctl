@@ -9,7 +9,7 @@
 set -euo pipefail
 # Release identity, checked statically alongside the manifest before installation.
 # shellcheck disable=SC2034
-VERSION="1.0.2"
+VERSION="1.0.3"
 
 die() { printf 'install.sh: %s\n' "$*" >&2; exit 2; }
 

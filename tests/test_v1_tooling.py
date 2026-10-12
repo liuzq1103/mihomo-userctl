@@ -180,6 +180,21 @@ class PackageIntegrityTests(unittest.TestCase):
 
 
 class ReleaseInventoryTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "linux", "Linux installation inventory")
+    def test_legacy_payload_references_and_reviewed_source_inventory_cover_each_other(self):
+        from mihomoctl import installation
+        from scripts import install_support
+        root = Path(__file__).resolve().parents[1]
+        manifest = installation.load_manifest(root)
+        files = set(manifest["inventory"]["files"])
+        runtime = set(install_support.RUNTIME)
+        # Docs, tests and V1 modules also belong to files: equality of the
+        # entire source inventory and the legacy payload would be incorrect.
+        declared_payload = {name for name in files if name in runtime and (root / name).is_file()}
+        self.assertSetEqual(runtime, declared_payload)
+        installation.verify_inventory(root, manifest)
+        self.assertNotIn("scripts/paseo.py", manifest["inventory"]["runtime_files"])
+
     @unittest.skipUnless(sys.platform == "linux", "Linux package trust permissions")
     def test_real_builder_normalizes_git_archive_modes_under_group_writable_umask(self):
         root = Path(__file__).resolve().parents[1]

@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.0.3] - 2026-10-12
+
+无运行时行为变更。This patch completes the reviewed source release inventory
+and aligns acceptance instructions with the existing V1 checks. The V1 runtime
+file set and installation/update/verification/rollback implementations are
+unchanged; the five release-version markers advance together to 1.0.3.
+
+- Include the previously referenced `scripts/paseo.py` and `tests/test_paseo.py`
+  in Git and the source-only manifest inventory; neither enters the V1 wheel.
+- Add a V1 regression requiring legacy installation payload references to be
+  declared and present, and validate the complete source inventory with the
+  production verifier.
+- Replace full historical test discovery in both acceptance pages with the
+  existing V1 unit and pinned real-core runners, list prerequisites, and require
+  umask 022 for isolated regression.
+
+上一版证据不适用于本版。Publication requires the tagged 1.0.3 commit's own
+two-platform CI, offline kits, acceptance reports and `verified: true` release
+gate. No 1.0.1/1.0.2 result approves this release.
+
 ## [1.0.2] - 2026-10-12
 
 - Check all five source release-version markers before installation or building;

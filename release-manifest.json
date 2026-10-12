@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "1.0.2",
+  "version": "1.0.3",
   "update_protocol": 2,
   "validation_profile": "installation-v2",
   "requires_python": ">=3.10",
@@ -164,6 +164,7 @@
       "scripts/install_support.py",
       "scripts/migrate.py",
       "scripts/offline_install.py",
+      "scripts/paseo.py",
       "scripts/reporting.py",
       "scripts/rules.py",
       "scripts/secret_scan.py",
@@ -188,6 +189,7 @@
       "tests/test_diagnostics.py",
       "tests/test_health.py",
       "tests/test_offline_install.py",
+      "tests/test_paseo.py",
       "tests/test_policy_portable.py",
       "tests/test_real_core.py",
       "tests/test_rules.py",

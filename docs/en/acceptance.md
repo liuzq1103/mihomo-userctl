@@ -134,14 +134,32 @@ Provider/url-test health checks are not application routing evidence either.
 Never stop a busy service just to test it. Run isolated regression checks and
 distinguish repository tests from live-machine evidence:
 
+V1 prerequisites: Linux, Python 3.10+, the declared PyYAML dependency, `build`,
+`setuptools`, `wheel`, the locked UI dependencies in
+`scripts/textual-requirements.txt`, `shellcheck`, `iproute2`, and `python3-venv`.
+Prepare them in a networked build environment. On an offline host without
+`build`, packaging tests and builds are `UNVERIFIED`; do not bypass tests or
+download missing tools. Use `umask 022` for isolated regression. Permission
+refusals under `0002` are the product failing closed; never relax path or
+inventory checks. `MIHOMO_CORE` must identify a checksum-verified, fixed-version
+test binary, without replacing or upgrading an existing core. Any real-core
+skip is a failure.
+
 ```bash
-bash tests/test.sh
-python3 -m unittest discover -s tests -p 'test_*.py' -v
+umask 022
+python3 scripts/v1_ci.py --unit --report "$RUNNER_TEMP/unit.json"
+python3 scripts/v1_ci.py --real-core --core "$MIHOMO_CORE" --report "$RUNNER_TEMP/real-core.json"
 bash tests/audit-test.sh
-bash tests/docs-test.sh
-bash tests/secret-scan.sh
+python3 scripts/check_docs_v1.py
+python3 scripts/secret_scan.py
 git diff --check
 ```
+
+`RUNNER_TEMP` is a previously created private evidence directory; `MIHOMO_CORE`
+is the absolute path to the pinned test core. Use the existing V1 suite selection
+in `v1_ci.py`, not full historical unittest discovery. Retired 0.x `test_update`,
+`test_bootstrap`, `test_codex_preflight` and `test_offline_install` remain
+historical tests; do not modify, delete or count them as V1 acceptance.
 
 `tests/docs-test.sh` and `tests/secret-scan.sh` are thin wrappers; the assertions
 live in `scripts/check_docs_v1.py` and `scripts/secret_scan.py`.
