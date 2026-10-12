@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
 import shutil
 import socket
 import shlex
@@ -32,8 +33,13 @@ def command(argv, **kwargs):
                             timeout=kwargs.pop("timeout", 60), **kwargs)
     if result.returncode not in allowed:
         # Do not copy raw config/credentials or command stdout into CI logs.
+        match = re.search(r"^bootstrap: ([a-z][a-z0-9]*(?:-[a-z0-9]+)+)(?=:|$)",
+                          result.stderr, re.MULTILINE)
+        code = match.group(1) if match else "unparsed-tool-error"
+        if "bootstrap: untrusted installation code path" in result.stderr:
+            code = "bootstrap-code-untrusted"
         raise AssertionError("acceptance-command-failed: " + str(argv[0]) +
-                             " rc=" + str(result.returncode))
+                             " rc=" + str(result.returncode) + " code=" + code)
     return result.stdout
 
 
@@ -75,9 +81,13 @@ class PrivilegedAcceptance(unittest.TestCase):
         for suffix in ("a", "b"):
             name = "mucv1" + str(os.getpid()) + suffix
             home = cls.base / name
-            command(["useradd", "--create-home", "--home-dir", home, "--shell", "/bin/bash", name])
+            # Own the fixture HOME explicitly: copying the image's skel and
+            # initializing its global login logs are unrelated to acceptance.
+            command(["useradd", "--no-create-home", "--no-log-init", "--user-group",
+                     "--home-dir", home, "--shell", "/bin/bash", name], timeout=180)
             account = pwd.getpwnam(name)
-            home.chmod(0o700)
+            home.mkdir(mode=0o700)
+            os.chown(home, account.pw_uid, account.pw_gid)
             runtime = home / ".runtime"
             runtime.mkdir(mode=0o700)
             os.chown(runtime, account.pw_uid, account.pw_gid)
@@ -269,6 +279,22 @@ class PrivilegedAcceptance(unittest.TestCase):
         manager.write_text(yaml.safe_dump(data), encoding="utf-8")
         manager.chmod(0o600)
         self.cli(account, "integration", "install", "worker")
+        from mihomoctl.integration.systemd_adapter import DROPIN_NAME
+        expected_dropin = unitdir / (unit.name + ".d") / DROPIN_NAME
+        loaded_dropins = self.user_systemctl(account, "show", unit.name, "-p", "DropInPaths", "--value")
+        self.assertIn(str(expected_dropin), loaded_dropins.split(),
+                      "integration-dropin-not-loaded-by-user-manager")
+        expected_envfile = home / ".config/mihomoctl/integration/worker.env"
+        loaded_envfiles = self.user_systemctl(account, "show", unit.name, "-p", "EnvironmentFiles", "--value")
+        self.assertIn(str(expected_envfile), loaded_envfiles,
+                      "integration-environment-file-not-loaded-by-user-manager")
+        expected_environment = dict(line.split("=", 1) for line in expected_envfile.read_text().splitlines()
+                                    if "=" in line and not line.startswith("#"))
+        self.assertEqual(set(expected_environment), set(PROXY_KEYS),
+                         "integration-environment-file-key-inventory-mismatch")
+        unset = self.user_systemctl(account, "show", unit.name, "-p", "UnsetEnvironment", "--value")
+        unset_proxy_keys = sorted(set(unset.split()) & set(PROXY_KEYS))
+        self.assertFalse(unset_proxy_keys, "worker-unsets-proxy-keys: " + ",".join(unset_proxy_keys))
         # Product integration must not start the consuming service.
         result = subprocess.run(["runuser", "-u", name, "--", "env",
                                  "XDG_RUNTIME_DIR=/run/user/" + str(uid),
@@ -283,7 +309,10 @@ class PrivilegedAcceptance(unittest.TestCase):
             time.sleep(.1)
         self.assertTrue(dump.exists(), "noninteractive-worker-did-not-start")
         inherited = json.loads(dump.read_text())
-        self.assertTrue(all(inherited.get(k) for k in PROXY_KEYS), "systemd-env-inheritance-incomplete")
+        missing = [key for key in PROXY_KEYS if not inherited.get(key)]
+        # Names from this fixed vocabulary are safe diagnostics; never dump values.
+        self.assertFalse(missing, "systemd-env-inheritance-incomplete: " + ",".join(missing))
+        self.assertTrue(inherited == expected_environment, "systemd-environment-values-differ")
         self.user_systemctl(account, "stop", unit.name)
         dump.unlink()
         self.cli(account, "integration", "remove", "worker")

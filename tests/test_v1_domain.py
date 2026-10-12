@@ -646,6 +646,35 @@ class DomainFiles(unittest.TestCase):
             self.assertEqual(updated['ifindex'], 2)
             self.assertEqual(updated['runtime_identity'], identity.to_json())
 
+    def test_tun_reconciliation_keeps_authorization_private_under_readable_state_root(self):
+        from mihomoctl.config import Manager, TunSettings
+        from mihomoctl.credentials import write_atomic
+        from mihomoctl.identity import ProcessIdentity
+        from mihomoctl.lifecycle import tun
+        require_private_dir(self.scope.state_root, create=True)
+        self.scope.state_root.chmod(0o750)
+        receipt = {'enabled': True, 'device': 'mihomo0'}
+        run_transaction(self.scope, 'tun-authorization',
+                        lambda tx: tx.write_text(self.scope.tun_receipt, json.dumps(receipt)))
+        identity = ProcessIdentity(os.getpid(), os.geteuid(), 123, '/core', '/config')
+        manager = Manager(tun=TunSettings(True, 'mihomo0'))
+        # Kernel ownership is independently covered above. Keep all filesystem
+        # publication and permission validation real, including startup's
+        # non-transactional reconciliation path.
+        with patch.object(tun, '_verify_owned', return_value=(receipt, {'ifindex': 9}, identity)):
+            self.assertTrue(tun.synchronize_receipt(self.scope, manager))
+        self.assertEqual(self.scope.state_root.stat().st_mode & 0o777, 0o750)
+        self.assertEqual(self.scope.tun_receipt.parent.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(self.scope.tun_receipt.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(json.loads(self.scope.tun_receipt.read_text())['runtime_identity'], identity.to_json())
+        with self.assertRaises(ConfigError):
+            write_atomic(self.scope.state_root / 'public-parent-refused.json', '{}')
+        self.assertFalse((self.scope.state_root / 'public-parent-refused.json').exists())
+        self.scope.tun_receipt.parent.chmod(0o750)
+        with patch.object(tun, '_verify_owned', return_value=(receipt, {'ifindex': 10}, identity)):
+            with self.assertRaises(ConfigError):
+                tun.synchronize_receipt(self.scope, manager)
+
     def test_tun_commit_failure_restores_previous_runtime_after_file_rollback(self):
         from types import SimpleNamespace
         from mihomoctl.config import CoreSettings, Manager, render_manager

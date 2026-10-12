@@ -2,7 +2,7 @@
 
 审查员：用户指定的 F 独立 Codex 审查员。初审落盘日期：2026-10-12（Asia/Shanghai）。
 
-**最新结论（2026-10-12 11:33 +08:00）：代码审查允许推送所审构建 staging 权限和 Textual 等待修复，运行下一轮实际 CI；本次定向 32 tests 全通过、0 skip，未发现新增阻断。既有 F1–F12 与后续已修问题状态见下文。正式 Release 仍为 BLOCKED / 真实 CI pending，不构成正式发布批准。以下保留初审、复现和修复记录，最新复审结论见文末。**
+**最新结论（2026-10-12 12:11 +08:00）：代码审查允许推送所审安装目录权限、私有 TUN receipt 路径及验收 fixture 增量，运行下一轮实际 CI；定向 installation/domain 共 106 tests，OK，1 privileged skip，额外 root 私有临时文件系统验证通过，未发现新增代码阻断。真实环境继承根因仍未确认。正式 Release 仍为 BLOCKED / 真实 CI pending，不构成正式发布批准。以下保留初审、复现和修复记录，最新复审结论见文末。**
 
 ## 审查基线与边界
 
@@ -219,3 +219,45 @@ scripts/v1_ci.py --unit --pattern test_v1_tooling.py --pattern test_textual.py -
 `tests/test_textual.py:198,208,216` 的三处等待从“worker 已记录调用”改为“app.preview 已在 UI 发布”。保留第一次完整 calls 列表、第二/三次次数与参数断言，新增 preview policy 和 selector 可操作性检查；切换 policy/kind 后仍断言旧 preview 已失效。修复同步的是测试观察边界，没有改生产 UI、跳过测试或删除原行为断言。全部 15 项 Pilot 测试在 F 独立运行中通过。
 
 上述三文件 `git diff --check` 通过。**本次未发现新增确定阻断，允许提交并推送这三文件及审查报告到发布分支，运行下一轮 CI。** 正式 Release 仍 BLOCKED / PENDING：必须获得包含这些修复的同一最终 clean 提交对应的两 Ubuntu 完整 CI、真实 systemd/两 UID/TUN、完整产物安装/回滚及正式 release gate 成功证据；df67aed 的部分通过不能替代。
+
+## d2e42b5 CI 后五文件定向复审（2026-10-12 12:11 +08:00）
+
+基线 HEAD 为 `d2e42b56b0412efcc0e734214365785423c2b090`。本次只审冻结增量 `mihomoctl/installation.py`、`tests/test_v1_installation.py`、`mihomoctl/scope.py`、`tests/test_v1_domain.py`、`tests/test_v1_acceptance.py`，唯一工作区写入为本报告，未提交。
+
+已独立读取下载的 `.tmp-v1-ci-d2e4-evidence` 和两个 job 日志，确认 run `38200351634`：
+
+| 平台 | 已有同提交真实证据 | 尚未通过 |
+| --- | --- | --- |
+| Ubuntu 22.04 | unit 317 OK/15 skip；real-core 59 OK/0 skip；三格式 artifact-install 3 OK/0 skip，publishable_acceptance=true | privileged 6 tests，3 failures，0 skip：test20 环境继承、test40 TUN config-invalid、test60 系统安装 rc=2 |
+| Ubuntu 24.04 | unit 317 OK/15 skip；real-core 59 OK/0 skip；三格式 artifact-install 3 OK/0 skip，publishable_acceptance=true | privileged setUp 的 useradd 超时 60s；0 tests、1 error，不能称两 UID/systemd/TUN 验收成功 |
+
+两份 privileged JSON 虽带 real_uids/systemd/tun=true 环境标记，但 success=false；这些标记不能覆盖失败计数或零测试。所有通过结果只属于 d2e42b5，不能自动覆盖本次增量。
+
+F 使用私有 Linux 副本独立执行一次：
+
+```text
+scripts/v1_ci.py --unit --pattern test_v1_installation.py --pattern test_v1_domain.py --report /tmp/mihomoctl-v1-f-permission-fixture-targeted.json
+```
+
+结果 **106 tests，OK，1 skipped，13.443s**（installation 66、domain 40）。唯一 skip 为真实 disposable privileged system installation，用下述临时文件系统检查不能替代。未重跑完整业务 unit 或 real-core。
+
+### 安装目录权限
+
+`installation.py:506-524` 新 `_mkdir_owned_parents` 先检查祖先、既有目录 trust，然后逐层 mkdir 缺失组件，调用方分别指定 0755 或私有 0700。wheel 解包、源码包复制、launcher 目录与 recovery 目录使用该 helper；不 chmod/repair 既有目录，production trust 规则未放宽。
+
+定向回归验证 caller umask=002 的源码/wheel 安装、生成 CLI、安装 verify、卸载/恢复均可用，生成代码与 recovery 无 group/other writable 目录。F 另以 UID 0 在 root 私有临时目录中独立调用真实 helper：缺失两级代码目录均为 0755；既有 0775 目录被拒绝、mode 保持 0775、未创建 child；symlink ancestry 被拒绝。仅测试临时文件，不代表真实全局系统安装已通过。
+
+### TUN receipt 路径
+
+`scope.py:105-110` 将 receipt 放在 `state_root/tun/authorization.json`。只改变 receipt 位置，不放宽文件/祖先或原子 helper 的 private 检查。
+
+F 以 UID 0 创建 root 私有临时 scope，实际 state root=0750，使用真实 Transaction 发布新 receipt，再调用无 tx 的 `synchronize_receipt`；仅 kernel ownership 使用替身，所有 filesystem/Transaction/atomic 检查为真实。结果 state 保持 0750、tun 子目录 0700、receipt 0600/root-owned，identity 更新成功；旧 state 根目录下直接 write_atomic 仍拒绝。domain 同时验证将 receipt parent 改为 0750 后 reconciliation 拒绝。未调用真实 systemctl、TUN 或改动网络。
+
+### 验收 fixture 与诊断
+
+- useradd 使用 no-create-home/no-log-init/user-group，在既有 disposable-root-systemd 限定下创建两账户；HOME 和初始 runtime 由 fixture 显式创建为 0700，并 chown 对应 UID/GID。超时延至 180s，没有跳过账户、重用 root 或放宽两 UID 条件。F 未在本机创建账户。
+- command 失败仅输出 executable、rc 和提取的稳定 bootstrap code，不拼接 stdout/stderr。F 独立注入已识别与未知格式错误，虚构敏感 stdout/stderr 均不回显。
+- test20 新增实际 loaded DropInPaths/EnvironmentFiles、环境文件八个固定 proxy key inventory、UnsetEnvironment 固定 key 检查；缺失变量诊断只列固定名字，最终仍要求 `inherited == expected_environment` 布尔为真。没有将环境变量非空、文件存在或 mock 结果替代实际值一致性。
+- `git diff --check` 对这五个文件通过。
+
+**本次未发现新增确定代码阻断，允许提交并推送所审五文件和本报告，运行下一轮真实 CI。** 这表示权限修复和 fixture/诊断可以进入真实验收，不表示三项 privileged 失败已解决：特别是 test20 的真实环境继承根因尚未确认，只增加了诊断，必须保留失败门槛。正式 Release 继续 BLOCKED，直到最终同提交两 Ubuntu 的完整 privileged（真实 UID/systemd/TUN/system install）、产物、其余 CI 及正式 release gate 全绿。

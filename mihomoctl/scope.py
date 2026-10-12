@@ -103,7 +103,10 @@ class Scope:
 
     @property
     def tun_receipt(self):
-        return self.state_root / "tun-authorization.json"
+        # The system data/state root is 0750 so the dedicated core account can
+        # traverse core-home. Authorization remains in a root-private 0700
+        # child, including reconciliation writes outside a Transaction.
+        return self.state_root / "tun" / "authorization.json"
 
     def is_private_user_path(self, path):
         """True when ``path`` lives inside this user scope's private roots."""

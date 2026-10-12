@@ -573,6 +573,18 @@ class WheelInstallTests(InstallationTestBase):
         self.assertTrue((generation / "lib" / "yaml" / "__init__.py").is_file())
         installation.verify_installed(self.scope)
 
+    def test_wheel_install_under_group_writable_umask_keeps_trusted_directories(self):
+        source = self.wheel_source()
+        original = os.umask(0o002)
+        try:
+            self.install(source=source)
+            installation.verify_installed(self.scope)
+            self.assertEqual(self.run_cli("--version").stdout.strip(), "mihomoctl 1.0.0")
+            self.assertTrue(all(not (p.stat().st_mode & 0o022)
+                                for p in self.paths.generations.rglob("*") if not p.is_symlink()))
+        finally:
+            os.umask(original)
+
     def test_tampered_wheel_record_refused(self):
         source = self.base / "wheel-tampered"
         source.mkdir()
@@ -850,6 +862,22 @@ class BootstrapScriptTests(InstallationTestBase):
 
 @linux_only
 class InstallerSecurityRegressionTests(InstallationTestBase):
+    def test_group_writable_umask_does_not_contaminate_new_installation_paths(self):
+        original = os.umask(0o002)
+        try:
+            first = self.install()
+            self.assertEqual(self.run_cli("--version").stdout.strip(), "mihomoctl 1.0.0")
+            installation.verify_installed(self.scope)
+            for path in [self.paths.bin_dir, *self.paths.install_root.rglob("*"),
+                         *Path(first["backup"]).rglob("*")]:
+                if not path.is_symlink():
+                    self.assertFalse(path.stat().st_mode & 0o022, str(path))
+            removed = installation.uninstall(self.scope)
+            installation.rollback(self.scope, removed["backup"])
+            installation.verify_installed(self.scope)
+        finally:
+            os.umask(original)
+
     def test_archived_installation_entries_refuse_before_any_change(self):
         before = self.snapshot_home()
         entries = (

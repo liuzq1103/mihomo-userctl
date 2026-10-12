@@ -503,6 +503,27 @@ def _verify_record(zf, info):
             raise InstallationError("wheel-record-digest-mismatch", name)
 
 
+def _mkdir_owned_parents(path, mode):
+    """Create each missing component with an explicit safe mode.
+
+    pathlib's parents=True applies mode only to the leaf; an inherited umask
+    of 002 must not make intermediate code or recovery directories writable.
+    Existing directories are validated, never repaired or silently chmodded.
+    """
+    from .trust import _check_ancestors
+    path = Path(path)
+    _check_ancestors(path, "installation-failed", {0, os.geteuid()})
+    missing = []
+    cursor = path
+    while not cursor.exists():
+        missing.append(cursor)
+        cursor = cursor.parent
+    require_trusted_dir(cursor)
+    for component in reversed(missing):
+        component.mkdir(mode=mode)
+    require_trusted_dir(path)
+
+
 def unpack_wheel(path, lib_dir, *, allowed_top_levels=None):
     """Safely unpack one wheel into ``lib_dir`` with bounded sizes."""
     info = parse_wheel_filename(path)
@@ -522,7 +543,7 @@ def unpack_wheel(path, lib_dir, *, allowed_top_levels=None):
             tops.add(parts[0])
             target = Path(lib_dir, *parts)
             try:
-                target.parent.mkdir(parents=True, exist_ok=True)
+                _mkdir_owned_parents(target.parent, 0o755)
                 with open(target, "xb") as output:
                     output.write(zf.read(member))
             except FileExistsError:
@@ -946,7 +967,7 @@ def _copy_source_packages(source_root, lib_dir, manifest):
         if source.is_symlink() or not source.is_file():
             raise InventoryError("runtime-source-missing-or-unsafe", relative)
         destination = Path(lib_dir) / relative
-        destination.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+        _mkdir_owned_parents(destination.parent, 0o755)
         shutil.copyfile(source, destination)
         os.chmod(destination, 0o644)
     init_text = (lib_dir / PROJECT_NAME / "__init__.py").read_text(encoding="utf-8")
@@ -1293,7 +1314,7 @@ def _ensure_launcher(paths):
     expected = str(paths.install_root / "current" / "bin" / CONSOLE_SCRIPT)
     if paths.bin_link.is_symlink() and os.readlink(paths.bin_link) == expected:
         return
-    paths.bin_dir.mkdir(parents=True, exist_ok=True)
+    _mkdir_owned_parents(paths.bin_dir, 0o755 if paths.scope.system else 0o700)
     if paths.bin_link.is_symlink():
         paths.bin_link.unlink()
     os.symlink(expected, str(paths.bin_link))
@@ -1507,7 +1528,7 @@ def update(scope, source=None, **kwargs):
 def _write_recovery(backup):
     """Bundle the small installer engine so recovery does not need the source."""
     package = backup / "recovery" / "mihomoctl"
-    package.mkdir(parents=True, mode=0o700)
+    _mkdir_owned_parents(package, 0o700)
     for name in ("__init__.py", "installation.py", "scope.py", "trust.py", "errors.py", "locks.py"):
         shutil.copyfile(Path(__file__).parent / name, package / name)
         os.chmod(package / name, 0o600)
