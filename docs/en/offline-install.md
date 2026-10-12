@@ -1,129 +1,144 @@
-# Install from a shared directory
+# Complete V1 offline installation
 
-> Archived 0.9.x package workflow. V1 uses the reviewed source/wheel inventory and
-> offline installer in [INSTALL.md](../../INSTALL.md). The old
-> `scripts/offline_install.py` entry below is retired.
+[中文](../zh-CN/offline-install.md) · [Installation contract](../../INSTALL.md) · [Local agent prompt](agent-local-install-prompt.md)
 
-Examples use the v0.7.0 release. Pin the version and verify the source before deployment.
+This flow applies to 1.0.2 and later releases retaining the same kit format. A complete kit contains
+only the mihomoctl control plane, source archives, project wheel and Python dependency wheels.
+**Prepare or install Mihomo, OpenCode, Codex and Node yourself**; they are not included.
 
-[中文](../zh-CN/offline-install.md) · [Local installation prompt](agent-local-install-prompt.md) · [Public online setup](setup.md)
+## Target and trusted material
 
-A public directory distributes a source ZIP and independent dependency archives. Install Mihomo
-and the controller privately per user by default, reuse suitable existing tools, and select other
-tools as needed. Archive storage does not imply shared mihomoctl or Node/Codex. Only explicitly
-selected administrator-managed tools use [shared-runtime mode](shared-runtime.md).
-The public repository also supports official online installation. Never commit binary packages.
+| Target | OS | Interpreter | Architecture |
+| --- | --- | --- | --- |
+| ubuntu22.04-x86_64-py310 | Ubuntu 22.04 | CPython 3.10 | x86_64 |
+| ubuntu24.04-x86_64-py312 | Ubuntu 24.04 | CPython 3.12 | x86_64 |
 
-## Downloads and preparation
+Inspect `uname -m`, `cat /etc/os-release` and `/usr/bin/python3 --version` first.
+An Anaconda `python` on PATH does not change the installer's preference for `/usr/bin/python3`.
+System Python 3.10.12 with PyYAML 5.4.1 does not satisfy `PyYAML>=6.0.1`, even when importing yaml
+succeeds. Use the matching wheelhouse. Dependencies go into mihomoctl's own installation generation;
+system and Anaconda PyYAML installations are not upgraded.
 
-Run `uname -m` and `ldd --version` on the target first. The pinned
-[manifest](../../examples/offline-packages.json) contains direct official download URLs, SHA256,
-archive layouts and checksum-source URLs for x86_64 and aarch64 (manifest name: arm64).
-Download only the chosen architecture and tools. The
-[download table](../zh-CN/offline-install.md) provides clickable links for both architectures.
-Versions checked on 2026-09-24: Mihomo 1.19.31, Codex CLI 0.156.1, OpenCode 1.18.32,
-Node.js 24.21.0 LTS including npm/npx. Node is optional, not required by the controller or
-the selected standalone Codex/OpenCode archives. npm dependencies are not bundled automatically.
+The maintainer supplies `mihomoctl-VERSION-offline-TARGET.tar.gz` and its `.tar.gz.sha256` sidecar.
+**Obtain the expected digest, exact version and full commit from an independently trusted channel**
+that cannot be modified together with the shared archive, such as a separately checked release record.
+For ordinary source archives, `SHA256SUMS` is a release attachment, not a required file inside the
+archive. Complete kits also contain an internal `SHA256SUMS`.
 
-Digests come from official GitHub Release asset metadata and Node's versioned SHASUMS256.txt.
-These are HTTPS metadata checks, not independent signature verification. Review and protect the
-manifest itself: replacing both the manifest and an archive defeats a checksum-only check.
+A shared directory is only storage. Mode 0777, ownership by the acting user or a writable mount
+cannot establish independent provenance. Matching copy hashes, enclosed receipts and checksum files
+beside the archive cannot do so either. Without a trusted external digest, report `UNVERIFIED` and
+stop. Never substitute a freshly computed hash or change the shared directory's contents/permissions.
 
-Also obtain a reviewed fixed [controller release](https://github.com/liuzq1103/mihomo-userctl/releases).
-Obtain its tag, full commit, archive hash and review from trusted delivery records; no separate
-SOURCE.txt file is required. Stop and report unknown provenance. Locally computing the source
-archive hash proves transfer consistency, not publisher identity. Use the fixed
-[v0.7.0 source ZIP](https://github.com/liuzq1103/mihomo-userctl/archive/refs/tags/v0.7.0.zip),
-which includes the helper, manifest and bilingual documentation. Ubuntu 22.04 x86_64 servers
-use the x86_64 entries regardless of the download computer's operating system. Target dependency
-and runtime compatibility checks are still required.
+## Verify, then safely extract
 
-## Public archives, private source workspace
-
-Archives may sit directly in a flat directory, with original dependency filenames:
-
-```text
-/mnt/nas/public/software/
-  mihomo-userctl-0.7.0.zip
-  mihomo-linux-amd64-compatible-v1.19.31.gz
-  ...other selected dependency archives for the target architecture
-```
-
-No pre-expanded source/, packages/, external scripts or documentation copies are required.
-Audit directory/ancestor permissions and provenance without modifying public material. Clarify
-ambiguous source versions; never pick latest automatically. Dependencies must match the source manifest.
-
-Create a new private mode-700 workspace, copy the selected source ZIP there, compare SHA256 before
-and after copying, and retain provenance records. Before extraction, reject absolute paths, parent
-traversal, backslashes/drive paths, symlinks, duplicate members and file/directory collisions. Limit
-the archive to 100000 members and 2 GiB total expanded bytes, enforcing the byte limit during writes.
-Extract only into a new empty private directory without overwrites; require one project root.
-Use existing archive tools or Python's standard library for these checks, not unreviewed package code.
-Read the extracted release's documentation and repository constraints; verify release-manifest.json,
-install.sh and src/common.bash agree with the selected version before running project scripts.
-A ZIP filename alone does not prove release identity. Never run installation/tests in public storage.
-
-## Per-user installation
-
-Python 3.8+ with gzip/tarfile/lzma and the base tools/systemd user manager in [setup](setup.md)
-are required. Report missing system dependencies for administrator preparation; never run apt or
-download replacements. Run these commands from the reviewed private source directory:
+Use system tools and the Python standard library before running received project code:
 
 ```bash
-PUBLIC='/mnt/nas/public/software'  # example; replace with the actual archive directory
-python3 scripts/offline_install.py check \
-  --bundle-dir "$PUBLIC" --manifest examples/offline-packages.json \
-  --packages mihomo
-python3 scripts/offline_install.py install \
-  --bundle-dir "$PUBLIC" --manifest examples/offline-packages.json \
-  --packages mihomo
-export PATH="$HOME/.local/bin:$PATH"
+ARCHIVE='/absolute/shared/mihomoctl-1.0.2-offline-ubuntu22.04-x86_64-py310.tar.gz'
+EXPECTED_SHA256='<64-character digest from an independently trusted channel>'
+WORK=$(mktemp -d "$HOME/mihomoctl-offline.XXXXXX")
+chmod 700 "$WORK"
+cp -- "$ARCHIVE" "$WORK/"
+ARCHIVE="$WORK/$(basename "$ARCHIVE")"
+printf '%s  %s\n' "$EXPECTED_SHA256" "$ARCHIVE" | sha256sum --check --strict
+DEST="$WORK/unpacked"
 ```
 
-Skip installing already suitable tools. Add only selected missing tools to `--packages`, for example
-`mihomo codex`. `check` verifies bytes, not runtime compatibility, executes no archive code and writes
-nothing. Missing files, digest mismatches and unsupported architectures fail with exit code 2;
-there is no network fallback. `install` verifies private copies before bounded extraction,
-then exclusively creates command links in `~/.local/bin`. All archives are staged before any
-link is created. Failures remove this attempt's links and private staging directory.
-Files and a provenance/link `receipt.json` live under
-`~/.local/share/mihomo-userctl-offline/install-*/`. No package code is executed during installation.
-Existing commands, including dangling links, are preserved and cause installation to stop.
-Repeated installation therefore never silently replaces a tool. Check `type -a` for other PATH copies.
+Stop on any failure. This standard-library extraction rejects links, special files, escapes,
+duplicates and multiple roots; it bounds members and actual copied bytes. `DEST` must not exist.
 
-From the private source workspace, follow the normal configuration/service/credentials setup,
-substituting local packages and source for all download/clone steps. Use the original
-`install.sh --suggest-port`, confirm a per-user port, then `bash install.sh --port "$PORT"`
-with the confirmed value. The original installer owns controller transactions and rollback.
-Do not run write-producing tests or installation inside shared source.
+```bash
+/usr/bin/python3 - "$ARCHIVE" "$DEST" <<'PY'
+import pathlib, sys, tarfile
+out = pathlib.Path(sys.argv[2])
+out.mkdir(mode=0o700)
+seen, roots, used = set(), set(), 0
+with tarfile.open(sys.argv[1], 'r:gz') as package:
+    for index, entry in enumerate(package):
+        parts = entry.name.split('/')
+        if (index >= 20000 or not entry.isfile() or len(parts) < 2
+                or any(p in ('', '.', '..') for p in parts)
+                or '\\' in entry.name or ':' in entry.name
+                or any(ord(c) < 32 or ord(c) == 127 for c in entry.name)
+                or entry.name in seen or entry.size < 0):
+            raise SystemExit('unsafe archive member')
+        seen.add(entry.name)
+        roots.add(parts[0])
+        used += entry.size
+        if len(roots) != 1 or used > 512 * 1024 * 1024:
+            raise SystemExit('archive limit exceeded')
+        target = out.joinpath(*parts)
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with package.extractfile(entry) as source, target.open('xb') as result:
+            remaining = entry.size
+            while remaining:
+                block = source.read(min(1024 * 1024, remaining))
+                if not block:
+                    raise SystemExit('truncated member')
+                result.write(block)
+                remaining -= len(block)
+        target.chmod(0o600)
+PY
+```
 
-Check only selected tools, including reused ones; missing unselected tools are not failures: `mihomo -v`, `node --version`, `npm --version`, `codex --version`,
-`opencode --version`. Record real exit codes; run controller regression tests and acceptance.
-CPU/libc/runtime compatibility must be checked on the actual host. Hash checks do not establish
-compatibility; version output does not establish model or proxy connectivity.
+Confirm the single kit root, then check its internal checksums and source identity:
 
-## Updates, rollback and network boundaries
+```bash
+KIT="$WORK/unpacked/mihomoctl-1.0.2-offline-ubuntu22.04-x86_64-py310"
+cd "$KIT"
+sha256sum --check --strict SHA256SUMS
+cd release
+sha256sum --check --strict SHA256SUMS
+ARCHIVE="$KIT/release/mihomoctl-1.0.2.tar.gz"
+DEST="$WORK/source"
+```
 
-This helper does not perform in-place upgrades or stop processes. Before replacing an installed
-tool, review its receipt and running processes, back up the existing links/files, and remove only
-the reviewed personal links before installing a new bundle. To undo an installation, remove only
-links still pointing to the targets recorded in that receipt, then remove that specific install
-directory when no longer needed. Controller rollback uses its separate original installer backup.
+Read `bundle-manifest.json` and `release/build-receipt.json`, checking version, commit and target
+against the trusted record. Repeat the extraction block above with the new `ARCHIVE` and `DEST`.
+Review the extracted INSTALL, source and repository constraints. Reject bytecode (`.pyc`, `.pyo`,
+`__pycache__`) and unreviewed files. Statically check five matching versions: manifest, pyproject,
+Python `__version__`, install.sh `VERSION=` and src/common.bash `MIHOMO_USERCTL_VERSION`.
 
-`mihomoctl update`, including `--check`, remains an online GitHub operation and must not be used
-in the local-only workflow. A reviewed new local source snapshot can be installed with the original
-installer and its backup/rollback behavior; review source provenance separately. This does not
-manage updates to Node, Codex or OpenCode.
+## Install the control plane
 
-The helper itself uses no network and never launches downloaded programs. Runtime authentication,
-model APIs, subscriptions and rule/provider updates can require network access. For a managed lab,
-merge `"autoupdate": false` into personal OpenCode configuration using the
-[official guidance](https://opencode.ai/docs/config/#autoupdate), preserving existing settings.
-Plugins, LSP, MCP, Geo data and other remotely referenced resources need separate preparation
-when selected; private subscriptions belong only in personal directories. Report local checks
-separately from network-dependent checks (UNVERIFIED without authorization; DEFERRED only when
-explicitly postponed). Untested target runtime compatibility remains UNVERIFIED. Follow the
-[deployment contract](deployment-contract.md) for reuse, startup authorization and Codex evidence.
-<!-- Core compatibility: package integrity and runtime capabilities are independent. -->
+```bash
+cd "$WORK/source/mihomoctl-1.0.2"
+bash install.sh --python /usr/bin/python3 --wheelhouse "$KIT/wheelhouse" --dry-run
+bash install.sh --python /usr/bin/python3 --wheelhouse "$KIT/wheelhouse"
+"$HOME/.local/bin/mihomoctl" version
+/usr/bin/python3 -I scripts/bootstrap.py verify
+```
 
-The listed core version is a verified example, not an exact runtime restriction. Reuse an existing Mihomo core, or supply another version through a custom manifest with its file, architecture and trusted SHA256. Hash verification remains mandatory; runtime compatibility follows config validation and API capabilities.
+Dry-run and installation share dependency/version/wheel compatibility prechecks. Missing packages,
+wrong hashes or unsatisfied dependency versions stop installation; never run apt/npm/pip online as
+a fallback. Omit wheelhouse only if both dependency versions and imports satisfy the selected Python.
+Do not use sudo; system installation follows INSTALL's separate explicit `--system` flow.
+
+The installer never writes `.bashrc`, registers `proxy_on`, `proxy_status`, `with_proxy` or hooks,
+starts/stops services, or adopts/replaces existing Mihomo cores. Defaults are user scope and process
+backend, with the control plane at `~/.local/share/mihomoctl/install`. Set ports later using explicit
+`mihomoctl init --port PORT` and named listener profiles. For 0.x migration, inspect
+`mihomoctl migrate --dry-run` before explicitly choosing `--apply`. Use explicit `mihomoctl exec`,
+`env` or `integration` for proxy access. Do not start services, refresh subscriptions or send model
+requests without authorization. Missing external acceptance is `UNVERIFIED`; report actual versions,
+paths, provenance, backups/rollback and test results under the [delivery contract](deployment-contract.md).
+
+## Maintainer preparation
+
+Only prepare dependencies in a matching networked build environment; never download on the offline host:
+
+```bash
+python3 scripts/build_release.py --output dist
+python3 -m pip download --only-binary=:all: --require-hashes \
+  -r requirements-lock.txt -d /absolute/path/to/wheelhouse
+python3 scripts/build_offline_bundle.py --artifacts dist \
+  --wheelhouse /absolute/path/to/wheelhouse \
+  --target ubuntu22.04-x86_64-py310 --output dist
+```
+
+Use the other target for Ubuntu 24.04. The builder consumes local material only, checks locked hashes
+and refuses overwrites. Both target kits and sidecars must be supplied to `scripts/verify_release.py`
+using `--offline-artifacts DIR` (defaults to the normal artifacts directory). Publication requires
+both platforms' actual network-isolated kit install/update/rollback reports plus existing release
+gates. Development `--worktree` kits cannot be published; never mark unexecuted checks PASS.

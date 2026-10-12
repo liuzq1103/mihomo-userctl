@@ -6,7 +6,7 @@
 
 # Used by src/mihomoctl after this shared module is sourced.
 # shellcheck disable=SC2034
-MIHOMO_USERCTL_VERSION="1.0.1"
+MIHOMO_USERCTL_VERSION="1.0.2"
 
 _MUC_PROXY_NAMES=(
   http_proxy https_proxy all_proxy no_proxy

@@ -16,8 +16,10 @@ jobs:
         include:
           - os: ubuntu-22.04
             python: '3.10'
+            offline_target: ubuntu22.04-x86_64-py310
           - os: ubuntu-24.04
             python: '3.12'
+            offline_target: ubuntu24.04-x86_64-py312
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -59,9 +61,16 @@ jobs:
       - name: Build exact-commit artifacts and offline wheelhouse
         run: |
           python scripts/build_release.py --output dist
-          python -m pip download --only-binary=:all: --dest "$RUNNER_TEMP/wheelhouse" dist/mihomoctl-*.whl
+          python -m pip download --only-binary=:all: --require-hashes -r requirements-lock.txt --dest "$RUNNER_TEMP/wheelhouse"
+          cp dist/mihomoctl-*.whl "$RUNNER_TEMP/wheelhouse/"
           cd dist
           sha256sum --check --strict SHA256SUMS
+      - name: Build complete target-specific offline kit
+        run: python scripts/build_offline_bundle.py --artifacts dist --wheelhouse "$RUNNER_TEMP/wheelhouse" --target '${{ matrix.offline_target }}' --output dist
+      - name: Install, update and recover the delivered kit with networking disabled
+        run: |
+          kit=$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*-offline-${{ matrix.offline_target }}.tar.gz' -print)
+          sudo unshare --net -- sudo -u "$(id -un)" -- "$(command -v python)" "$GITHUB_WORKSPACE/scripts/verify_offline_bundle.py" --bundle "$kit" --target '${{ matrix.offline_target }}' --python "$(command -v python)" --report "$RUNNER_TEMP/offline-bundle-install.json"
       - name: Offline install, update and self-contained recovery of full artifacts
         run: python scripts/verify_artifact_install.py --artifacts dist --wheelhouse "$RUNNER_TEMP/wheelhouse" --python "$(command -v python)" --report "$RUNNER_TEMP/artifact-install.json"
       - name: Real users, systemd and isolated TUN (mandatory)
@@ -82,10 +91,37 @@ jobs:
             ${{ runner.temp }}/real-core.json
             ${{ runner.temp }}/privileged.json
             ${{ runner.temp }}/artifact-install.json
+            ${{ runner.temp }}/offline-bundle-install.json
           if-no-files-found: error
       - name: Upload exact-commit release candidates
         uses: actions/upload-artifact@v4
         with:
           name: release-candidate-${{ matrix.os }}
           path: dist/*
+          if-no-files-found: error
+  release-gate:
+    needs: ubuntu
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: validation-ubuntu-*
+          path: evidence
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-candidate-ubuntu-*
+          path: candidates
+      - name: Assemble both offline kits without replacing normal release assets
+        run: |
+          mkdir offline
+          cp candidates/release-candidate-ubuntu-*/*-offline-*.tar.gz offline/
+          cp candidates/release-candidate-ubuntu-*/*-offline-*.tar.gz.sha256 offline/
+      - name: Require exact-commit artifacts and both target acceptance sets
+        run: python3 scripts/verify_release.py --artifacts candidates/release-candidate-ubuntu-22.04 --offline-artifacts offline --evidence evidence --commit "$GITHUB_SHA" > release-gate.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-gate
+          path: release-gate.json
           if-no-files-found: error

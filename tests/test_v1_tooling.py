@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import pkgutil
+import re
 import shutil
 import subprocess
 import sys
@@ -43,6 +44,31 @@ class PublishGateTests(unittest.TestCase):
             self.save(self.report_path(ubuntu, "artifact-install"), {
                 "commit": self.commit, "publishable_acceptance": True, "success": True,
                 "tests": 3, "skipped": 0, "artifact_sha256": hashes})
+            target = "ubuntu" + ubuntu + "-x86_64-py" + ("310" if ubuntu == "22.04" else "312")
+            payload = {"release/" + name: (self.artifacts / name).read_bytes()
+                       for name in (*hashes, "SHA256SUMS", "build-receipt.json")}
+            payload["README.txt"] = b"Fixture kit; not executable."
+            manifest = {"format": 1, "version": "1.0.0", "commit": self.commit,
+                        "target": target, "source": "git-commit", "publishable": True,
+                        "dependencies": [], "files": {name: hashlib.sha256(body).hexdigest()
+                                                        for name, body in payload.items()}}
+            payload["bundle-manifest.json"] = json.dumps(manifest).encode()
+            payload["SHA256SUMS"] = "".join(hashlib.sha256(body).hexdigest() + "  " + name + "\n"
+                                              for name, body in sorted(payload.items())).encode()
+            root = "mihomoctl-1.0.0-offline-" + target
+            kit = self.artifacts / (root + ".tar.gz")
+            with tarfile.open(kit, "w:gz") as archive:
+                for name, body in payload.items():
+                    info = tarfile.TarInfo(root + "/" + name)
+                    info.size = len(body)
+                    archive.addfile(info, io.BytesIO(body))
+            digest = hashlib.sha256(kit.read_bytes()).hexdigest()
+            kit.with_name(kit.name + ".sha256").write_text(digest + "  " + kit.name + "\n", encoding="utf-8")
+            self.save(self.report_path(ubuntu, "offline-bundle-install"), {
+                "commit": self.commit, "version": "1.0.0", "target": target, "source_dirty": False,
+                "bundle_file": kit.name, "bundle_sha256": digest,
+                "publishable_acceptance": True, "network_isolated": True,
+                "success": True, "tests": 3, "skipped": 0, "errors": 0, "failures": 0})
             for suite in ("unit", "real-core", "privileged"):
                 self.save(self.report_path(ubuntu, suite), {
                     "commit": self.commit, "source_dirty": False, "os": "ubuntu", "ubuntu": ubuntu,
@@ -68,7 +94,9 @@ class PublishGateTests(unittest.TestCase):
         return verify_release.verify(self.artifacts, self.evidence, self.commit)
 
     def test_matching_artifacts_and_two_platforms_pass(self):
-        self.assertTrue(self.verify()["verified"])
+        result = self.verify()
+        self.assertTrue(result["verified"])
+        self.assertEqual(len([name for name in result["assets"] if "-offline-" in name]), 4)
 
     def test_other_commit_or_dirty_source_cannot_satisfy_gate(self):
         for values in ({"commit": "b" * 40}, {"source_dirty": True}):
@@ -112,7 +140,7 @@ class PublishGateTests(unittest.TestCase):
             report = json.loads(path.read_text())
             report["artifact_sha256"]["mihomoctl-1.0.0-py3-none-any.whl"] = "d" * 64
             self.save(path, report)
-        with self.assertRaisesRegex(verify_release.GateError, "not-installed"):
+        with self.assertRaisesRegex(verify_release.GateError, "not-installed|offline-bundle-release-assets-differ"):
             self.verify()
 
     def test_worktree_build_cannot_be_published(self):
@@ -121,6 +149,21 @@ class PublishGateTests(unittest.TestCase):
         receipt.update(source="worktree", publishable=False)
         self.save(path, receipt)
         with self.assertRaises(verify_release.GateError):
+            self.verify()
+
+    def test_offline_kit_and_isolated_acceptance_are_mandatory(self):
+        path = self.report_path("22.04", "offline-bundle-install")
+        original = json.loads(path.read_text())
+        for changes in ({"network_isolated": False}, {"bundle_sha256": "e" * 64},
+                        {"commit": "b" * 40}, {"skipped": 1}, {"success": False}):
+            self.save(path, dict(original, **changes))
+            with self.subTest(changes=changes), self.assertRaises(verify_release.GateError):
+                self.verify()
+        self.save(path, original)
+        kit = next(self.artifacts.glob("*-offline-ubuntu22*.tar.gz"))
+        sidecar = kit.with_name(kit.name + ".sha256")
+        sidecar.unlink()
+        with self.assertRaisesRegex(verify_release.GateError, "offline-bundle-invalid"):
             self.verify()
 
 
@@ -187,10 +230,26 @@ class ReleaseInventoryTests(unittest.TestCase):
                 with self.subTest(name=name):
                     self.assertEqual((repository / name).stat().st_mode & 0o777, identity[0])
                     self.assertEqual(hashlib.sha256((repository / name).read_bytes()).hexdigest(), identity[1])
+            # Exercise the real builder's version gate, before wheel creation.
+            for name, marker in (("install.sh", "VERSION"), ("src/common.bash", "MIHOMO_USERCTL_VERSION"),
+                                 ("mihomoctl/__init__.py", "__version__")):
+                path = repository / name
+                previous = path.read_bytes()
+                invalid = re.sub(r"(?m)^" + marker + r"\s*=.*$", marker + '="0.9.3"', previous.decode())
+                path.write_text(invalid, encoding="utf-8")
+                output = Path(folder) / ("bad-" + name.replace("/", "-"))
+                completed = subprocess.run([sys.executable, repository / "scripts/build_release.py",
+                                            "--worktree", "--output", output],
+                                           text=True, capture_output=True, timeout=60)
+                self.assertNotEqual(completed.returncode, 0)
+                self.assertIn("source-version-markers-disagree", completed.stderr)
+                self.assertFalse(list(output.glob("*.whl")))
+                path.write_bytes(previous)
 
     def test_release_builder_refuses_directory_prefix_and_path_escape(self):
         for inventory in ({"roots": ["scripts"], "files": ["scripts/a.py"], "runtime_files": ["scripts/a.py"]},
-                          {"roots": [], "files": ["../outside.py"], "runtime_files": ["../outside.py"]}):
+                          {"roots": [], "files": ["../outside.py"], "runtime_files": ["../outside.py"]},
+                          {"roots": [], "files": ["scripts/a.pyc"], "runtime_files": ["scripts/a.pyc"]}):
             with self.subTest(inventory=inventory), self.assertRaises(ValueError):
                 build_release.reviewed_files({"inventory": inventory})
 

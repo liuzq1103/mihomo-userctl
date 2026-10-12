@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.0.2] - 2026-10-12
+
+- Check all five source release-version markers before installation or building;
+  `install.sh` now carries an explicit VERSION marker.
+- Dry-run and installation validate dependency versions, wheel metadata/integrity,
+  and compatibility using the selected interpreter. Importing PyYAML 5.4.1 no
+  longer incorrectly satisfies the declared PyYAML>=6.0.1 requirement.
+- Add complete, target-specific offline control-plane kits with hash-locked
+  dependency wheels, nested checksums and commit/target provenance. Both supported
+  Ubuntu targets require actual network-isolated kit acceptance before publication.
+- Reject bytecode in release archives/wheels and replace historical offline
+  instructions with the current V1 flow and independent-provenance requirements.
+- No automatic installation of Mihomo, OpenCode, Codex or Node; existing system
+  and Conda dependencies, shell startup files and services are preserved.
+
+Publication requires the exact tagged commit's CI release gate, including both
+target kits. Historical 1.0.1 evidence does not approve 1.0.2; the release notes
+link the actual 1.0.2 acceptance run and artifact digests.
+
 ## [1.0.1] - 2026-10-12
 
 **Documentation and release-tooling patch. No runtime behaviour changes:** the

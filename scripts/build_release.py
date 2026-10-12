@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -53,18 +54,50 @@ def reviewed_files(manifest):
         if (path.is_absolute() or ".." in path.parts
                 or "\\" in value or path.as_posix() != value):
             raise ValueError("unsafe-reviewed-inventory-entry")
+        if "__pycache__" in path.parts or path.suffix in (".pyc", ".pyo"):
+            raise ValueError("release-bytecode-refused")
     return sorted(files)
 
 
 def verify_wheel_inventory(wheel, manifest):
-    prefix = "mihomoctl-" + VERSION + ".dist-info/"
+    prefix = "mihomoctl-" + manifest.get("version", VERSION) + ".dist-info/"
     with zipfile.ZipFile(wheel) as package:
-        names = [i.filename for i in package.infolist() if not i.is_dir()]
+        entries = package.infolist()
+        if any(stat.S_IFMT(entry.external_attr >> 16) not in (0, stat.S_IFREG, stat.S_IFDIR) for entry in entries):
+            raise ValueError("unsafe-wheel-member")
+        names = [i.filename for i in entries if not i.is_dir()]
         if len(names) != len(set(names)):
             raise ValueError("duplicate-wheel-members")
         payload = {name for name in names if not name.startswith(prefix)}
         if payload != set(manifest["inventory"]["runtime_files"]):
             raise ValueError("wheel-differs-from-reviewed-runtime-inventory")
+        reject_bytecode(names)
+
+
+def reject_bytecode(names):
+    if any("__pycache__" in PurePosixPath(name).parts or name.endswith((".pyc", ".pyo")) for name in names):
+        raise ValueError("release-bytecode-refused")
+
+
+def verify_source_inventory(archive, manifest):
+    root = "mihomoctl-" + manifest["version"] + "/"
+    if archive.suffix == ".zip":
+        with zipfile.ZipFile(archive) as package:
+            entries = package.infolist()
+            if any(stat.S_IFMT(entry.external_attr >> 16) not in (0, stat.S_IFREG, stat.S_IFDIR) for entry in entries):
+                raise ValueError("unsafe-source-archive-member")
+            reject_bytecode([entry.filename for entry in entries])
+            names = [entry.filename for entry in entries if not entry.is_dir()]
+    else:
+        with tarfile.open(archive, "r:gz") as package:
+            entries = package.getmembers()
+            if any(not entry.isfile() and not entry.isdir() for entry in entries):
+                raise ValueError("unsafe-source-archive-member")
+            reject_bytecode([entry.name for entry in entries])
+            names = [entry.name for entry in entries if entry.isfile()]
+    reject_bytecode(names)
+    if len(names) != len(set(names)) or set(names) != {root + name for name in reviewed_files(manifest)}:
+        raise ValueError("archive-differs-from-reviewed-source-inventory")
 
 
 @private_creation_mask()
@@ -112,8 +145,8 @@ def main():
         if manifest.get("version") != VERSION or manifest.get("update_protocol") != 2:
             parser.error("release-version-or-protocol-mismatch")
         subprocess.run([sys.executable, "-c",
-                        "from pathlib import Path; from mihomoctl.installation import load_manifest, verify_inventory; "
-                        "verify_inventory(Path('.'), load_manifest(Path('.')))"], cwd=source, check=True,
+                        "from pathlib import Path; from mihomoctl.installation import load_manifest, verify_inventory, cross_check_pyproject; "
+                        "m = load_manifest(Path('.')); cross_check_pyproject(Path('.'), m); verify_inventory(Path('.'), m)"], cwd=source, check=True,
                        env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
         subprocess.run([sys.executable, source / "scripts/secret_scan.py", "--directory", source], check=True)
         source_files = sorted(p for p in source.rglob("*") if p.is_file())
@@ -141,6 +174,8 @@ def main():
         if len(wheels) != 1:
             parser.error("exactly-one-wheel-required")
         verify_wheel_inventory(wheels[0], manifest)
+        verify_source_inventory(tar_path, manifest)
+        verify_source_inventory(zip_path, manifest)
         subprocess.run([sys.executable, source / "scripts/secret_scan.py", "--directory", output], check=True)
         digests = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in (tar_path, zip_path, wheels[0])}
         (output / "SHA256SUMS").write_text("".join(digests[n] + "  " + n + "\n" for n in sorted(digests)), encoding="utf-8")

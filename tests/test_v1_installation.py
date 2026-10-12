@@ -108,6 +108,9 @@ def write_source(root, version="1.0.0", *, entry=installation.ENTRY_POINT,
     (root / "mihomoctl").mkdir(parents=True)
     (root / "mihomoctl" / "__init__.py").write_text(
         '__version__ = "%s"\n' % (init_version or version), encoding="utf-8")
+    (root / "src").mkdir()
+    (root / "src" / "common.bash").write_text('MIHOMO_USERCTL_VERSION="%s"\n' % version, encoding="utf-8")
+    (root / "install.sh").write_text('VERSION="%s"\n' % version, encoding="utf-8")
     (root / "mihomoctl" / "cli.py").write_text(FIXTURE_CLI, encoding="utf-8")
     (root / "mihomoctl" / "lifecycle").mkdir()
     (root / "mihomoctl" / "lifecycle" / "__init__.py").write_text(
@@ -990,7 +993,7 @@ class RealProjectPackagingTests(InstallationTestBase):
         project.mkdir(mode=0o700)
         manifest = installation.load_manifest(ROOT)
         selected = set(manifest["inventory"]["runtime_files"]) | {
-            "pyproject.toml", "README.md", "LICENSE", "release-manifest.json"}
+            "pyproject.toml", "README.md", "LICENSE", "release-manifest.json", "install.sh", "src/common.bash"}
         for relative in sorted(selected - {"release-manifest.json"}):
             target = project / relative
             target.parent.mkdir(parents=True, exist_ok=True)

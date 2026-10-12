@@ -228,7 +228,11 @@ migration/rollback, controller/subscription/TUI regressions, packaging installat
 secret scans and independent review. Skipped mandatory checks block release.
 
 Release only explicitly reviewed files. Private notes stay local. Build source
-tar.gz/zip and wheel plus SHA256SUMS from the reviewed commit. Push a release branch,
-pass CI on that exact commit, merge main, create an immutable annotated v1.0.0 tag,
+tar.gz/zip and wheel plus SHA256SUMS from the reviewed commit. Also ship the
+Ubuntu 22.04/CPython 3.10 and Ubuntu 24.04/CPython 3.12 x86_64 offline kits,
+including hash-locked Python dependencies, provenance and outer checksum sidecars.
+Both kits require actual network-isolated install/update/rollback acceptance
+bound to their digests and the same commit. Push a release branch,
+pass CI on that exact commit, merge main, create an immutable annotated version tag,
 test artifact installation, publish a non-prerelease GitHub Release, then verify
 remote tag/commit/assets/digests agree.

@@ -1,119 +1,67 @@
-# Coding-agent prompt for local archives
+# V1 local offline installation agent prompt
 
-> Archived 0.9.x package-preparation steps. **V1 installation follows
-> [INSTALL.md](../../INSTALL.md) as the single authoritative flow**; the bundle
-> steps in [offline-install.md](offline-install.md) are migration reference only
-> and never replace INSTALL.md. The old `scripts/offline_install.py` entry is
-> retired in V1.
+[中文](../zh-CN/agent-local-install-prompt.md) · [Complete offline flow](offline-install.md) · [Installation contract](../../INSTALL.md)
 
-> **v1.0.1:** the automatic shell hook has been removed. Sections below that
-> mention `CODEX_REMOTE_PAYLOAD`, the `.bashrc` loader or `with_proxy codex` are
-> retired. Proxy access is now always an explicit `mihomoctl exec` /
-> `mihomoctl env` / `mihomoctl integration`; the command surface follows the
-> [V1 command and configuration contract](v1.md).
-
-[中文](../zh-CN/agent-local-install-prompt.md) · [Local setup](offline-install.md) · [Public online prompt](agent-install-prompt.md)
-
-Use the shared [deployment parameters and delivery contract](deployment-contract.md).
+Use for 1.0.2 and later releases retaining the same kit format. Fill the parameters first.
+Authorization and redacted reports follow the [delivery contract](deployment-contract.md).
 
 ```text
-Install the requested tools for this ordinary Ubuntu account from pre-downloaded local material.
-Archive directory: <absolute path, for example /mnt/nas/public/software>
-Source version: <exact published version, for example v0.7.0; clarify ambiguous candidates>
-Runtime: <personal installation by default; administrator-shared Node/npm/Codex only if selected>
-Selected tools: <mihomo by default; codex/node/opencode optional; reuse suitable existing tools>
-Install mihomo-userctl controller: <yes by default>
-Personal port: <confirmed value, or obtain a read-only suggestion for my confirmation>
-Known environment/reuse: <existing tool paths/versions; reuse suitable installations>
-Goal: <controller installation / include Codex end-to-end acceptance>
-Startup: <install only and preserve state / install and start for acceptance>
-Network acceptance: <selected refresh/probes/minimal model request; not online installation>
+Install the local mihomoctl control plane for this ordinary Ubuntu user within existing authorization,
+and return actual evidence.
+Kit path: <absolute complete-offline-kit path>
+Exact version: <for example 1.0.2; never choose latest among ambiguous candidates>
+Trusted expected SHA256: <obtained through a channel independent of the writable shared archive>
+Trusted full commit / provenance: <separately checked release record>
+Target: <Ubuntu 22.04 / CPython 3.10 / x86_64, or Ubuntu 24.04 / CPython 3.12 / x86_64>
+Interpreter: /usr/bin/python3
+Startup: install only, preserving current state; initialization/start/migration require explicit selection.
 
-The public directory holds a source ZIP and independent dependency archives, not a shared runtime.
-List archives read-only and identify the exact source release; clarify ambiguous versions instead
-of guessing names or selecting latest. Follow offline-install.md's source preparation (migration
-reference only): copy the ZIP to a new private workspace, compare SHA256 before/after, and inspect
-paths, symlinks, duplicate members and size limits before extraction. Reject escapes and overwrites.
-Confirm release provenance/version against trusted records; a locally computed digest proves
-transfer consistency only. Stop if unknown.
-No pre-expanded source/, packages/, external scripts or SOURCE.txt are required in the public directory.
-Version checking covers only the three cross-checks the V1 installer actually performs; stop and
-report on any mismatch: release-manifest.json <-> project.version in pyproject.toml;
-release-manifest.json <-> __version__ in mihomoctl/__init__.py;
-the project wheel's Requires-Dist <-> release-manifest.json dependencies.
-Do not require install.sh's VERSION= or src/common.bash's MIHOMO_USERCTL_VERSION to agree with the
-rest. Neither file is listed in release-manifest.json runtime_files, the V1 installer never installs
-them, and only 0.9.x leftover tools read them; treating them as a version gate produces a false
-"version mismatch" missing item.
-Read the extracted release's INSTALL.md, offline-install.md, setup.md, security.md, acceptance.md,
-architecture.md, troubleshooting.md, deployment-contract.md and repository constraints before
-executing project scripts.
-Use one fixed release for documentation, scripts and tests; never expand authorization or mix in main.
-Replace online download/clone steps with local preparation. Never access GitHub/npm/apt or run
-mihomoctl update (including --check), and never download missing files as a fallback.
-Inspect Linux architecture/libc/CPU, dependencies, systemd user manager, existing programs/PATH,
-proxy-variable categories, ports, service state and archive-directory trust/permissions.
-Review the extracted source's pinned manifest and provenance records.
-Missing packages, checksum mismatches or dependencies must stop the workflow with a specific report.
-Report the audit and concrete change/rollback scope. Reuse suitable system Node/npm/Codex without
-shadowing them. Follow the contract's redacted audit: no environment dumps, full argv or raw logs.
-Read shared-runtime.md in shared mode: missing public tools go to the administrator, never a personal
-fallback. Verify fresh-login/proxy Node/npm/Codex resolution, npm-launcher interpreter and private
-CODEX_HOME. Preserve authentication, sessions, NVM and old installs; migration/uninstallation needs
-explicit selection, never cleanup commands copied from deployment notes.
-Follow shared-runtime.md for Remote hook, CLI/persistent-server Unix-socket and egress evidence;
-0/8 or 8/8 alone is insufficient. Never persist CODEX_REMOTE_PAYLOAD or automatically restart old servers.
+First inspect OS, architecture/libc, interpreter path/version, dependencies, PATH, existing commands,
+service state, configuration fingerprints, shell files and proxy-variable categories read-only.
+Never disclose credentials, subscription URLs, raw environment or full process argv.
+An Anaconda python on PATH is not an instruction to select it. System Python 3.10.12 + PyYAML 5.4.1
+fails PyYAML>=6.0.1 even if imports succeed. Use matching wheels, without upgrading system or Conda.
 
-Install the controller with the V1 flow from INSTALL.md only, never the 0.9.x bundle installer:
-  bash install.sh --wheelhouse <dependency-wheel-directory> --dry-run
-  bash install.sh --wheelhouse <dependency-wheel-directory>
+Follow the same release's offline-install.md. Verify the kit against the trusted external digest before
+running code. Safely extract with system tools/Python standard library into a new private mode-700 tree;
+reject escapes, links, special files, duplicates, multiple roots and excessive size.
+Check internal SHA256SUMS and release/SHA256SUMS, then compare bundle-manifest.json and build-receipt.json
+version/full commit/target against the trusted record. Writable shared storage, matching copy hashes and
+enclosed receipts do not independently authenticate provenance. Report UNVERIFIED and stop when unknown;
+never modify shared files or permissions.
+
+Safely extract and review INSTALL.md, offline-install.md, security.md, acceptance.md, v1.md,
+deployment-contract.md and repository constraints before project scripts. Statically check five matching
+versions: release-manifest.json, pyproject.toml project.version, mihomoctl/__init__.py __version__,
+install.sh VERSION= and src/common.bash MIHOMO_USERCTL_VERSION. Missing, duplicate or inconsistent
+markers stop installation. Project wheel version, Requires-Dist and payload must match the release
+manifest. Reject bytecode and unreviewed payload files.
+
+From reviewed private source, with KIT set to the verified kit's absolute path:
+  bash install.sh --python /usr/bin/python3 --wheelhouse "$KIT/wheelhouse" --dry-run
+  bash install.sh --python /usr/bin/python3 --wheelhouse "$KIT/wheelhouse"
   "$HOME/.local/bin/mihomoctl" version
-  python3 -I scripts/bootstrap.py verify
---wheelhouse may be omitted when the selected interpreter (default /usr/bin/python3 when none is
-given) can already import yaml; the installer then uses the dependencies already present. Dependency
-wheels in that directory must match the target platform's Python version and architecture, and the
-installer rejects wheels whose platform tag does not fit: for example the Windows + CPython 3.9
-pyyaml-6.0.3-cp39-cp39-win_amd64.whl (the one in the local .tmp-v1-ui-wheels/) cannot be used as a
-dependency wheel.
-scripts/offline_install.py check/install is retired in V1: invoking it only prints
-legacy-installation-entry-retired and exits 2 without installing anything. It appears in this prompt
-as a counter-example only, never as an executable installation step. Never run npm install,
-download through npx, or execute archive install scripts. Preserve conflicting existing commands;
-report a concrete backup/migration plan before an unauthorized replacement.
-Complete the installation above in the reviewed private source directory. Installed commands must not
-depend on the public archive directory. Proceed within existing authorization; clarify only unresolved
-configuration or changes outside that authorization.
-Do not use sudo or alter shared files/other users/system services/TUN/system proxies. The installer
-never starts services itself. Explicit install-and-start authorization permits starting the user service
-after configuration/port checks, keeping it disabled. Install-only preserves runtime state; never stop
-working services for tests. Keep per-user ports, authenticated listeners and credentials; the default new service
-is disabled, and existing state follows the original setup contract.
+  /usr/bin/python3 -I scripts/bootstrap.py verify
+Report and stop for missing files, hash mismatches, dependency-version failures or incompatible wheels.
+Omit wheelhouse only when both declared dependency versions and actual imports pass for selected Python.
+Never download from GitHub/npm/apt/pip as a fallback, or use old scripts/offline_install.py/bootstrap.py.
+Preserve conflicting existing commands; report a concrete backup/migration plan before replacement.
 
-Keep credentials and private subscriptions in restricted personal files, never chat/logs/Git/shared
-packages. If disabling OpenCode autoupdate, merge autoupdate=false without replacing other personal
-settings. Do not automatically install plugins, LSP, MCP or extensions; list missing runtime resources.
-For missing credentials, provide the documented restricted local file/editing method, wait for user
-completion, and never request secret values in chat. Do not repeat existing approvals.
+Mihomo, OpenCode, Codex and Node are not included. Remind the user to prepare/install them themselves;
+do not automatically install these tools, plugins, LSPs, MCPs or extensions. Control-plane installation
+never adopts/replaces an existing Mihomo core, starts/stops services, writes .bashrc/other startup files,
+or registers proxy_on/proxy_status/with_proxy/hooks. Default backend is process, without systemd.
+Set ports later using explicit init --port and named listener profiles, not installer port parameters.
+For 0.x migration, inspect mihomoctl migrate --dry-run before explicitly choosing --apply.
+Use explicit mihomoctl exec / env / integration; preserve authentication, sessions, subscriptions and
+configuration. Never use sudo or alter system services, TUN or system proxy; do not stop existing services
+for testing. Existing authorization does not require repeated confirmation.
 
-Run documented local version checks, source regression tests and acceptance, preserving real exit
-codes. Do not perform authentication, subscription refresh or external connectivity probes without
-network authorization; mark them UNVERIFIED. DEFERRED requires explicit user postponement;
-unselected features are unselected. Follow the contract for separate Codex executable, new-process,
-Listener/proxy-egress and authorized minimal model request evidence; the user handles login.
-Untested runtime compatibility is UNVERIFIED.
-Listener readiness is not proxy-node evidence. Return versions/architecture/SHA256/local sources,
-personal installation paths and receipts, controller backup/rollback commands, service state,
-actual check results and remaining actions, using the contract's report fields and scoped isolation
-claims. Do not claim independent signature verification.
-Finish with deployment-contract.md's subscription handoff: actual absolute path/provider URL key,
-local editing and authorized follow-up checks. Preserve existing subscriptions; file providers use
-their actual import location. Never request links in chat or report missing setup as fully usable.
-For Codex delivery follow first-run.md: install → mihomoctl doctor → mihomoctl start only if selected →
-mihomoctl codex preflight only when public probing is authorized. Exit 0 permits authorized real-client
-acceptance; exit 1 is BLOCKED: no Codex or model request, guide safe client reconnect; exit 2 is UNVERIFIED: no launch.
-Never run bare codex for post-install acceptance; mihomoctl codex repeats the gate. Use mihomoctl diagnose codex
-for offline diagnosis; its UNVERIFIED/exit 2 does not mean model failure. WebSocket needs local/remote distinction.
-The installation agent's own connectivity is not Codex evidence; .bashrc changes disk state, not existing
-Agent/app-server/Extension Host/tmux/Notebook environments. Never kill or delete sockets/authentication/sessions.
-Report four levels and pending subscription/login/reconnect; HTTP success cannot replace an actual model reply.
+Run applicable regressions and preserve exit codes. Unexecuted platform/service/external/model checks are
+UNVERIFIED; use DEFERRED only when explicitly requested. Report before/after state, versions/architecture/
+digests/provenance, private paths, receipts, backups/rollback, actual tests and remaining items.
+Never claim enclosed checksums provide independent official signature verification.
+Follow deployment-contract.md for private subscription configuration paths/local editing instructions;
+never ask for subscription URLs in chat. Only if Codex delivery was selected, follow first-run.md's
+state machine and authorized model acceptance; do not bypass the gate by invoking bare codex.
 ```

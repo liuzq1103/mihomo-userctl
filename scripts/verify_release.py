@@ -6,6 +6,12 @@ import json
 from pathlib import Path
 import re
 
+if __package__ in (None, ""):
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.verify_offline_bundle import load_bundle
+
 
 class GateError(ValueError):
     pass
@@ -21,7 +27,7 @@ def document(path):
     return value
 
 
-def verify(artifacts, evidence, commit):
+def verify(artifacts, evidence, commit, offline_artifacts=None):
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise GateError("expected-full-git-commit")
     receipt = document(artifacts / "build-receipt.json")
@@ -54,6 +60,7 @@ def verify(artifacts, evidence, commit):
         raise GateError("release-checksum-inventory-mismatch")
     core_digests = set()
     installed_artifact_sets = []
+    offline_assets = []
     for ubuntu in ("22.04", "24.04"):
         folder = evidence / ("validation-ubuntu-" + ubuntu)
         installation = document(folder / "artifact-install.json")
@@ -70,6 +77,26 @@ def verify(artifacts, evidence, commit):
             if tested_hashes[name] != hashes[name]:
                 raise GateError("installed-source-artifact-differs: " + ubuntu)
         installed_artifact_sets.append(tested_hashes)
+        target = "ubuntu" + ubuntu + "-x86_64-py" + ("310" if ubuntu == "22.04" else "312")
+        bundle_name = "mihomoctl-" + version + "-offline-" + target + ".tar.gz"
+        bundle_path = (offline_artifacts or artifacts) / bundle_name
+        try:
+            bundle, _ = load_bundle(bundle_path, target)
+        except (ValueError, OSError) as error:
+            raise GateError("offline-bundle-invalid: " + target + ": " + str(error)) from None
+        offline = document(folder / "offline-bundle-install.json")
+        if (bundle["commit"] != commit or bundle["version"] != version
+                or offline.get("commit") != commit or offline.get("version") != version
+                or offline.get("target") != target or offline.get("bundle_file") != bundle_name
+                or offline.get("bundle_sha256") != hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+                or offline.get("publishable_acceptance") is not True
+                or offline.get("success") is not True or offline.get("source_dirty") is not False
+                or offline.get("network_isolated") is not True or offline.get("tests") != 3
+                or offline.get("skipped") != 0 or offline.get("errors") != 0 or offline.get("failures") != 0):
+            raise GateError("offline-bundle-acceptance-incomplete: " + target)
+        if any(bundle["files"].get("release/" + name) != value for name, value in tested_hashes.items()):
+            raise GateError("offline-bundle-release-assets-differ: " + target)
+        offline_assets.extend([bundle_name, bundle_name + ".sha256"])
         for suite in ("unit", "real-core", "privileged"):
             report = document(folder / (suite + ".json"))
             if (report.get("commit") != commit or report.get("source_dirty") is not False
@@ -99,7 +126,8 @@ def verify(artifacts, evidence, commit):
         raise GateError("selected-release-assets-were-not-installed")
     if len(core_digests) != 1:
         raise GateError("tested-core-differs-between-acceptance-environments")
-    return {"commit": commit, "version": version, "assets": sorted(names),
+    return {"commit": commit, "version": version,
+            "assets": sorted(names | set(offline_assets) | {"SHA256SUMS", "build-receipt.json"}),
             "ubuntu": ["22.04", "24.04"], "verified": True}
 
 
@@ -108,9 +136,11 @@ def main():
     parser.add_argument("--artifacts", type=Path, required=True)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--offline-artifacts", type=Path,
+                        help="both target kits and .sha256 sidecars (default: --artifacts)")
     args = parser.parse_args()
     try:
-        result = verify(args.artifacts, args.evidence, args.commit)
+        result = verify(args.artifacts, args.evidence, args.commit, args.offline_artifacts)
     except GateError as error:
         print("release blocked: " + str(error))
         return 1

@@ -205,7 +205,7 @@ def load_manifest(directory):
     refuse before performing any write."""
     path = Path(directory) / "release-manifest.json"
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_json_object)
     except FileNotFoundError:
         raise InstallationError("release-manifest-missing",
                                 str(path), "use a complete reviewed release tree") from None
@@ -263,6 +263,15 @@ def load_manifest(directory):
     if PROJECT_NAME not in raw["packages"]:
         raise InstallationError("release-manifest-invalid", "mihomoctl package missing from packages")
     return raw
+
+
+def _unique_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
 
 
 def _private_segment(relative):
@@ -336,6 +345,8 @@ def parse_pyproject(path):
         if not match:
             raise InstallationError("pyproject-unsupported-syntax", "line %d" % lineno)
         current_key, value = match[1], match[2].strip()
+        if (section, current_key) in result:
+            raise InstallationError("pyproject-duplicate-key", "%s.%s" % (section, current_key))
         if value.startswith("["):
             chunk, closed, items = _array_chunk(value, [])
             if closed:
@@ -366,6 +377,16 @@ def cross_check_pyproject(source_root, manifest):
     values = parse_pyproject(Path(source_root) / "pyproject.toml")
     if values.get(("project", "version")) != manifest["version"]:
         raise InstallationError("source-version-markers-disagree", "pyproject.toml")
+    for name, marker in (("install.sh", "VERSION"), ("src/common.bash", "MIHOMO_USERCTL_VERSION"),
+                         ("mihomoctl/__init__.py", "__version__")):
+        try:
+            text = (Path(source_root) / name).read_text(encoding="utf-8")
+        except OSError:
+            raise InstallationError("source-version-marker-missing", name) from None
+        assignments = re.findall(r"^\s*" + marker + r"\s*=([^\n]*)$", text, re.M)
+        if len(assignments) != 1 or not re.fullmatch(
+                r"\s*(['\"])" + re.escape(manifest["version"]) + r"\1\s*", assignments[0]):
+            raise InstallationError("source-version-markers-disagree", name)
     if values.get(("project.scripts", CONSOLE_SCRIPT)) != manifest["entry_point"]:
         raise InstallationError("entry-point-disagrees-with-manifest", "pyproject.toml")
     dependencies = values.get(("project", "dependencies"))
@@ -403,17 +424,36 @@ def parse_wheel_filename(path):
             "py": info["py"], "abi": info["abi"], "plat": info["plat"], "path": Path(path)}
 
 
-def wheel_compatible_here(info):
-    minor = "%d%d" % sys.version_info[:2]
-    machine = platform.machine() or ""
-    py, abi = info["py"], info["abi"]
-    ok_py = py in ("py3", "py3.%d" % sys.version_info[1]) or (
-        py == "cp" + minor and abi in ("none", "abi3", "cp" + minor)) or (
-        re.fullmatch(r"cp3\d+", py) and (3, int(py[3:])) <= sys.version_info[:2] and abi == "abi3")
-    plat = info["plat"]
-    ok_plat = plat == "any" or plat == "linux_" + machine or (
-        plat.startswith("manylinux") and plat.endswith("_" + machine))
-    return ok_py and ok_plat
+def wheel_compatible_here(info, target=None):
+    target = target or {"version": list(sys.version_info[:3]), "machine": platform.machine(),
+                        "libc": platform.libc_ver(), "implementation": sys.implementation.name}
+    version = tuple(target["version"][:2])
+    minor = "%d%d" % version
+    machine = target["machine"]
+    for py in info["py"].split("."):
+        abi = info["abi"]
+        ok_py = (py in ("py3", "py%d%d" % version) and abi == "none") or (
+            target["implementation"] == "cpython" and (
+                (py == "cp" + minor and abi in ("none", "abi3", "cp" + minor)) or (
+                    re.fullmatch(r"cp3\d+", py) and (3, int(py[3:])) <= version and abi == "abi3")))
+        for plat in info["plat"].split("."):
+            ok_plat = plat in ("any", "linux_" + machine)
+            if target["libc"][0] == "glibc":
+                match = re.fullmatch(r"manylinux_(\d+)_(\d+)_" + re.escape(machine), plat)
+                minimum = None
+                if match:
+                    minimum = tuple(map(int, match.groups()))
+                elif plat.endswith("_" + machine):
+                    minimum = {"manylinux1": (2, 5), "manylinux2010": (2, 12),
+                               "manylinux2014": (2, 17)}.get(plat.removesuffix("_" + machine))
+                if minimum:
+                    try:
+                        ok_plat = tuple(map(int, target["libc"][1].split(".")[:2])) >= minimum
+                    except ValueError:
+                        ok_plat = False
+            if ok_py and ok_plat:
+                return True
+    return False
 
 
 def _safe_member(name):
@@ -437,6 +477,10 @@ def _wheel_limits(zf):
         raise InstallationError("duplicate-archive-path", "duplicate wheel member")
     for member in members:
         _safe_member(member.filename)
+        if "__pycache__" in PurePosixPath(member.filename).parts or member.filename.endswith((".pyc", ".pyo")):
+            raise InstallationError("release-bytecode-refused", member.filename)
+        if stat.S_IFMT(member.external_attr >> 16) not in (0, stat.S_IFREG, stat.S_IFDIR):
+            raise InstallationError("unsafe-archive-member", member.filename)
         if member.filename.endswith(("/METADATA", "/WHEEL", "/RECORD")) and member.file_size > 4 * 1024 * 1024:
             raise InstallationError("wheel-metadata-size-limit", "metadata too large")
 
@@ -558,7 +602,7 @@ def unpack_wheel(path, lib_dir, *, allowed_top_levels=None):
     return info
 
 
-def resolve_dependency_wheels(requirements, wheelhouse):
+def resolve_dependency_wheels(requirements, wheelhouse, target=None):
     """Pick wheels from ``wheelhouse`` satisfying the closed requirement set."""
     if not Path(wheelhouse).is_dir():
         raise InstallationError("wheelhouse-missing", str(wheelhouse))
@@ -580,7 +624,7 @@ def resolve_dependency_wheels(requirements, wheelhouse):
             if not _specifier_satisfied(spec, parse_version(seen[name]["version"])):
                 raise InstallationError("dependency-constraint-conflict", name)
             continue
-        candidates = [i for i in available.get(name, []) if wheel_compatible_here(i)]
+        candidates = [i for i in available.get(name, []) if wheel_compatible_here(i, target)]
         chosen = None
         for candidate in sorted(candidates, key=lambda i: parse_version(i["version"]), reverse=True):
             if _specifier_satisfied(spec, parse_version(candidate["version"])):
@@ -594,6 +638,13 @@ def resolve_dependency_wheels(requirements, wheelhouse):
         chosen_wheels.append(chosen)
         with zipfile.ZipFile(chosen["path"]) as zf:
             meta = _read_wheel_metadata(zf, chosen)
+            _verify_record(zf, chosen)
+            if normalize_name(meta["name"]) != name or meta["version"] != chosen["version"]:
+                raise InstallationError("wheel-metadata-disagrees-with-filename", chosen["path"].name)
+            version = target["version"] if target else sys.version_info[:3]
+            if meta["requires_python"] and not _specifier_satisfied(
+                    meta["requires_python"], parse_version(".".join(map(str, version)))):
+                raise InstallationError("wheel-requires-python-unsatisfied", chosen["path"].name)
         queue.extend(meta["requires"])
     return chosen_wheels
 
@@ -612,6 +663,8 @@ def extract_archive(path, staging):
 
     def checked(name):
         parts = _safe_member(name)
+        if "__pycache__" in parts or name.endswith((".pyc", ".pyo")):
+            raise InstallationError("release-bytecode-refused", name)
         root_names.add(parts[0])
         return parts
 
@@ -912,12 +965,75 @@ def resolve_python(explicit=None, system=False):
 _IMPORT_ALIASES = {"pyyaml": "yaml"}
 
 
+def interpreter_target(python):
+    code = ("import json,sys,platform; print(json.dumps(dict(version=list(sys.version_info[:3]), "
+            "machine=platform.machine(), libc=platform.libc_ver(), "
+            "implementation=sys.implementation.name, os=sys.platform)))")
+    probe = subprocess.run([str(python), "-I", "-B", "-c", code], capture_output=True,
+                           text=True, timeout=SMOKE_TIMEOUT,
+                           env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"})
+    try:
+        target = json.loads(probe.stdout)
+        if probe.returncode or target["os"] != "linux" or tuple(target["version"][:2]) < (3, 10):
+            raise ValueError()
+        return target
+    except (ValueError, KeyError, TypeError):
+        raise InstallationError("unsupported-target-interpreter", "Linux Python 3.10+ is required") from None
+
+
+def check_dependencies(python, lib_dir, requirements):
+    """Check the distributions and modules actually visible to the target Python."""
+    requests = []
+    for requirement in requirements:
+        name, spec, marker = parse_requirement(requirement)
+        if marker is not None:
+            if "extra" in marker:
+                continue
+            raise InstallationError("unsupported-environment-marker", requirement)
+        requests.append((name, spec, _IMPORT_ALIASES.get(name, name.replace("-", "_"))))
+    code = '''import sys,json,importlib,importlib.metadata
+sys.path.insert(0, sys.argv[1])
+result = []
+for name, spec, module_name in json.loads(sys.argv[2]):
+    try:
+        module = importlib.import_module(module_name)
+        installed = importlib.metadata.version(name)
+        module_version = getattr(module, '__version__', getattr(module, 'VERSION', installed))
+        result.append(dict(name=name, version=installed, module_version=str(module_version)))
+    except (ImportError, importlib.metadata.PackageNotFoundError):
+        result.append(dict(name=name, missing=True))
+print(json.dumps(result))
+'''
+    probe = subprocess.run([str(python), "-I", "-B", "-c", code, str(lib_dir), json.dumps(requests)],
+                           capture_output=True, text=True, timeout=SMOKE_TIMEOUT,
+                           env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"})
+    try:
+        found = json.loads(probe.stdout)
+        if probe.returncode or not isinstance(found, list) or len(found) != len(requests):
+            raise ValueError()
+    except ValueError:
+        raise InstallationError("dependency-probe-failed", "target dependency import failed",
+                                "prepare a compatible local wheelhouse; no network fallback") from None
+    for (name, spec, _), item in zip(requests, found):
+        if item.get("missing"):
+            raise InstallationError("dependency-missing", name,
+                                    "provide a local --wheelhouse; no network fallback")
+        version = parse_version(item["version"])
+        if not _specifier_satisfied(spec, version):
+            raise InstallationError("dependency-version-unsatisfied", "%s%s; found %s" % (name, spec, item["version"]),
+                                    "import success does not satisfy the declared version; provide a local --wheelhouse")
+        if parse_version(item["module_version"]) != version:
+            raise InstallationError("dependency-module-version-disagrees", name,
+                                    "the imported module differs from its distribution metadata")
+
+
 def smoke_test(python, lib_dir, manifest):
     """Import the entry module and packaged modules from the staged lib.
 
     Runs with a stripped environment (no CLASH_*/PYTHON* influence), never
     touches the network, and for system scope only runs after the tree is
     confirmed root-owned (root never loads user-writable code)."""
+    check_dependencies(python, lib_dir, manifest["dependencies"])
     entry_module, _, entry_attr = manifest["entry_point"].partition(":")
     statements = ["import sys, importlib", "sys.path.insert(0, sys.argv[1])", "import mihomoctl"]
     for package in manifest["packages"]:
@@ -932,7 +1048,7 @@ def smoke_test(python, lib_dir, manifest):
     statements.append("module = importlib.import_module(%r)" % entry_module)
     statements.append("assert callable(getattr(module, %r)), 'entry point not callable'" % entry_attr)
     code = "; ".join(statements) + "; print('SMOKE-OK')"
-    probe = subprocess.run([str(python), "-I", "-c", code, str(lib_dir)], capture_output=True,
+    probe = subprocess.run([str(python), "-I", "-B", "-c", code, str(lib_dir)], capture_output=True,
                            text=True, env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"},
                            timeout=SMOKE_TIMEOUT)
     if probe.returncode != 0 or "SMOKE-OK" not in probe.stdout:
@@ -976,7 +1092,7 @@ def _copy_source_packages(source_root, lib_dir, manifest):
         raise InstallationError("source-version-markers-disagree", "mihomoctl/__init__.py")
 
 
-def _stage_wheels(source, lib_dir, wheelhouse, manifest):
+def _stage_wheels(source, lib_dir, wheelhouse, manifest, target=None):
     main_candidates = [w for w in source.wheels
                        if parse_wheel_filename(w)["name"] == PROJECT_NAME]
     if len(main_candidates) != 1:
@@ -986,14 +1102,14 @@ def _stage_wheels(source, lib_dir, wheelhouse, manifest):
     main_info = parse_wheel_filename(main_path)
     if main_info["version"] != manifest["version"]:
         raise InstallationError("wheel-version-disagrees-with-manifest", main_path.name)
-    if not wheel_compatible_here(main_info):
+    if not wheel_compatible_here(main_info, target):
         raise InstallationError("wheel-incompatible-with-this-interpreter", main_path.name)
     with zipfile.ZipFile(main_path) as zf:
         meta = _read_wheel_metadata(zf, main_info)
         if normalize_name(meta["name"]) != PROJECT_NAME or meta["version"] != manifest["version"]:
             raise InstallationError("wheel-metadata-disagrees-with-filename", main_path.name)
         if meta["requires_python"] and not _specifier_satisfied(
-                meta["requires_python"], parse_version("%d.%d.%d" % sys.version_info[:3])):
+                meta["requires_python"], parse_version(".".join(map(str, target["version"] if target else sys.version_info[:3])))):
             raise InstallationError("wheel-requires-python-unsatisfied", main_path.name)
         entry = zf.read(meta["prefix"] + "entry_points.txt").decode("utf-8")
         init_text = zf.read(PROJECT_NAME + "/__init__.py").decode("utf-8")
@@ -1015,8 +1131,20 @@ def _stage_wheels(source, lib_dir, wheelhouse, manifest):
     base = [r for r in requirements if parse_requirement(r)[2] is None]
     if sorted(parse_requirement(r) for r in base) != sorted(parse_requirement(r) for r in manifest["dependencies"]):
         raise InstallationError("wheel-dependencies-disagree-with-manifest", main_path.name)
-    for chosen in resolve_dependency_wheels(requirements, wheelhouse or source.root):
-        unpack_wheel(chosen["path"], lib_dir)
+    if wheelhouse is not None:
+        for chosen in resolve_dependency_wheels(requirements, wheelhouse, target):
+            unpack_wheel(chosen["path"], lib_dir)
+
+
+def stage_payload(source, lib_dir, wheelhouse, interpreter):
+    target = interpreter_target(interpreter)
+    if source.kind == "source-tree":
+        _copy_source_packages(source.root, lib_dir, source.manifest)
+        if wheelhouse and source.manifest["dependencies"]:
+            for chosen in resolve_dependency_wheels(source.manifest["dependencies"], wheelhouse, target):
+                unpack_wheel(chosen["path"], lib_dir)
+    else:
+        _stage_wheels(source, lib_dir, wheelhouse, source.manifest, target)
 
 
 def _entry_stub(python, lib_dir, manifest):
@@ -1167,6 +1295,13 @@ def install(scope, source, *, wheelhouse=None, manifest_path=None, python=None,
         if source_obj.kind == "source-tree":
             cross_check_pyproject(source_obj.root, source_obj.manifest)
         interpreter = resolve_python(python, system=scope.system)
+        # Stage only in an ephemeral private directory. Both dry-run and install
+        # validate the complete payload before creating any installation paths.
+        with tempfile.TemporaryDirectory(prefix="mihomoctl-preflight-") as temporary:
+            lib = Path(temporary) / "lib"
+            lib.mkdir(mode=0o700)
+            stage_payload(source_obj, lib, wheelhouse, interpreter)
+            check_dependencies(interpreter, lib, source_obj.manifest["dependencies"])
         conflict = _old_installation_conflict(scope, paths)
         if conflict:
             raise InstallationError("legacy-installation-present", conflict[0], conflict[1])
@@ -1236,13 +1371,7 @@ def _install_locked(scope, paths, source_obj, interpreter, wheelhouse, *, smoke)
         lib = generation / "lib"
         lib.mkdir(mode=0o755)
         (generation / "bin").mkdir(mode=0o755)
-        if source_obj.kind == "source-tree":
-            _copy_source_packages(source_obj.root, lib, source_obj.manifest)
-            if wheelhouse and source_obj.manifest["dependencies"]:
-                for chosen in resolve_dependency_wheels(source_obj.manifest["dependencies"], wheelhouse):
-                    unpack_wheel(chosen["path"], lib)
-        else:
-            _stage_wheels(source_obj, lib, wheelhouse, source_obj.manifest)
+        stage_payload(source_obj, lib, wheelhouse, interpreter)
         stub = generation / "bin" / CONSOLE_SCRIPT
         stub.write_text(_entry_stub(interpreter, lib, source_obj.manifest), encoding="utf-8")
         os.chmod(stub, 0o755)

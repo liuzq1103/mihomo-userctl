@@ -77,7 +77,6 @@ PRE_EXPANDED_BUNDLE = re.compile(r"PUBLIC/mihomo-offline|\$BUNDLE/|Shared deploy
 # not follow it. Agent-facing pages are never exempt -- they are executed.
 ARCHIVED_PAGES = frozenset((
     "docs/en/setup.md", "docs/zh-CN/setup.md",
-    "docs/en/offline-install.md", "docs/zh-CN/offline-install.md",
     "docs/en/quick-install.md", "docs/zh-CN/quick-install.md",
 ))
 ARCHIVE_BANNER = re.compile(r"0\.9\.x")

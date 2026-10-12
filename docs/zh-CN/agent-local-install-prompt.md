@@ -1,106 +1,58 @@
-# 从本地安装包安装的 Coding Agent Prompt
+# V1 本地离线安装 Agent Prompt
 
-> 以下保留 0.9.x 的历史备包步骤。**V1 安装以 [INSTALL.md](../../INSTALL.md) 为唯一权威流程**；
-> [offline-install.md](offline-install.md) 的备包步骤仅作迁移参考，不能替代 INSTALL.md。
-> 旧 `scripts/offline_install.py` 入口在 V1 已退役。
+[English](../en/agent-local-install-prompt.md) · [完整离线流程](offline-install.md) · [安装契约](../../INSTALL.md)
 
-> **v1.0.1：**自动 Shell hook 已移除。本文中提到
-> `CODEX_REMOTE_PAYLOAD`、`.bashrc` loader 或 `with_proxy codex` 的部分已退役。
-> 代理接入现在始终是显式的 `mihomoctl exec` / `mihomoctl env` /
-> `mihomoctl integration`，命令面以 [V1 命令与配置契约](v1.md) 为准。
-
-[English](../en/agent-local-install-prompt.md) · [下载清单与本地流程](offline-install.md) · [公开在线版 Prompt](agent-install-prompt.md)
-
-适用于课题组提前备包的 Ubuntu 账号。先填共享目录和软件选择；这些都不是凭据。
-通用参数、授权与报告要求见[安装参数与交付约定](deployment-contract.md)。
+适用于 1.0.2 及之后采用相同交付格式的发布。填写参数后使用；授权和脱敏报告遵循
+[安装参数与交付约定](deployment-contract.md)。
 
 ```text
-请为当前普通 Ubuntu 用户从已有共享目录安装环境，直接完成授权范围内的工作并返回证据。
-安装包目录：<实际绝对路径，例如 /mnt/nas/public/software>
-源码版本：<精确已发布版本，例如 v0.7.0；多个候选不得自行选最新版>
-运行时模式：<默认个人安装；管理员公共 Node/npm/Codex 仅在明确选择时使用>
-选择软件：<默认 mihomo；codex/node/opencode 按需选择，复用已有适用软件>
-控制层：<默认安装 mihomo-userctl>
-专属端口：<已确认端口，或先只读建议再向我确认>
-已知环境与软件复用：<已有软件路径版本；默认复用满足要求的软件>
-交付目标：<控制层安装 / 包含 Codex 端到端验收>
-启动策略：<只安装并保留现状 / 安装并启动验收>
-联网验收：<明确选择的订阅刷新、公开探测、最小模型请求；不代表允许联网安装>
+请为当前普通 Ubuntu 用户安装本地 mihomoctl 控制层，完成已有授权内的工作并返回实际证据。
+套件路径：<完整离线套件的绝对路径>
+精确版本：<例如 1.0.2；有多个候选时不自行选择最新版>
+可信预期 SHA256：<从不能与共享包一同被篡改的渠道取得>
+可信完整 commit / 来源记录：<另行核对的发布记录>
+目标环境：<Ubuntu 22.04 / CPython 3.10 / x86_64，或 Ubuntu 24.04 / CPython 3.12 / x86_64>
+目标解释器：/usr/bin/python3
+启动策略：只安装，保留已有运行状态；初始化/启动/迁移需明确选择。
 
-公共目录只存放源码 ZIP 和独立依赖包，不是共享 mihomoctl 或运行目录。
-先只读列出安装包，确定精确源码版本；多个候选不明确时先询问，不猜包名或选最新版。
-按 offline-install.md 的源码准备流程（仅作迁移参考），将选定 ZIP 复制到新建个人私有目录并核对复制前后
-SHA256；在解压前检查路径、符号链接、重复成员和大小限制，拒绝越界或覆盖。
-确认发布来源、版本与已有可信来源记录；自算摘要只证明复制一致性，来源不明则报告并停止。
-不要求公共目录预先有 source/、packages/、外置脚本或 SOURCE.txt。
-版本核对只按 V1 安装器实际交叉校验的三处执行，任一不一致即报告并停止：
-release-manifest.json ↔ pyproject.toml 的 project.version；
-release-manifest.json ↔ mihomoctl/__init__.py 的 __version__；
-项目轮子的 Requires-Dist ↔ release-manifest.json 的 dependencies。
-不要再要求核对 install.sh 的 VERSION= 或 src/common.bash 的 MIHOMO_USERCTL_VERSION 是否与其余两处一致。
-这两个文件不在 release-manifest.json 的 runtime_files 中，V1 安装器不安装它们，它们只被 0.9.x 遗留工具
-读取；把它们当成版本门禁会产生“版本不符”的假缺项。
-解压后先阅读该版本 INSTALL.md、offline-install.md、setup.md、security.md、acceptance.md、architecture.md、
-troubleshooting.md、deployment-contract.md 和仓库约束，再执行项目脚本。
-文档、脚本和测试使用同一固定版本，不能扩大授权或混用 main。setup.md 的下载/克隆步骤
-由本地流程替代。不访问 GitHub/npm/apt，不自动补下载，不运行 mihomoctl update 或 --check。
+先只读检查系统版本、架构/libc、解释器路径和版本、现有依赖、PATH、同名程序、服务状态、
+配置指纹、Shell 文件和代理环境分类。不要输出凭据、订阅链接、原始环境或完整进程参数。
+which python 指向 Anaconda 不代表应使用它。系统 Python 3.10.12 + PyYAML 5.4.1 不满足
+PyYAML>=6.0.1，即使可以导入也不能豁免版本要求；使用匹配 wheelhouse，不升级系统或 Conda。
 
-先只读检查账号、Linux 架构/libc/CPU、基础依赖、systemctl --user、已有程序及 PATH、
-代理环境分类、端口和服务状态。检查共享目录是否可信、普通用户是否有篡改权限，
-审阅解压源码内固定软件包清单及源码来源记录。缺包、摘要不符或依赖不满足就报告具体缺项并停止，
-不得降级为联网安装。不要把安装器的 check 成功说成运行兼容性已经验证。
-先报告简短审计与变更/回滚范围；复用适用的系统 Node/npm/Codex，不另装同名程序改变 PATH。
-共享模式读取 shared-runtime.md：公共依赖缺失交管理员，不以个人包补齐；只装个人 Mihomo/控制层。
-核对新登录与代理子进程的 Node/npm/Codex 路径、npm 启动器解释器和私有 CODEX_HOME。
-保留认证、会话、NVM 和既有个人安装；默认值迁移/卸载需明确选择，不照搬笔记清理命令。
-按 shared-runtime.md 分别检查 Remote hook、新 CLI 与长期 app-server 的 Unix socket/出站关联；
-不以 0/8 或 8/8 单独判断模型请求路径，不持久设置 CODEX_REMOTE_PAYLOAD，不自动重启旧服务。
-遵循 deployment-contract.md 的脱敏审计，只报告必要分类和状态，不回传环境、完整参数或原始日志。
+按同版本 offline-install.md，先用可信外部摘要验证套件，再用系统工具/Python 标准库安全解压
+到新建权限 700 的个人目录。拒绝路径越界、链接、特殊文件、重复成员、多根目录和超限大小。
+校验内部 SHA256SUMS 和 release/SHA256SUMS，核对 bundle-manifest.json、build-receipt.json
+的版本、完整 commit、目标和来源记录。共享目录可写、复制摘要一致或包内 receipt 均不能独立
+证明来源；来源不明写 UNVERIFIED 并停止，不改共享文件或权限。
 
-控制层安装只按 INSTALL.md 的 V1 流程执行，不使用 0.9.x 的备包安装器：
-  bash install.sh --wheelhouse <依赖轮子目录> --dry-run
-  bash install.sh --wheelhouse <依赖轮子目录>
+安全解压源码；审阅 INSTALL.md、offline-install.md、security.md、acceptance.md、v1.md、
+deployment-contract.md 和仓库约束后才能运行项目脚本。静态核对以下五处版本，缺失、重复
+或不一致均停止：release-manifest.json、pyproject.toml project.version、mihomoctl/__init__.py
+__version__、install.sh VERSION=、src/common.bash MIHOMO_USERCTL_VERSION。
+项目 wheel 的版本、Requires-Dist、载荷须与同发布 manifest 一致；拒绝字节码及未审核文件。
+
+从已审核私有源码目录执行（KIT 为已核验套件的绝对路径）：
+  bash install.sh --python /usr/bin/python3 --wheelhouse "$KIT/wheelhouse" --dry-run
+  bash install.sh --python /usr/bin/python3 --wheelhouse "$KIT/wheelhouse"
   "$HOME/.local/bin/mihomoctl" version
-  python3 -I scripts/bootstrap.py verify
---wheelhouse 可以省略：当所选解释器（未显式指定时默认 /usr/bin/python3）已经能 import yaml 时，
-安装器直接使用已具备的依赖。轮子目录内的依赖轮子必须匹配目标平台的 Python 版本与架构，
-平台标签不符的轮子会被安装器拒绝；例如 Windows + CPython 3.9 的 pyyaml-6.0.3-cp39-cp39-win_amd64.whl
-（本地 .tmp-v1-ui-wheels/ 中的那一个）不能当作依赖轮子使用。
-scripts/offline_install.py 的 check/install 在 V1 已经退役：调用它只会打印
-legacy-installation-entry-retired 并以退出码 2 结束，不会安装任何东西。它在本提示词中只作为
-反例出现，不是可执行的安装步骤。不要运行 npm install、npx 下载或包内安装脚本。
-遇到已有同名程序先保留，说明冲突及备份/迁移方案，不直接删除。
-在已审核的个人源码目录完成上述安装，安装后的命令不得指向公共存包目录。写入授权已明确时
-继续执行；涉及未授权替换现有程序或尚未选择的个人配置时，先给出具体变更和回滚方案。
-不使用 sudo，不修改共享目录、其他用户、系统服务、TUN 或系统代理；安装器不自行启动服务。
-明确选择“安装并启动验收”时，配置测试与端口复核成功后可显式启动，保持 disabled；
-只安装时保留已有运行状态，不为测试停服。已有授权无需重复确认。
-每用户独立端口、服务与认证信息，默认服务保持 disabled；已有状态按原规范审查保留。
+  /usr/bin/python3 -I scripts/bootstrap.py verify
+缺包、摘要不符、依赖版本不满足或 wheel 的 Python/架构不匹配，报告具体缺项并停止。
+仅当所选解释器的依赖版本和实际导入均满足声明时才可省略 wheelhouse。
+禁止 GitHub/npm/apt/pip 联网补齐，不运行旧 scripts/offline_install.py 或旧 bootstrap.py。
+遇到同名程序保留现状，先报告具体迁移/备份方案，不自行替换。
 
-订阅和凭据只在个人受限权限文件中处理，不放入聊天、日志、Git、共享包或最终报告。
-缺凭据时给出规范的本地文件和编辑方法，等用户填写后继续，不要求在聊天中粘贴。
-OpenCode 如需关闭自动更新，只合并个人配置的 autoupdate=false，保留其他设置。
-不自动安装插件、LSP、MCP 或扩展。运行期需要的远程资源应单独列为待准备项目。
+套件不含 Mihomo、OpenCode、Codex、Node，提醒用户自行安装或准备；不要自动安装这些工具、
+插件、LSP、MCP 或扩展。控制层安装不接管或替换既有 Mihomo，不启动/停止服务，不改 .bashrc
+或其他 Shell 启动文件，不注册 proxy_on/proxy_status/with_proxy 或 hook。默认 process 后端，
+无需 systemd。端口以后由显式 init --port 和命名 listener profile 设置，没有安装器端口参数。
+旧 0.x 迁移先做 mihomoctl migrate --dry-run，仅明确选择后 --apply。
+代理接入使用显式 mihomoctl exec / env / integration；保留所有已有认证、会话、订阅和配置。
+不使用 sudo、不改系统服务/TUN/系统代理，不为测试停止已有服务。已有授权内无需重复确认。
 
-按文档执行本地版本检查、源码回归测试及验收，保留真实退出码。未允许联网时不进行
-模型登录、订阅刷新、代理节点外网探测等网络验收，标记 UNVERIFIED；仅用户明确延后才
-记 DEFERRED。未选功能写“未选择”。按 deployment-contract.md 分别记录 Codex 程序、
-新进程、Listener/代理出站和已授权最小模型请求证据，登录由用户完成。
-未实测兼容性为 UNVERIFIED。Listener readiness 不等于节点连通证据。
-最终列出版本/架构/SHA256/本地来源、个人安装路径与 receipt、控制层备份及回滚命令、
-服务状态、实际测试结果和剩余步骤，使用通用约定的固定报告字段和有限隔离结论。
-不要声称所有安装包具有独立官方签名验证。
-最后必须按 deployment-contract.md 提醒订阅填写：实际绝对配置路径、provider 的准确 url 键、
-本地编辑方法、填写后检查与授权验收；不把缺订阅说成完整可用。已有订阅说明保留，
-file provider 给实际导入位置，不强迫输入 URL，也不索取聊天中的链接。
-Codex 交付严格按同版本 first-run.md 状态机：控制层安装 → mihomoctl doctor →
-仅已选择启动时 mihomoctl start → 获准公开探测时 mihomoctl codex preflight。
-退出 0 才通过实际入口进行已授权模型验收；退出 1 为 BLOCKED，不运行 Codex、不发模型请求，
-指导保存工作并正常重连旧客户端；退出 2 为 UNVERIFIED，不启动、不宣称成功。
-post-install 验收不得直接运行裸 codex；mihomoctl codex 内部重新执行门禁。
-需要深度排查时运行 mihomoctl diagnose codex，其 UNVERIFIED/退出 2 不代表模型失败。
-安装 Agent 自己的网络可用性不是目标 Codex 的验收证据；修改 .bashrc 仅改变磁盘，
-不会追溯修改已有 Agent/app-server/Extension Host/tmux/Notebook 进程。
-不自动 kill、删 socket 或清空认证；WebSocket 须区分本地与远程 transport，模型未测为 UNVERIFIED。
-分别报告四层状态及待订阅、登录、重连事项，不用 HTTP 通过代替实际模型回复。
+运行适用回归并保留真实退出码；未执行的平台/服务/外网/模型验收记 UNVERIFIED，只有用户明确
+延后才写 DEFERRED。报告安装前后状态、版本/架构/摘要/来源、私有路径、receipt、备份及回滚
+命令、实际测试结果和剩余项；不能宣称包内摘要提供独立官方签名验证。
+依 deployment-contract.md 提醒订阅的实际私有配置路径和本地编辑方法，不索取聊天中的链接。
+仅选择 Codex 交付时使用 first-run.md 状态机和授权模型验收；不直接运行裸 codex 绕过门禁。
 ```

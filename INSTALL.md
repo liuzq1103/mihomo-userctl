@@ -1,6 +1,6 @@
 # 安装 · Installation
 
-- 适用版本：v1.0.1
+- 适用版本：v1.0.2
 - 完整命令与配置契约：[docs/zh-CN/v1.md](docs/zh-CN/v1.md) ·
   [docs/en/v1.md](docs/en/v1.md)
 - 冻结的实现契约：[docs/architecture-v1.md](docs/architecture-v1.md)
@@ -11,6 +11,7 @@
 | --- | --- |
 | 系统 | Linux，Ubuntu 22.04 / 24.04 为正式验收目标 |
 | Python | 3.10+ |
+| Python 依赖 | `PyYAML>=6.0.1`；导入成功不代表版本满足 |
 | 运行后端（用户作用域，默认） | `process`，不需要 systemd |
 | 运行后端（用户作用域，systemd） | 可用的 `systemd --user` |
 | 运行后端（系统作用域） | 可用的 `systemd`，且需要 UID 0 |
@@ -29,7 +30,13 @@
 
 ## 1. 安装控制层
 
-使用已核对 `SHA256SUMS` 的完整 V1 Release 源码包，解压后进入源码目录。
+推荐使用包含源码、项目 wheel 和匹配 Python 依赖的完整离线套件，按
+[中文离线流程](docs/zh-CN/offline-install.md) / [English offline flow](docs/en/offline-install.md)
+先核对来自独立可信渠道的外部 SHA256、版本和 commit，再安全解压并核对内部 `SHA256SUMS`。
+套件不含 Mihomo、OpenCode、Codex、Node，请用户自行准备或安装。
+普通源码归档的 `SHA256SUMS` 是发布附件，不要求源码包包含自身摘要；必须与可信预期值核对。
+现场自算摘要、可写共享目录和包内 receipt 只能提供有限的完整性信息，不能独立证明来源。
+使用普通源码包时，核验后安全解压并进入源码目录。
 依赖可预先在与目标系统、Python 版本和架构匹配的联网环境准备，再整体转移：
 
 ```bash
@@ -38,16 +45,21 @@ python3 -m pip download --only-binary=:all: --require-hashes \
   -r requirements-lock.txt -d /absolute/path/to/wheelhouse
 
 # 从完整、干净且已审核的 Release 源码目录安装，不需要 root
-bash install.sh --wheelhouse /absolute/path/to/wheelhouse --dry-run
-bash install.sh --wheelhouse /absolute/path/to/wheelhouse
+bash install.sh --python /usr/bin/python3 --wheelhouse /absolute/path/to/wheelhouse --dry-run
+bash install.sh --python /usr/bin/python3 --wheelhouse /absolute/path/to/wheelhouse
 "$HOME/.local/bin/mihomoctl" version
 python3 -I scripts/bootstrap.py verify
 ```
 
 安装器把控制层写入不可变世代，再原子切换入口。它只读取本地源码和依赖，
-不下载 Mihomo、不要求代理在线。若所选 Python 已具备所需依赖，可省略
+不下载 Mihomo、不要求代理在线。正常安装与 dry-run 都预检五处版本标记、依赖版本及 wheel
+兼容性，在创建安装世代/备份前拒绝缺项。若所选 Python 已具备版本合格且可导入的依赖，可省略
 `--wheelhouse`。`$HOME/.local/bin` 未在 `PATH` 时，使用上述绝对入口；
 安装器不会修改 Shell 启动文件来设置 `PATH`。
+
+例如 `/usr/bin/python3` 3.10.12 自带 PyYAML 5.4.1 时，应使用 Python 3.10 对应的 wheelhouse。
+即使 `python` 指向 Anaconda，也不自动选择该环境；依赖安装进 mihomoctl 的私有世代，
+不升级系统或 Anaconda。缺包、版本不满足或摘要不符时停止，不联网补齐。
 
 用同一 V1 引导器安装另一份源码归档或 wheel 目录：
 
