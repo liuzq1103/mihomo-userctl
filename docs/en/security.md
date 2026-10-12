@@ -1,5 +1,10 @@
 # Security model
 
+> **v1.0.0:** the automatic shell hook has been removed and application-specific
+> daemon lifecycle is retired. The Codex-specific sections below are kept as
+> historical record; the current semantics are in the
+> [V1 command and configuration contract](v1.md).
+
 ## v0.6 Codex runtime gate
 
 `mihomoctl codex preflight` uses the four levels in [first-run.md](first-run.md) to decide launch;
@@ -108,3 +113,15 @@ stderr receives stable diagnostics without raw external-tool messages.
 
 Use [nodes and dashboards](control-plane.md) to opt into an independently authenticated loopback controller.
 See [fixed-link installation](quick-install.md) for bootstrap. These features do not bypass Codex preflight or change direct-by-default shells.
+
+> **An environment variable is not a secret isolation mechanism.** Values travel
+> down the process tree and surface in diagnostics, crash reports and process
+> inspection; their protection comes from file permissions and deployment, not from
+> the variable's name. mihomo's control-plane `secret` therefore does not go into
+> `Environment=` / `EnvironmentFile=` / `CLASH_OVERRIDE_SECRET` / `-secret`, but into
+> a `0600` generated configuration file. The `proxy.env` an integration writes contains
+> real proxy URLs and credentials, so it is a **private sensitive file** and is never
+> merged with the core config or the credential file. `EnvironmentFile=` is an
+> **integration format, not a secret isolation mechanism**: values propagate down the
+> process tree and can surface in diagnostics. See the
+> [project security policy](../../SECURITY.md).

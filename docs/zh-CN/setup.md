@@ -1,6 +1,15 @@
-# 从安装 Mihomo 开始配置完整环境
+# 安装与首次启动
 
-首次使用、WebSocket 报错或旧进程问题，先看[安装后第一次使用 Codex](first-run.md)。
+> 以下保留 0.9.x 历史安装步骤，其中旧安装器和 hook 命令已经退役，不能用于 V1。
+> V1 源码/wheel 安装请遵循 [INSTALL.md](../../INSTALL.md)，再按[首次使用](first-run.md)初始化。
+
+> **v1.0.0 变更：**安装器不再写入任何 Shell 启动文件。
+> `--bashrc`、受管 loader 和 `CODEX_REMOTE_PAYLOAD` hook 已移除；
+> 命令面以 [V1 命令与配置契约](v1.md) 为准。
+> 本页保留完整手工步骤作为执行详细，
+> 命令名以 `v1.md` 为准。
+
+首次使用、WebSocket 报错或旧进程问题，先看[安装后第一次使用](first-run.md)。
 
 默认安装个人 Mihomo 和控制层，复用已有适用软件；其他工具按选择安装。
 仅明确选择管理员共享 Node/npm/Codex 时遵循[共享运行时规范](shared-runtime.md)，
@@ -290,15 +299,18 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 bash tests/audit-test.sh
 bash tests/docs-test.sh
 bash tests/secret-scan.sh
-./install.sh --dry-run --port "$PROXY_PORT" --bashrc "$HOME/.bashrc"
-./install.sh --port "$PROXY_PORT" --bashrc "$HOME/.bashrc"
-exec bash
+# v1.0.0 安装器不接受 --bashrc，也不写启动文件。
+./install.sh --dry-run --port "$PROXY_PORT"
+./install.sh --port "$PROXY_PORT"
 ```
 
-安装器不会启动或 enable 服务，也不会覆盖现有 `client.env`。写入活动
-文件前，它会在 `~/.local/share/mihomo-userctl-backups/` 中创建权限 `700`
-的事务备份。如果最后的 `mihomoctl doctor` 失败，安装器会自动恢复
-原有控制器、模块、补全、非敏感配置和 `.bashrc`，并保留备份供排查。
+安装器不会启动或 enable 服务，不会覆盖现有 `client.env`，
+**也不会修改 `.bashrc` / `.zshrc` / `profile`**；首次使用不依赖登录态 Shell 的任何配置，
+代理接入始终是显式的 `mihomoctl exec` / `mihomoctl env` / binding。
+
+写入活动文件前，安装器会在 `~/.local/share/mihomo-userctl-backups/` 中创建权限 `700`
+的事务备份。如果最后的 `mihomoctl doctor` 失败，安装器会自动恢复原有控制器、模块、
+补全和非敏感配置，并保留备份供排查。
 
 ## 9. 验收
 
@@ -323,8 +335,11 @@ PASS / FAIL / UNVERIFIED / DEFERRED。正常基线通过后仍有端到端待验
 
 新普通 Shell 应为 direct，服务 active 且 disabled。脚本核对实际 HTTP 状态、
 本地对端、无认证 HTTP 的 407，以及 SOCKS5 明确拒绝无认证方法；网络失败不算
-认证拒绝。还需独立验证 `proxy_on/off`、`with_proxy` 隔离、已安装 loader、
-hook、下载连接和可选 VS Code，不能由脚本的 Listener 结果推断它们已经通过。
+认证拒绝。还需独立验证 `mihomoctl exec` 的隔离与 fail-closed 门禁、下载连接和
+可选 VS Code，不能由脚本的 Listener 结果推断它们已经通过。
+v1.0.0 已无 Shell loader/hook，**不应再验证 loader 或 hook**；若目录中仍有旧标记块，
+请用 `mihomoctl migrate --dry-run` 先预览，再显式执行 `mihomoctl migrate --apply`，
+它只移除能确证属于本项目的 loader，其余字节保留并备份。
 
 此示例中的 `gstatic.com` 命中 `MATCH,DIRECT`。它可验证 Listener 请求，
 不能证明 Proxy 节点可用；需另选已获批且命中 Proxy 的目标，关联脱敏路由证据。
@@ -332,9 +347,10 @@ hook、下载连接和可选 VS Code，不能由脚本的 Listener 结果推断�
 
 ### 可选：VS Code Remote
 
-终端 `with_proxy codex` 和 Codex Remote hook 验收成功，并不代表 VS Code
+终端 `mihomoctl exec` 验收成功，并不代表 VS Code
 Extension Host 会继承同一环境。需要在 VS Code Remote 中使用 Codex 扩展时，
-继续阅读 [VS Code Remote 推荐配置](vscode-remote.md)。该步骤必须单独选择，
+继续读取 [VS Code Remote 推荐配置](vscode-remote.md)；旧版的 Remote hook
+接入已退役，现在只有显式配置路径。该步骤必须单独选择，
 会把认证 URL 写入远程 Machine Settings，并可能影响其他遵循该设置的扩展；
 普通 Shell 和大型下载仍保持直连。
 
@@ -360,7 +376,8 @@ Mihomo 二进制使用步骤 2 的精确备份；配置或 unit 回滚前
 会保留核心、unit 和配置，详见[回滚顺序](acceptance.md#5-回滚顺序)。
 
 后续仅更新控制层请使用[更新指南](update.md)或[更新 Prompt](agent-update-prompt.md)。
-安装与更新需要 Python 3.8+。
+安装与更新需要 Python 3.10+。命令面、配置文件与安全边界见
+[V1 命令与配置契约](v1.md)。
 
 ## v0.7 Control Plane
 

@@ -1,5 +1,11 @@
 # Shared Node/Codex, private identity and proxy
 
+> **v1.0.0:** the automatic shell hook has been removed. Sections below that
+> mention `CODEX_REMOTE_PAYLOAD`, the `.bashrc` loader or `with_proxy codex` are
+> retired. Proxy access is now always an explicit `mihomoctl exec` /
+> `mihomoctl env` / `mihomoctl integration`; the command surface follows the
+> [V1 command and configuration contract](v1.md).
+
 ## v0.6 Codex runtime gate
 
 `mihomoctl codex preflight` uses the four levels in [first-run.md](first-run.md) to decide launch;

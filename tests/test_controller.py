@@ -124,7 +124,7 @@ class ControllerTests(unittest.TestCase):
             c.Client(self.server.server_port, "wrong").request("/unsupported", optional=True)
 
     def test_plain_menu_selector_switch_and_automatic_group_remains_read_only(self):
-        with contextlib.redirect_stdout(io.StringIO()), patch.object(sys.stdin, "isatty", return_value=True), patch.object(sys.stdout, "isatty", return_value=True), patch("builtins.input", side_effect=["2", "1", "2", "q"]):
+        with contextlib.redirect_stdout(io.StringIO()), patch.object(sys.stdin, "isatty", return_value=True), patch.object(sys.stdout, "isatty", return_value=True), patch("builtins.input", side_effect=["2", "1", "2", "y", "q"]):
             result = c.plain_tui(self.client)
         self.assertEqual(result["state"], "closed")
         self.assertEqual(self.server.puts, 1)
@@ -211,22 +211,19 @@ class ControllerTests(unittest.TestCase):
         with self.assertRaises(c.ControlError): c.proxies(self.client)
 
     @unittest.skipUnless(importlib.util.find_spec("yaml"), "optional controller PyYAML dependency")
-    def test_real_mihomoctl_dispatch_json(self):
+    def test_source_launcher_refuses_unmanaged_controller_with_safe_json(self):
+        # V1 refuses a mock/foreign listener as a managed runtime. Positive
+        # controller dispatch is exercised against the real core acceptance.
+        source = Path(c.__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder); lib = root / "lib"; lib.mkdir(mode=0o700)
-            source = Path(c.__file__).resolve().parents[1]
-            for name in ("controller.py", "acceptance.py", "reporting.py", "install_support.py", "dashboard.html") + tuple(n + ".py" for n in c._COMPONENTS):
-                shutil.copyfile(source / "scripts" / name, lib / name)
-                (lib / name).chmod(0o644)
-            shutil.copyfile(source / "src/common.bash", lib / "common.bash")
-            (lib / "common.bash").chmod(0o644)
-            config = root / "config.yaml"
+            config = Path(folder) / "config.yaml"
             config.write_text('external-controller: 127.0.0.1:'+str(self.server.server_port)+'\nsecret: '+TOKEN+'\n')
             config.chmod(0o600)
-            result = subprocess.run(["bash", str(source / "src/mihomoctl"), "groups", "--json", "--config", str(config)],
-                                    env=dict(os.environ, MIHOMO_USERCTL_LIB_DIR=str(lib)), capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertEqual(json.loads(result.stdout)["groups"][0]["selected"], "Node A")
+            result = subprocess.run([sys.executable, str(source / "src/mihomoctl"), "groups", "--json", "--config", str(config)],
+                env=dict(os.environ, HOME=folder, XDG_CONFIG_HOME=str(Path(folder) / 'config')), capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(json.loads(result.stdout)["schema"], "mihomoctl/v1")
+            self.assertEqual(json.loads(result.stdout)["overall"], "UNVERIFIED")
             self.assertNotIn(TOKEN, result.stdout + result.stderr)
 
     def test_foreign_uid_rejected_before_token(self):

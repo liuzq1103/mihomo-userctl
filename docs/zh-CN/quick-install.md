@@ -1,5 +1,8 @@
 # 固定链接安装
 
+> 以下是 0.9.x 的历史引导步骤。根目录 `bootstrap.py` 已经退役并拒绝执行 V1 安装。
+> V1 请使用 [INSTALL.md](../../INSTALL.md)，不依赖 Shell hook 或旧引导器。
+
 [中文首页](../../README.md) · [English](../en/quick-install.md)
 
 ```bash

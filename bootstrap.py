@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 """Download a published release and invoke its existing control-layer installer."""
+
+# V1 archive: reject execution before importing any legacy installer code.
+if __name__ == "__main__":
+    import sys
+    print("legacy-installation-entry-retired: install.sh or python3 -I scripts/bootstrap.py install", file=sys.stderr)
+    raise SystemExit(2)
+
 import argparse
 import hashlib
 import json
@@ -94,6 +101,12 @@ def extract(archive, destination):
 
 
 def main():
+    """V1 retirement gate; refuse before parsing, network access or writes."""
+    print("legacy-installation-entry-retired: install.sh or python3 -I scripts/bootstrap.py install", file=sys.stderr)
+    return 2
+
+
+def _historical_main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version")
     parser.add_argument("--port", type=int)

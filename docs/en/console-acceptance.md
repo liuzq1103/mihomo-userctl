@@ -1,5 +1,8 @@
 # Console acceptance and rollback
 
+> Historical 0.9.x verification record. It does not establish V1 acceptance.
+> V1 requires the exact-commit release gates in [architecture-v1.md](../architecture-v1.md).
+
 ## Local verification record (2026-10-08)
 
 - Ubuntu 22.04 / Python 3.10: 185 Python regressions, 181 passed and 4 skipped; 52 Shell tests and 6 audit regressions passed.

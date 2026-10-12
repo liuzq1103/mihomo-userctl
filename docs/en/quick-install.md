@@ -1,5 +1,9 @@
 # Fixed-link installation
 
+> Archived 0.9.x bootstrap instructions. The root `bootstrap.py` below is retired
+> and refuses V1 installation. Use [INSTALL.md](../../INSTALL.md) for V1; no shell
+> startup hook or old bootstrap is needed.
+
 [English overview](../../README.en.md) · [简体中文](../zh-CN/quick-install.md)
 
 ```bash

@@ -1,59 +1,88 @@
-name: test
-
+name: v1
 on:
   push:
   pull_request:
   workflow_dispatch:
-
 permissions:
   contents: read
-
+concurrency:
+  group: v1-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  bash:
-    runs-on: ubuntu-latest
+  ubuntu:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            python: '3.10'
+          - os: ubuntu-24.04
+            python: '3.12'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install ShellCheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck python3-yaml
-      - name: Bash syntax
-        run: find . -type f \( -name '*.sh' -o -name '*.bash' -o -name mihomoctl \) -print0 | xargs -0 -n1 bash -n
-      - name: ShellCheck
-        run: shellcheck -x src/common.bash src/mihomoctl src/shell.bash install.sh uninstall.sh completions/mihomoctl.bash scripts/*.sh tests/*.sh
-      - name: Tests
-        run: bash tests/test.sh
-      - name: Acceptance and update regression tests (isolated, no live service)
-        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
-      - name: Audit tool failure regression tests
-        run: bash tests/audit-test.sh
-      - name: Documentation structure and links
-        run: bash tests/docs-test.sh
-      - name: Secret scan
-        run: bash tests/secret-scan.sh
-      - name: Whitespace
-        run: git diff --check
-  textual:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python: ['3.9', '3.12']
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Prepare hash-locked optional UI and offline wheels
+      - name: Prepare build and optional UI dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck python3-venv iproute2 dbus-user-session
+          python -m pip install --upgrade pip setuptools wheel build
+          python -m pip install .
           python -m pip install --require-hashes --only-binary=:all: -r scripts/textual-requirements.txt
-          python -m pip download --require-hashes --only-binary=:all: -r scripts/textual-requirements.txt -d "$RUNNER_TEMP/tui-wheels"
-          chmod 700 "$RUNNER_TEMP/tui-wheels"
-      - name: Optional frontend, services and offline installer
-        env:
-          MIHOMO_TEST_WHEELHOUSE: ${{ runner.temp }}/tui-wheels
+      - name: Syntax and reviewed-content checks
         run: |
-          python -m unittest discover -s tests -p test_textual.py -v
-          python -m unittest discover -s tests -p test_console.py -v
-          python -m unittest discover -s tests -p test_tasks.py -v
-          python -m unittest discover -s tests -p test_update.py -k optional_textual -v
+          python -m compileall -q mihomoctl scripts tests
+          find . -type f \( -name '*.sh' -o -name '*.bash' \) -not -path './.git/*' -print0 | xargs -0 -n1 bash -n
+          shellcheck -x install.sh uninstall.sh completions/mihomoctl.bash tests/secret-scan.sh
+          python scripts/secret_scan.py
+          git diff --check
+      - name: Unit, controller and TUI regression
+        run: python scripts/v1_ci.py --unit --report "$RUNNER_TEMP/unit.json"
+      - name: Prepare pinned real Mihomo binary
+        run: |
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/mihomo.gz" https://github.com/MetaCubeX/mihomo/releases/download/v1.19.32/mihomo-linux-amd64-compatible-v1.19.32.gz
+          printf '%s  %s\n' ba3ce607747a07f948fc35780e108a4a7c7f552a38b9bd4d115f313ebcb89c20 "$RUNNER_TEMP/mihomo.gz" | sha256sum --check --strict
+          gzip --decompress --stdout "$RUNNER_TEMP/mihomo.gz" > "$RUNNER_TEMP/mihomo"
+          chmod 755 "$RUNNER_TEMP/mihomo"
+          "$RUNNER_TEMP/mihomo" -v
+      - name: Real core regression (mandatory)
+        run: python scripts/v1_ci.py --real-core --core "$RUNNER_TEMP/mihomo" --report "$RUNNER_TEMP/real-core.json"
+      - name: Build exact-commit artifacts and offline wheelhouse
+        run: |
+          python scripts/build_release.py --output dist
+          python -m pip download --only-binary=:all: --dest "$RUNNER_TEMP/wheelhouse" dist/mihomoctl-*.whl
+          cd dist
+          sha256sum --check --strict SHA256SUMS
+      - name: Offline install, update and self-contained recovery of full artifacts
+        run: python scripts/verify_artifact_install.py --artifacts dist --wheelhouse "$RUNNER_TEMP/wheelhouse" --python "$(command -v python)" --report "$RUNNER_TEMP/artifact-install.json"
+      - name: Real users, systemd and isolated TUN (mandatory)
+        run: |
+          sudo modprobe tun || true
+          sudo mkdir -p /dev/net
+          if [ ! -e /dev/net/tun ]; then sudo mknod /dev/net/tun c 10 200; sudo chmod 666 /dev/net/tun; fi
+          sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin MIHOMO_V1_DISPOSABLE_VM=1 /usr/bin/python3 scripts/v1_ci.py --privileged --core "$RUNNER_TEMP/mihomo" --wheelhouse "$RUNNER_TEMP/wheelhouse" --report "$RUNNER_TEMP/privileged.json"
+      - name: Documentation links
+        run: python scripts/check_docs_v1.py
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/unit.json
+            ${{ runner.temp }}/real-core.json
+            ${{ runner.temp }}/privileged.json
+            ${{ runner.temp }}/artifact-install.json
+          if-no-files-found: error
+      - name: Upload exact-commit release candidates
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate-${{ matrix.os }}
+          path: dist/*
+          if-no-files-found: error

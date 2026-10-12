@@ -111,6 +111,13 @@ def archive_ui(archive, checksum, destination):
 
 
 def setup(args, config):
+    try:
+        from .controller_transaction import runtime_application
+    except ImportError:
+        from controller_transaction import runtime_application
+    app = runtime_application.get()
+    if app is not None:
+        return _managed_setup(app, args, config)
     text, data, tree = read_config(config)
     if data.get("external-controller"):
         endpoint(data)  # Never silently replace an exposed or unprotected API.
@@ -171,3 +178,54 @@ def setup(args, config):
         # Do not remove assets that the active config already references.
         if not committed and not (candidate is not None and config.read_bytes() == updated):
             shutil.rmtree(ui)
+
+
+def _managed_setup(app, args, config):
+    """V1 dashboard assets/config use the same lock, validator and file journal."""
+    from mihomoctl.transaction import run_transaction
+    from .controller_transaction import validate_candidate
+    app.scope.require_mutation()
+    text, data, tree = read_config(config)
+    if args.archive is None and data.get('external-ui'):
+        raise ControlError('existing-dashboard-preserved-use-explicit-archive-to-replace')
+    current_port, secret = endpoint(data) if data.get('external-controller') else (None, secrets.token_urlsafe(32))
+    port = args.port if args.port is not None else current_port
+    if port is None:
+        port = choose_port(None)
+    if not 1024 <= port <= 65535:
+        raise ControlError('controller-port-out-of-range')
+    staging = Path(tempfile.mkdtemp(prefix='mihomoctl-dashboard-'))
+    target = app.scope.config_root / 'mihomo' / ('dashboard-' + secrets.token_hex(8))
+    try:
+        if args.archive:
+            archive_ui(Path(args.archive), args.sha256, staging)
+        else:
+            (staging / 'index.html').write_bytes(Path(__file__).with_name('dashboard.html').read_bytes())
+        def action(tx):
+            for asset in staging.rglob('*'):
+                if asset.is_file():
+                    destination = target / asset.relative_to(staging)
+                    tx.write_bytes(destination, asset.read_bytes(), mode=0o640 if app.system else 0o600)
+                    if app.system:
+                        from mihomoctl.lifecycle.systemd import ensure_service_account
+                        account = ensure_service_account(create=False)
+                        os.chown(destination, 0, account.pw_gid)
+                        for parent in (destination.parent, *destination.parent.parents):
+                            if parent == app.scope.config_root:
+                                break
+                            os.chown(parent, 0, account.pw_gid)
+                            os.chmod(parent, 0o750)
+            updated = patch_config(text, tree, {'external-controller': '127.0.0.1:' + str(port),
+                'secret': secret, 'external-ui': str(target), 'external-ui-name': '', 'external-ui-url': '',
+                'external-controller-cors': {'allow-origins': [], 'allow-private-network': False}})
+            validate_candidate(config, app.scope.core_home, updated)
+            if config.read_text(encoding='utf-8') != text:
+                raise ControlError('config-changed-during-setup')
+            backup = config.with_name(config.name + '.before-controller-' + secrets.token_hex(8))
+            tx.write_text(backup, text)
+            tx.write_text(config, updated, mode=0o640 if app.system else 0o600)
+            return {'endpoint': '127.0.0.1:' + str(port), 'backup': str(backup), 'state': 'restart-required',
+                    'service': 'unchanged', 'ui': 'external' if args.archive else 'bundled'}
+        return run_transaction(app.scope, 'controller-dashboard-setup', action)
+    finally:
+        shutil.rmtree(staging)

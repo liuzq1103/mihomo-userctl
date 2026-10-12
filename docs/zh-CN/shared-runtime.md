@@ -1,5 +1,10 @@
 # 共享 Node/Codex，独立用户身份与代理
 
+> **v1.0.0：**自动 Shell hook 已移除。本文中提到
+> `CODEX_REMOTE_PAYLOAD`、`.bashrc` loader 或 `with_proxy codex` 的部分已退役。
+> 代理接入现在始终是显式的 `mihomoctl exec` / `mihomoctl env` /
+> `mihomoctl integration`，命令面以 [V1 命令与配置契约](v1.md) 为准。
+
 ## v0.6 Codex 运行时门禁
 
 `mihomoctl codex preflight` 按 [first-run.md](first-run.md) 的四层状态决定是否允许启动，

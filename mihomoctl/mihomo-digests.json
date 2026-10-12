@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "provenance": "Maintainer pins recorded from the official GitHub releases API asset digest field at review time. Not an upstream signature: official mihomo releases publish no signatures or checksum files.",
+  "pins": [
+    {
+      "version": "v1.19.32",
+      "asset": "mihomo-linux-amd64-compatible-v1.19.32.gz",
+      "sha256": "ba3ce607747a07f948fc35780e108a4a7c7f552a38b9bd4d115f313ebcb89c20",
+      "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.32/mihomo-linux-amd64-compatible-v1.19.32.gz",
+      "source": "GitHub releases API asset digest (verified 2026-10-11)",
+      "reviewed_by": "maintainer",
+      "reviewed_at": "2026-10-11"
+    }
+  ]
+}

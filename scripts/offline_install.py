@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 """Install reviewed local Linux archives. No downloader or package-manager hooks."""
+
+# V1 archive: reject execution before importing any legacy installer code.
+if __name__ == "__main__":
+    import sys
+    print("legacy-installation-entry-retired: install.sh --source RELEASE --wheelhouse DIRECTORY; use mihomoctl core install for the core", file=sys.stderr)
+    raise SystemExit(2)
+
 import argparse
 import gzip
 import hashlib
@@ -216,6 +223,12 @@ def install(bundle, packages, home):
 
 
 def main(argv=None):
+    """V1 retirement gate; refuse before parsing, network access or writes."""
+    print("legacy-installation-entry-retired: install.sh --source RELEASE --wheelhouse DIRECTORY; use mihomoctl core install for the core", file=sys.stderr)
+    return 2
+
+
+def _historical_main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("check", "install"))
     parser.add_argument("--bundle-dir", required=True, type=Path)

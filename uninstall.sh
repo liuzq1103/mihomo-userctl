@@ -1,72 +1,54 @@
 #!/usr/bin/env bash
+# mihomoctl V1 uninstaller bootstrap (installation protocol 2).
+#
+# Removes only mihomoctl's own installed code and launcher link.  It never
+# edits shell startup files, never stops services or third-party daemons,
+# and preserves configuration, credentials, subscriptions, cores and caches.
+# The previous installation is kept as a self-contained backup; restore it
+# with: ./install.sh --rollback <backup>
 set -euo pipefail
 
-BEGIN_MARKER='# >>> mihomo-userctl managed loader >>>'
-END_MARKER='# <<< mihomo-userctl managed loader <<<'
-dry_run=0
-bashrc=$HOME/.bashrc
-bashrc_set=0
-original_args=("$@")
-
 die() { printf 'uninstall.sh: %s\n' "$*" >&2; exit 2; }
-while (( $# )); do
-  case $1 in
-    --dry-run) dry_run=1; shift ;;
-    --bashrc) [[ $# -ge 2 ]] || die '--bashrc requires a path'; bashrc=$2; bashrc_set=1; shift 2 ;;
-    -h|--help) printf 'Usage: ./uninstall.sh [--dry-run] [--bashrc PATH]\n'; exit 0 ;;
-    *) die "unknown option: $1" ;;
-  esac
-done
-[[ $bashrc == "$HOME"/* || $bashrc == "$HOME/.bashrc" ]] || die '--bashrc must be inside the current HOME'
-[[ ! -L $bashrc ]] || die '--bashrc must not be a symbolic link'
 
-data_home=${XDG_DATA_HOME:-$HOME/.local/share}
-lib_dir=$data_home/mihomo-userctl
-bin_file=$HOME/.local/bin/mihomoctl
-support=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/scripts/install_support.py
-bashrc=$(python3 "$support" bashrc "$lib_dir" "$bashrc" "$bashrc_set") || die 'cannot determine original startup file'
-python3 "$support" preflight "$bashrc" || die 'unsafe uninstallation paths; no active files changed'
-if (( ! dry_run )) && [[ -z ${MIHOMO_INSTALL_LOCK_FD:-} ]]; then
-  exec python3 "$support" locked bash "${BASH_SOURCE[0]}" "${original_args[@]}"
+usage() {
+  cat <<'EOF'
+Usage: ./uninstall.sh [--user|--system] [--dry-run]
+
+Removes the mihomoctl CLI code and its launcher link only.
+Options are passed to scripts/bootstrap.py uninstall.
+
+Preserved: manager configuration, credentials, subscriptions, Mihomo cores
+and caches.  Never touched: shell startup files, services, third-party
+daemons, a legacy 0.9.x installation (use mihomoctl migrate for that).
+EOF
+}
+
+[[ $(uname -s) == Linux ]] || die 'Linux is required'
+[[ -n ${BASH_VERSION:-} ]] || die 'run this uninstaller with Bash'
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+bootstrap=$script_dir/scripts/bootstrap.py
+[[ -f $bootstrap ]] || die 'scripts/bootstrap.py not found; run from a complete release tree'
+
+python_bin=
+if [[ $EUID == 0 ]]; then
+  [[ -x /usr/bin/python3 ]] || die "trusted system Python is required"
+  python_bin=/usr/bin/python3
 fi
-[[ ! -e $lib_dir/pending-install.json ]] || die 'rollback interrupted installation before uninstall'
-targets=("$bin_file" "$lib_dir/common.bash" "$lib_dir/shell.bash" "$lib_dir/completion.bash")
-
-if (( dry_run )); then
-  printf 'would remove the managed loader from %s\n' "$bashrc"
-  printf 'would remove %s\n' "${targets[@]}"
-  printf 'would preserve ~/.config/mihomo, Mihomo, the user service, subscriptions, and caches\n'
-  exit 0
-fi
-
-if [[ -f $bashrc ]]; then
-  count=$(grep -Fxc "$BEGIN_MARKER" "$bashrc" || true)
-  (( count <= 1 )) || die 'multiple managed loader blocks found; refusing rewrite'
-  if (( count == 1 )); then
-    grep -Fqx "$END_MARKER" "$bashrc" || die 'managed loader end marker is missing'
-    timestamp=$(date +%Y%m%d-%H%M%S)
-    backup=${bashrc}.mihomo-userctl-uninstall-backup.${timestamp}
-    cp -p -- "$bashrc" "$backup"
-    chmod 600 -- "$backup"
-    tmp=$(mktemp "${bashrc}.tmp.XXXXXX")
-    awk -v begin="$BEGIN_MARKER" -v end="$END_MARKER" '
-      $0 == begin { skipping=1; next }
-      skipping && $0 == end { skipping=0; next }
-      !skipping { print }
-      END { if (skipping) exit 3 }
-    ' "$bashrc" > "$tmp" || die 'failed to remove loader'
-    bash -n "$tmp" || die 'generated .bashrc failed bash -n'
-    chmod --reference="$bashrc" "$tmp"
-    mv -f -- "$tmp" "$bashrc"
-    printf 'backup=%s\n' "$backup"
+for candidate in python3.12 python3.11 python3.10 python3; do
+  [[ -z $python_bin ]] || break
+  command -v "$candidate" >/dev/null 2>&1 || continue
+  if "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; then
+    python_bin=$(command -v "$candidate")
+    break
   fi
-fi
-
-for target in "${targets[@]}"; do
-  case $target in
-    "$HOME"/.local/bin/mihomoctl|"$lib_dir"/*) [[ -e $target ]] && rm -f -- "$target" ;;
-    *) die "unsafe uninstall target: $target" ;;
-  esac
 done
-python3 "$support" uninstall-clean "$lib_dir"
-printf 'removed project-owned code and loader; Mihomo configuration and credentials were preserved\n'
+[[ -n $python_bin ]] || die 'Python 3.10+ is required (not found on PATH)'
+
+args=("$@")
+for arg in "$@"; do
+  if [[ $arg == "-h" || $arg == "--help" ]]; then
+    usage
+    exec "$python_bin" -I "$bootstrap" uninstall --help
+  fi
+done
+exec "$python_bin" -I "$bootstrap" uninstall "${args[@]}"

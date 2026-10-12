@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# V1 entry point. The pre-V1 assertions below are retained as historical
+# migration evidence; they describe the retired shell-hook product.
+_v1_test_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+exec python3 "$_v1_test_root/scripts/v1_ci.py" --unit "$@"
+
 set -euo pipefail
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
@@ -23,7 +28,7 @@ mkdir -p "$HOME/.local/bin" "$XDG_DATA_HOME/mihomo-userctl" "$XDG_CONFIG_HOME/mi
 chmod 700 "$XDG_DATA_HOME/mihomo-userctl" "$XDG_CONFIG_HOME/mihomo"
 cp "$ROOT/src/common.bash" "$ROOT/src/shell.bash" "$ROOT/completions/mihomoctl.bash" "$XDG_DATA_HOME/mihomo-userctl/"
 cp "$ROOT/scripts/acceptance.py" "$ROOT/scripts/diagnostics.py" "$ROOT/scripts/rules.py" \
-  "$ROOT/scripts/reporting.py" "$XDG_DATA_HOME/mihomo-userctl/"
+  "$ROOT/scripts/reporting.py" "$ROOT/scripts/paseo.py" "$XDG_DATA_HOME/mihomo-userctl/"
 cp "$ROOT/scripts/"controller*.py "$ROOT/scripts/install_support.py" "$XDG_DATA_HOME/mihomo-userctl/"
 chmod 644 "$XDG_DATA_HOME/mihomo-userctl/"*.py
 mv "$XDG_DATA_HOME/mihomo-userctl/mihomoctl.bash" "$XDG_DATA_HOME/mihomo-userctl/completion.bash"
@@ -75,6 +80,7 @@ cat > "$TEST_ROOT/bin/curl" <<'EOF'
 EOF
 cat > "$TEST_ROOT/bin/journalctl" <<'EOF'
 #!/usr/bin/env bash
+[[ -z ${JOURNAL_ARGS:-} ]] || printf '%s\n' "$@" > "$JOURNAL_ARGS"
 printf 'journal redacted\n'
 EOF
 cat > "$TEST_ROOT/bin/mihomo" <<'EOF'
@@ -157,6 +163,13 @@ assert 'Codex diagnosis rejects unsupported flags as JSON' bash -c '
 
 assert 'doctor accepts secure config and disabled service' "$HOME/.local/bin/mihomoctl" doctor
 assert 'ready validates the authenticated path' "$HOME/.local/bin/mihomoctl" ready
+assert 'logs passes literal time filters and preserves line limits' bash -c '
+  export JOURNAL_ARGS=$1
+  mihomoctl logs --since "2026-10-10 21:09:00" --until "2026-10-10 21:14:00" --lines 100 >/dev/null || exit
+  mapfile -t arguments < "$1"
+  [[ ${arguments[5]} == 100 && ${arguments[6]} == --since && ${arguments[7]} == "2026-10-10 21:09:00" && ${arguments[8]} == --until && ${arguments[9]} == "2026-10-10 21:14:00" ]] || exit
+  mihomoctl logs --since >/dev/null 2>&1; [[ $? == 2 ]]
+' _ "$TEST_ROOT/journal-arguments"
 assert 'status reports active loopback listener' bash -c '[[ $(mihomoctl status) == *"service=up enabled=disabled listener=up endpoint=127.0.0.1:28443"* ]]'
 assert 'status and doctor JSON are stable parseable objects' bash -c '
   status=$(mihomoctl status --json) || exit

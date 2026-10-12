@@ -3,7 +3,7 @@ import argparse
 import unicodedata
 
 SCHEMA = "mihomo-userctl.controller/v1"
-COMMANDS = ("controller", "nodes", "groups", "select", "latency", "connections", "traffic", "ui", "dashboard", "tui", "override", "manual", "providers", "provider", "dns", "mode", "subscription")
+COMMANDS = ("controller", "nodes", "groups", "select", "latency", "connections", "traffic", "ui", "dashboard", "tui", "override", "manual", "providers", "provider", "dns", "mode", "subscription", "health-check")
 LIMIT = 8 * 1024 * 1024
 TEST_URL = "https://www.gstatic.com/generate_204"
 

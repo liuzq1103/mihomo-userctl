@@ -78,6 +78,32 @@ class FakeRelease:
 
 
 class SourceTests(unittest.TestCase):
+    def test_v090_v092_receipts_preserve_the_published_inventory(self):
+        for version in ("0.9.0", "0.9.1", "0.9.2"):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                generation = root / "generations" / ("e" * 32)
+                generation.mkdir(parents=True)
+                hashes = {}
+                for name in ins.RUNTIME_092:
+                    put(generation / name, "historical " + name, 0o644)
+                    hashes[name] = ins.digest(generation / name)
+                record = {"install_root":str(root),"generation":generation.name,"version":version,
+                          "runtime_hashes":hashes,"bootstrap_hashes":{n:"fixture" for n in
+                          ("mihomoctl","common.bash","shell.bash","completion.bash")}}
+                ins.verify_generation(record)
+                hashes["paseo.py"] = "unexpected"
+                with self.assertRaises(ins.InstallError):
+                    ins.verify_generation(record)
+
+    def test_v093_release_requires_paseo_regressions(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "source"
+            target_source(source)
+            (source / "tests/test_paseo.py").unlink()
+            with self.assertRaisesRegex(up.UpdateError,"target-release-is-incomplete"):
+                up.validate(source,TAG)
+
     def test_v070_v080_receipts_keep_exact_historical_controller_set(self):
         for version in ("0.7.0", "0.7.1", "0.8.0"):
             with self.subTest(version=version), tempfile.TemporaryDirectory() as folder:
@@ -513,6 +539,28 @@ esac
         proc = subprocess.run([str(self.bin), "version"], capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertIn(BASE, proc.stdout)
+
+    def test_v092_receipt_upgrade_and_rollback_keep_the_old_inventory(self):
+        record = ins.metadata(self.root)
+        generation = self.root / "generations" / record["generation"]
+        record["version"] = "0.9.2"
+        for name in set(record["runtime_hashes"]) - ins.RUNTIME_092:
+            record["runtime_hashes"].pop(name)
+            (generation / name).unlink()
+        ins.write_json(generation / "installation.json",record)
+        ins.verify_installed(record)
+        old_pointer = os.readlink(self.root / "current")
+        rc,output = self.run_update("--version","v"+BASE,client=FakeRelease(self.source))
+        self.assertEqual(rc,3,output)
+        updated=ins.metadata(self.root)
+        self.assertIn("paseo.py",updated["runtime_hashes"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            ins.rollback(self.backup())
+        self.assertEqual(os.readlink(self.root / "current"),old_pointer)
+        restored=ins.metadata(self.root)
+        self.assertEqual(restored["version"],"0.9.2")
+        ins.verify_installed(restored)
+        self.assertNotIn("paseo.py",restored["runtime_hashes"])
 
     def test_git_checkout_commit_is_recorded_and_deleted_checkout_not_needed(self):
         source = self.base / "git-source"

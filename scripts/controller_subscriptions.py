@@ -16,11 +16,13 @@ try:
     from .controller_types import ControlError, LIMIT, label
     from .controller_config import private, read_config, patch_config
     from .controller_transaction import apply_policy, validate_candidate
+    from .controller_health import probe_overwrites
     from . import install_support as files
 except ImportError:
     from controller_types import ControlError, LIMIT, label
     from controller_config import private, read_config, patch_config
     from controller_transaction import apply_policy, validate_candidate
+    from controller_health import probe_overwrites
     import install_support as files
 
 
@@ -124,8 +126,13 @@ def download(url):
 class Subscriptions:
     def __init__(self, config, home_dir=None):
         self.config, self.home_dir = Path(config), home_dir
-        self.data_home = os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))
-        self.root = Path(self.data_home) / "mihomo-userctl-subscriptions"
+        try:
+            from .controller_transaction import runtime_application
+        except ImportError:
+            from controller_transaction import runtime_application
+        self.app = runtime_application.get()
+        self.data_home = str(self.app.scope.state_root) if self.app is not None else os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))
+        self.root = Path(self.data_home) / ('subscriptions' if self.app is not None else 'mihomo-userctl-subscriptions')
 
     def directory(self):
         files.safe_path(self.root, True)
@@ -134,7 +141,15 @@ class Subscriptions:
 
     def check_provider_paths(self, changes):
         home = Path(self.home_dir or str(Path(self.data_home) / "mihomo"))
-        private(home, True)
+        if self.app is not None and self.app.system:
+            from mihomoctl.lifecycle.systemd import ensure_service_account
+            from mihomoctl.trust import _check_ancestors
+            owner = ensure_service_account(create=False).pw_uid
+            _check_ancestors(home / 'provider', 'provider-path-unsafe', {0, owner})
+            if home != self.app.scope.core_home or home.stat().st_uid != owner:
+                raise ControlError('subscription-provider-path-unsafe')
+        else:
+            private(home, True)
         used = set()
         for field in ("proxy-providers", "rule-providers"):
             for row in changes[field].values():
@@ -144,10 +159,15 @@ class Subscriptions:
                     target = home / row["path"]
                     if home.resolve() not in target.resolve().parents:
                         raise ControlError("subscription-provider-path-unsafe", 1)
-                    try:
-                        files.safe_path(target)
-                    except files.InstallError:
-                        raise ControlError("subscription-provider-path-unsafe", 1) from None
+                    if self.app is not None and self.app.system:
+                        _check_ancestors(target, 'provider-path-unsafe', {0, owner})
+                        if target.is_symlink():
+                            raise ControlError('subscription-provider-path-unsafe', 1)
+                    else:
+                        try:
+                            files.safe_path(target)
+                        except files.InstallError:
+                            raise ControlError("subscription-provider-path-unsafe", 1) from None
                     resolved = target.resolve()
                     # Downloaded content must never overwrite configuration or
                     # core state. Preserve safe provider paths in dedicated trees.
@@ -161,8 +181,9 @@ class Subscriptions:
                         raise ControlError("subscription-provider-cache-path-unsafe", 1)
                     used.add(resolved)
 
-    def preview(self, source_file=None, url_file=None, stdin=False, policy="nodes"):
-        if policy not in ("nodes", "provider"):
+    def preview(self, source_file=None, url_file=None, stdin=False, policy="auto"):
+        requested_policy = policy
+        if policy not in ("auto", "nodes", "provider"):
             raise ControlError("subscription-policy-invalid", 1)
         if sum(bool(value) for value in (source_file, url_file, stdin)) != 1:
             raise ControlError("choose-one-private-subscription-source")
@@ -189,6 +210,8 @@ class Subscriptions:
                 _, incoming, _ = read_config(source)
                 for key in incoming:
                     label(key)
+                if policy == "auto":
+                    policy = "nodes" if set(incoming) == {"proxies"} else "provider"
                 if policy == "nodes" and set(incoming) != {"proxies"}:
                     raise ControlError("subscription-only-node-list-supported", 1)
                 nodes = incoming.get("proxies", [])
@@ -232,7 +255,8 @@ class Subscriptions:
                 "nodes": len(nodes), "added": len(nodes) - replaced, "replaced": replaced,
                 "changes": [{"name": node["name"], "type": label(node["type"]),
                              "action": "replace" if node["name"] in existing_names else "add"} for node in nodes],
-                "policy": policy, "fields": list(changes),
+                "policy": policy, "requested_policy": requested_policy, "fields": list(changes),
+                "probe_overwrites": probe_overwrites(data, changes) if policy == "provider" else [],
                 "ignored_fields": sorted(set(incoming) - set(changes)),
                 "removed": len(existing_names - names) if policy == "provider" else 0,
                 "removed_groups": (len({g.get("name") for g in data.get("proxy-groups", []) if isinstance(g, dict)} -

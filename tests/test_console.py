@@ -294,12 +294,29 @@ class DiagnosisTests(unittest.TestCase):
 
     def test_process_report_keeps_original_status_and_strips_terminal_controls(self):
         service = ConsoleService("/not/read/by/this/test")
-        response = {"overall": "UNVERIFIED", "process": {"name": "untrusted\u001b[31m", "pid": 123}}
-        with patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 2, json.dumps(response).encode(), b"")) as run:
+        # V1 calls the shared same-UID reader in process; the Bash CLI is never
+        # spawned. The contract under test is unchanged: the reader's own status
+        # is preserved verbatim and terminal controls never reach the caller.
+        item = {"pid": 123, "name": "untrusted\u001b[31m", "parent": {"pid": 1, "same_user": False},
+                "proxy_environment": {"present": 0, "expected": 8, "classification": "direct",
+                                      "matches_current_config": None},
+                "connections": {"listener_established": 0, "other_non_loopback_established": 0}}
+        with patch("scripts.diagnostics.inspect", return_value=item) as inspect:
             result = service.diagnose("process", "123")
-        self.assertEqual(run.call_args.args[0][-3:], ["process", "123", "--json"])
-        self.assertEqual(result["overall"], "UNVERIFIED")
+        inspect.assert_called_once()
+        self.assertEqual(result["overall"], "PASS")
+        self.assertEqual(result["scope"], "current-user-only")
+        self.assertEqual(result["process"]["pid"], 123)
+        self.assertEqual(result["process"]["proxy_environment"], item["proxy_environment"])
         self.assertNotIn("\u001b", result["process"]["name"])
+
+    def test_process_diagnosis_keeps_the_reader_status_on_a_diagnostic_error(self):
+        from scripts import diagnostics as reader
+        service = ConsoleService("/not/read/by/this/test")
+        with patch("scripts.diagnostics.inspect",
+                   side_effect=reader.DiagnosticError("process-unreadable")):
+            with self.assertRaisesRegex(reader.DiagnosticError, "process-unreadable"):
+                service.diagnose("process", "123")
 
 
 @unittest.skipUnless(importlib.util.find_spec("yaml"), "optional Controller YAML dependency")

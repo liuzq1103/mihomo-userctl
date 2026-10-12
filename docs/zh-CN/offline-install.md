@@ -1,5 +1,8 @@
 # 从共享目录安装（课题组部署）
 
+> 以下保留 0.9.x 的历史备包步骤。V1 使用 [INSTALL.md](../../INSTALL.md) 的已审核
+> 源码/wheel 清单和离线安装器；旧 `scripts/offline_install.py` 入口已经退役。
+
 本页以 v0.7.0 正式发布包为例；部署时固定版本并核对来源。
 
 [English](../en/offline-install.md) · [本地安装 Prompt](agent-local-install-prompt.md) · [公开在线安装](setup.md)

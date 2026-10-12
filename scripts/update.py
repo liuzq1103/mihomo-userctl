@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 """Version-pinned self update. Network/data errors never echo upstream payloads."""
+
+# V1 archive: reject execution before importing any legacy installer code.
+if __name__ == "__main__":
+    import sys
+    print("legacy-installation-entry-retired: mihomoctl update LOCAL_RELEASE --wheelhouse DIRECTORY", file=sys.stderr)
+    raise SystemExit(2)
+
 import argparse
 import hashlib
 import json
@@ -165,6 +172,8 @@ def validate(source, tag):
             required.extend(("tests/test_controller.py", "bootstrap.py", "tests/test_bootstrap.py"))
         if version(tag) >= (0, 9, 0):
             required.extend(("tests/test_console.py", "tests/test_textual.py"))
+        if version(tag) >= (0, 9, 3):
+            required.append("tests/test_paseo.py")
         if any(not (source / name).is_file() for name in required):
             raise UpdateError("target-release-is-incomplete", 2)
         for file, pattern in (("install.sh", r"^VERSION=([^\n]+)$"),
@@ -192,6 +201,9 @@ def validate(source, tag):
         if (source / "tests/test_codex_preflight.py").is_file():
             commands.insert(1, [sys.executable, "-m", "unittest", "discover", "-s", "tests",
                                 "-p", "test_codex_preflight.py"])
+        if (source / "tests/test_paseo.py").is_file():
+            commands.insert(1, [sys.executable, "-m", "unittest", "discover", "-s", "tests",
+                                "-p", "test_paseo.py"])
         for pattern in ("test_controller.py", "test_bootstrap.py", "test_console.py", "test_textual.py"):
             if (source / "tests" / pattern).is_file():
                 commands.insert(1, [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", pattern])
@@ -344,6 +356,12 @@ class Parser(argparse.ArgumentParser):
 
 
 def main(argv=None, client=None):
+    """V1 retirement gate; refuse before parsing, network access or writes."""
+    print("legacy-installation-entry-retired: mihomoctl update LOCAL_RELEASE --wheelhouse DIRECTORY", file=sys.stderr)
+    return 2
+
+
+def _historical_main(argv=None, client=None):
     parser = Parser(description="Update only mihomo-userctl from a pinned official stable release.")
     parser.add_argument("--install-root", required=True, help=argparse.SUPPRESS)
     parser.add_argument("--current-version", required=True, help=argparse.SUPPRESS)

@@ -65,6 +65,13 @@ def flclash_input(data, home_dir=None):
 def policy_candidate(config, script=None, group=None, flclash=False, home_dir=None):
     text, data, tree = read_config(config)
     if script:
+        try:
+            from .controller_transaction import runtime_application
+        except ImportError:
+            from controller_transaction import runtime_application
+        app = runtime_application.get()
+        if app is not None and app.system:
+            raise ControlError('system-javascript-overrides-disabled')
         script = private(Path(script))
         if script.stat().st_size > LIMIT:
             raise ControlError("override-script-too-large")

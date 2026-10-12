@@ -107,6 +107,35 @@ rules: ["RULE-SET,Sites,出口", "MATCH,出口"]
             self.sub.preview(source_file=self.source, policy="provider")
         self.assertEqual(self.config.read_bytes(), self.original)
 
+    def test_auto_detects_full_policy_and_node_lists_and_explicit_mode_wins(self):
+        self.provider()
+        plan = self.sub.preview(source_file=self.source)
+        self.assertEqual((plan["requested_policy"], plan["policy"]), ("auto", "provider"))
+        with self.assertRaisesRegex(ControlError, "only-node-list"):
+            self.sub.preview(source_file=self.source, policy="nodes")
+        self.write(self.source, 'proxies: [{name: New, type: socks5, server: 127.0.0.1, port: 9}]\n')
+        plan = self.sub.preview(source_file=self.source)
+        self.assertEqual(plan["policy"], "nodes")
+        plan = self.sub.preview(source_file=self.source, policy="provider")
+        self.assertEqual(plan["policy"], "provider")
+        self.assertEqual(plan["removed_groups"], 1)
+        self.assertEqual(self.config.read_bytes(), self.original)
+
+    def test_auto_never_downgrades_invalid_provider_policy(self):
+        self.write(self.source, 'proxies: []\nproxy-groups: [{name: Entry, type: select, proxies: [Missing]}]\n')
+        with self.assertRaisesRegex(ControlError, "reference-missing"):
+            self.sub.preview(source_file=self.source)
+        self.assertEqual(self.config.read_bytes(), self.original)
+
+    def test_provider_import_previews_overwritten_probe_settings(self):
+        self.provider()
+        current = self.config.read_text() + 'proxy-providers: {Airport: {type: file, path: ./providers/nodes.yaml, health-check: {enable: true, interval: 120}}}\n'
+        self.write(self.config, current)
+        plan = self.sub.preview(source_file=self.source)
+        self.assertEqual(plan["probe_overwrites"][0]["name"], "Airport")
+        self.assertEqual(plan["probe_overwrites"][0]["before"]["interval"], 120)
+        self.assertNotIn("PRIVATE-TOKEN", json.dumps(plan))
+
     def test_provider_keeps_groups_rules_and_runtime_and_clears_old_nodes(self):
         self.provider()
         plan = self.sub.preview(source_file=self.source, policy="provider")

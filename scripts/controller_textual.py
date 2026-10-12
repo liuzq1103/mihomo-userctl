@@ -1,6 +1,7 @@
 """Optional SSH/PTY frontend. All I/O belongs to application services."""
 import json
 import os
+import shlex
 import threading
 import time
 
@@ -14,12 +15,25 @@ from textual.widgets import Button, DataTable, Footer, Header, Input, RichLog, S
 try:
     from .controller_state import Store, Snapshot
     from .controller_types import ControlError
+    from .controller_health import guidance, parse_console
 except ImportError:
     from controller_state import Store, Snapshot
     from controller_types import ControlError
+    from controller_health import guidance, parse_console
 
-PAGES = ("overview", "proxies", "connections", "rules", "logs", "profiles", "providers", "diagnostics", "runtime")
-PAGE_NAMES = dict(zip(PAGES, ("首页", "节点", "连接", "规则", "日志", "订阅", "提供商", "诊断", "服务")))
+# V1 page set. The subscription page is "subscriptions"; "profile" is the
+# ProxyProfile / binding view. The legacy identifier "profiles" still routes to
+# the subscription page so retained callers and keybindings keep working.
+PAGES = ("overview", "proxies", "subscriptions", "connections", "rules", "logs",
+         "profile", "providers", "diagnostics", "runtime")
+PAGE_NAMES = dict(zip(PAGES, ("首页", "节点", "订阅", "连接", "规则",
+                              "日志", "接入", "提供商", "诊断", "服务")))
+# Retained callers may still address the subscription page by its old name.
+PAGE_ALIASES = {"profiles": "subscriptions"}
+# The primary destinations get their own nav button; the rest live in the
+# secondary selector, which keeps a ten-page console usable at 60x14.
+PRIMARY_PAGES = ("overview", "proxies", "subscriptions", "profile")
+
 GROUP_TYPES = {"Selector": "手动选择", "URLTest": "自动测速", "Fallback": "故障转移", "LoadBalance": "负载均衡"}
 LABELS = {"state": "状态", "nodes": "节点数", "groups": "分组数", "rules": "规则数",
           "policy": "导入策略", "ignored_fields": "忽略的运行设置", "fields": "替换字段",
@@ -30,9 +44,16 @@ LABELS = {"state": "状态", "nodes": "节点数", "groups": "分组数", "rules
           "controller": "控制器", "core": "核心", "mode": "模式", "connections": "连接数",
           "capabilities": "不可用功能", "pending_restart": "待重启", "endpoint": "端点",
           "up": "上传", "down": "下载", "inuse": "已用", "oslimit": "上限", "delay_ms": "延迟毫秒",
-          "warning": "警告", "listener": "监听", "authentication": "身份验证"}
+          "warning": "警告", "listener": "监听", "authentication": "身份验证",
+          "scope_kind": "作用域", "backend": "后端", "listeners": "监听项", "proxy_mode": "代理模式",
+          "tun": "TUN", "checks": "检查项", "evidence": "证据等级", "bindings": "接入",
+          "profiles": "代理档案", "selected_profile": "已选用", "limits": "证据边界",
+          "overall": "结论", "health": "健康检查",
+          "before": "修改前", "after": "修改后", "scope": "对象类型", "kind": "操作类型",
+          "affected_groups": "受影响的分组", "provider_settings": "引用提供商的探测设置",
+          "probe_overwrites": "订阅覆盖的现有探测设置", "requested_policy": "请求的导入模式"}
 VALUES = {"preview": "预览（尚未保存）", "restart-required": "已保存，尚未生效，请重启",
-          "unchanged": "未改变", "provider": "提供商节点、分组和规则", "nodes": "仅合并节点",
+          "unchanged": "未改变", "auto": "按内容自动判断", "provider": "提供商节点、分组和规则", "nodes": "仅合并节点",
           "confirmed": "已完成", "add": "新增", "replace": "替换", "remove": "移除",
           "start": "启动", "stop": "停止", "restart": "重启"}
 # Only these keys carry our own status enums. Node, group and provider names are
@@ -51,6 +72,9 @@ def preview_summary(preview):
     Kept short on purpose. At 80x24 the body is ten rows, so anything below the
     counts and the clearing warning is effectively invisible.
     """
+    if preview.get("kind") == "health-check":
+        return ["探测配置预览：{} {}".format(preview["scope"], preview["name"]),
+                "保存后需单独重启；订阅再次导入可能覆盖此调整。"]
     return [
         "状态 {}｜策略 {}".format(VALUES.get(str(preview.get("state", "")), str(preview.get("state", ""))) or "预览",
                                   VALUES.get(str(preview.get("policy", "")), str(preview.get("policy", ""))) or "提供商节点、分组和规则"),
@@ -107,22 +131,54 @@ def human_bytes(value):
             return "{:.1f} {}".format(value, unit)
         value /= 1024
 
+
+def summarize(key, value, limit=8):
+    """Render one status/projection value as a short, honest line.
+
+    A missing observation prints the key with ``unknown`` rather than nothing, so
+    a partial payload can never read as a complete one. This is presentation
+    only: no verdict is decided here.
+    """
+    if value is None:
+        return "{}: unknown".format(LABELS.get(key, key))
+    if isinstance(value, bool):
+        return "{}: {}".format(LABELS.get(key, key), "yes" if value else "no")
+    if isinstance(value, (int, float)):
+        return "{}: {}".format(LABELS.get(key, key), value)
+    if isinstance(value, str):
+        return "{}: {}".format(LABELS.get(key, key), value)
+    if isinstance(value, dict):
+        parts = ["{}={}".format(LABELS.get(name, name), summarize("", item, limit=2)[8:])
+                 for name, item in list(value.items())[:limit] if item is not None]
+        return "{}: {}".format(LABELS.get(key, key), " ".join(parts) if parts else "unknown")
+    if isinstance(value, list):
+        parts = [summarize("", item, limit=2)[8:] for item in value[:limit]]
+        return "{}: {}".format(LABELS.get(key, key), " | ".join(str(part) for part in parts))
+    return "{}: {}".format(LABELS.get(key, key), str(value))
+
 HELP = """首页：查看状态、初始化控制器、启动/停止/重启、切换运行模式。
+服务：七项运行时事实 — 核心、控制器、监听、生效配置、代理模式、TUN、错误；结论带证据等级。
+接入：代理档案与接入声明（仅导出配置，不管理第三方生命周期）。
 节点：先选分组，再选节点；手动组回车切换，自动组由核心选择。
-订阅：选择来源文件和导入策略 → 预览导入 → 保存 → 重启生效。
+订阅：选择来源文件和导入策略 → 预览导入 → 保存 → 重启生效；默认按内容自动判断。
 提供商策略：采用订阅自带的节点、分组和规则；缺少的策略字段会被清空（下方显示移除数量）。
 仅合并节点：只按同名替换 proxies，分组与规则保留；订阅只含顶层 proxies 时使用。
 本机监听、密钥、DNS 和 TUN 在两种策略下都保留。
-更多：连接、规则、日志、提供商、诊断、服务。v 查看上次操作详情。
+更多：连接、规则、日志、提供商、诊断。v 查看上次操作详情。
 Tab / Shift+Tab 切换焦点；方向键浏览；Enter 确认；Esc 取消；q 退出。
 / 搜索；r 刷新；t 测速；T 批量测速（先确认）；[ / ] 切换分组。
 p 暂停连接/日志；s 排序；m 手动组转换预览；o 可信脚本预览；y 保存。
 高级命令（: 打开）：page NAME; start; stop; restart; mode rule|global|direct;
 dns NAME [TYPE]; provider NAME; subscribe FILE; subscribe-url PRIVATE_URL_FILE;
 diagnose url PUBLIC_HTTPS_URL; diagnose process PID; cancel; theme dark|light;
-log-level debug|info|warning|error; journal; ready; doctor; codex; rules-status; rules-check.
+log-level debug|info|warning|error; journal [--since TIME] [--until TIME];
+health; ready; doctor; status; rules-status; rules-check.
+chain：查看当前分组的已有自动路径和共享入口；按路径逐个选择并核对。
+health-check group|provider "名称" [--preset resilient] [--url URL] [--expected-status STATUS]
+[--interval SECONDS] [--timeout MS] [--lazy true|false] [--tolerance MS]：预览，y 保存。
 subscribe 与 subscribe-url 使用订阅页当前选择的导入策略。
 测速只探测公共 HTTPS 地址；重启会中断连接。私有详情需显式 --details。
+已退役的工具专属命令（如 codex）已映射为通用 health；工具进程不再由本工具启动或停止。
 """
 
 
@@ -195,7 +251,7 @@ class Console(App):
         self.service, self.ascii_only = service, ascii_only
         self.theme = "textual-light" if theme == "light" else "textual-dark"
         self.store = Store()
-        self.page, self.group, self.node, self.filter_text = "profiles" if initial_preview else "overview", "", "", ""
+        self.page, self.group, self.node, self.filter_text = "subscriptions" if initial_preview else "overview", "", "", ""
         self.paused, self.reverse = False, False
         self.next_refresh, self.failures = {}, {}
         self.batch_cancel = threading.Event()
@@ -210,8 +266,8 @@ class Console(App):
         # A piped preview already decided the policy (tui --stdin --policy ...).
         # Seed the selector with it so the first Select.Changed is a no-op
         # instead of wiping the review the user just prepared.
-        seeded = initial_preview.get("policy") if isinstance(initial_preview, dict) else None
-        self.source_policy = seeded if seeded in ("provider", "nodes") else "provider"
+        seeded = initial_preview.get("requested_policy", initial_preview.get("policy")) if isinstance(initial_preview, dict) else None
+        self.source_policy = seeded if seeded in ("auto", "provider", "nodes") else "auto"
         self.source_path = ""
         # Pending work and the guarded backup come from the service receipt, never
         # from a second copy the UI can drift on.
@@ -224,12 +280,15 @@ class Console(App):
         with Horizontal(id="mainnav"):
             yield Button("首页", id="nav-overview")
             yield Button("节点", id="nav-proxies")
+            # Widget id stays "nav-profiles" for retained automation; the page it
+            # opens is "subscriptions".
             yield Button("订阅", id="nav-profiles")
+            yield Button("接入", id="nav-profile")
             yield Button("更多", id="nav-more")
         yield Select([(PAGE_NAMES[name], name) for name in PAGES], value=self.page, allow_blank=True, id="navigation")
         with Horizontal(id="subscription-source"):
             yield Select([("YAML 文件", "file"), ("URL 文件", "url")], value="file", allow_blank=False, id="source-kind")
-            yield Select([("提供商策略", "provider"), ("仅合并节点", "nodes")], value=self.source_policy, allow_blank=False, id="source-policy")
+            yield Select([("自动判断", "auto"), ("提供商策略", "provider"), ("仅合并节点", "nodes")], value=self.source_policy, allow_blank=False, id="source-policy")
             yield Input(placeholder="私有文件路径（不要输入订阅 URL）", id="source-path")
         with HorizontalScroll(id="toolbar"):
             yield Button("初始化", id="setup-controller")
@@ -259,7 +318,7 @@ class Console(App):
         self.query_one("#groups", DataTable).add_columns("分组", "方式", "当前选择")
         self.query_one("#nodes", DataTable).add_columns("节点", "当前", "延迟 ms")
         self._refresh_timer = self.set_interval(.1, self.tick)
-        self.change_page("profiles" if self.preview else "overview")
+        self.change_page("subscriptions" if self.preview else "overview")
 
     def on_resize(self, event):
         self.set_class(event.size.width < 80 or event.size.height < 24, "compact")
@@ -286,25 +345,30 @@ class Console(App):
         self.last_backup = getattr(self.service, "backup", None) if self.pending_restart else None
 
     def apply_action_visibility(self):
-        actions = self.page in ("overview", "profiles")
+        actions = self.page in ("overview", "subscriptions", "profile")
         self.query_one("#service-restart").display = actions
         self.query_one("#restore-backup").display = actions and bool(self.pending_restart and self.last_backup)
 
     def change_page(self, page):
+        """Switch pages, accepting the retained "profiles" name for subscriptions."""
+        page = PAGE_ALIASES.get(page, page)
+        if page not in PAGES:
+            raise ControlError("unknown-console-page")
         if self.page == "logs" and page != "logs":
             self.store.stop_stream("logs")
         self.page = self.store.state.page = page
-        active = page if page in ("overview", "proxies", "profiles") else "more"
-        for name in ("overview", "proxies", "profiles", "more"):
-            self.query_one("#nav-" + name, Button).variant = "primary" if name == active else "default"
-        self.query_one("#navigation").display = page not in ("overview", "proxies", "profiles")
-        self.query_one("#subscription-source").display = page == "profiles"
+        active = page if page in PRIMARY_PAGES else "more"
+        for name in PRIMARY_PAGES + ("more",):
+            button = "profiles" if name == "subscriptions" else name
+            self.query_one("#nav-" + button, Button).variant = "primary" if name == active else "default"
+        self.query_one("#navigation").display = page not in PRIMARY_PAGES
+        self.query_one("#subscription-source").display = page == "subscriptions"
         for identifier in ("setup-controller", "service-start", "service-stop", "mode-select"):
             self.query_one("#" + identifier).display = page == "overview"
         for identifier in ("node-search", "node-latency", "node-batch"):
             self.query_one("#" + identifier).display = page == "proxies"
         for identifier in ("subscription-preview", "subscription-save"):
-            self.query_one("#" + identifier).display = page == "profiles"
+            self.query_one("#" + identifier).display = page == "subscriptions"
         self.apply_action_visibility()
         self.paused = False
         self.query_one("#proxies").display = page == "proxies"
@@ -332,7 +396,7 @@ class Console(App):
                 self.source_kind = event.value
                 self.clear_preview("来源已切换，请重新预览导入。")
         elif event.select.id == "source-policy":
-            if event.value in ("provider", "nodes") and event.value != self.source_policy:
+            if event.value in ("auto", "provider", "nodes") and event.value != self.source_policy:
                 self.source_policy = event.value
                 self.clear_preview("导入策略已切换，请重新预览导入。")
 
@@ -348,6 +412,7 @@ class Console(App):
                 navigation.clear()
                 navigation.focus()
             else:
+                page = PAGE_ALIASES.get(page, page)
                 self.query_one("#navigation", Select).value = page
                 self.change_page(page)
         elif identifier == "setup-controller":
@@ -390,10 +455,21 @@ class Console(App):
         if key != "operation" and snapshot and snapshot.freshness == "unsupported":
             return
         if self.store.submit(key, operation):
+            self.mirror_alias(key)
             if key == "operation":
                 self.query_one("#hint", Static).update("正在处理操作…")
                 for identifier in ("source-path", "source-kind", "source-policy"):
                     self.query_one("#" + identifier).disabled = True
+
+    def mirror_alias(self, key):
+        """Share one snapshot object with every retained identifier of a page.
+
+        Snapshots are updated in place, so a single alias entry stays current
+        without a second subscription to the same data.
+        """
+        for alias, target in PAGE_ALIASES.items():
+            if target == key and key in self.store.state.snapshots:
+                self.store.state.snapshots[alias] = self.store.state.snapshots[key]
 
     def action_refresh(self):
         for key in (self.page, "traffic", "memory"):
@@ -461,7 +537,7 @@ class Console(App):
         if self.page == "overview" and time.monotonic() >= self.next_refresh.get("traffic", 0):
             self.next_refresh["traffic"] = time.monotonic() + 1
             self.schedule("traffic", lambda: self.service.read("traffic"))
-        if self.paused or self.page in ("profiles", "rules", "providers", "diagnostics"):
+        if self.paused or self.page in ("subscriptions", "rules", "providers", "diagnostics", "profile"):
             return
         now = time.monotonic()
         if self.page == "logs" and hasattr(self.service, "logs"):
@@ -489,19 +565,113 @@ class Console(App):
             table.move_cursor(row=table.get_row_index(old_key), animate=False, scroll=False)
             table.scroll_to(y=old_scroll, animate=False, force=True)
 
+    def scope_badge(self):
+        """Scope and backend are shown on every page so no view can hide them."""
+        snapshot = self.store.state.snapshots.get("runtime")
+        value = (snapshot.value if snapshot and isinstance(snapshot.value, dict) else {}) or {}
+        scope = value.get("scope") or getattr(self.service, "scope", None)
+        if callable(scope):
+            try:
+                scope = scope()
+            except ControlError:
+                scope = None
+        backend = value.get("backend")
+        return " / ".join(part for part in (str(scope or "unknown"), str(backend)) if part and part != "None")
+
+    def render_runtime(self, value):
+        """The V1 runtime contract: core, controller, listeners, config, mode, TUN, error.
+
+        Every row is printed even when unknown. A missing observation renders as
+        UNVERIFIED here instead of being dropped, so the page cannot imply a
+        healthy runtime from partial data.
+        """
+        body = self.query_one("#body", RichLog)
+        body.clear()
+        overall = str(value.get("overall", "UNVERIFIED"))
+        body.write(Text("运行时 · 作用域 {} · 后端 {} · 结论 {}".format(
+            value.get("scope", "unknown"), value.get("backend", "unknown"), overall), style="bold"))
+        if value.get("reason"):
+            body.write(Text("原因：" + str(value["reason"])))
+        body.write(Text("核心：{}".format(summarize("core", value.get("core"))), style="bold"))
+        body.write(Text("控制器：{}".format(summarize("controller", value.get("controller")))))
+        body.write(Text("监听：{}".format(summarize("listeners", value.get("listeners")))))
+        body.write(Text("生效配置：{}".format(summarize("config", value.get("config")))))
+        body.write(Text("代理模式：{}".format(value.get("proxy_mode") or "unknown")))
+        body.write(Text("核心路由模式：{}".format(value.get("routing_mode") or "unknown")))
+        tun = value.get("tun") if isinstance(value.get("tun"), dict) else {}
+        body.write(Text("TUN：{}（V1 默认关闭；仅管理员显式 --system 可开启）".format(
+            summarize("tun", tun) if tun else "unknown")))
+        error = value.get("error")
+        if error:
+            body.write(Text("错误：" + summarize("error", error), style="bold"))
+        if self.pending_restart:
+            body.write(Text("待生效：已保存但尚未重启；可在首页重启或恢复备份。", style="bold"))
+        health = self.store.state.snapshots.get("diagnostics")
+        if health is not None and isinstance(health.value, dict):
+            body.write(Text("\n健康检查结论：" + str(health.value.get("overall", "UNVERIFIED"))))
+            for row in health.value.get("checks") or []:
+                body.write(Text("  {} {} [{}] {}".format(row.get("status"), row.get("name"),
+                                                         row.get("evidence"), row.get("detail"))))
+        self.query_one("#hint", Static).update(
+            "证据等级：confirmed 直接观测；inferred 间接推导；unavailable 无法观察。就绪不等于模型端到端成功。")
+
+    def render_profile(self, value):
+        """Proxy profiles, their bindings and the fixed environment limits.
+
+        Values shown here are redacted projections: no credential, no proxy URL
+        with userinfo, and no node name ever reaches this page.
+        """
+        body = self.query_one("#body", RichLog)
+        body.clear()
+        if value.get("overall") not in (None, "PASS"):
+            body.write(Text("代理档案暂不可用：" + str(value.get("reason", "unknown"))))
+            self.query_one("#hint", Static).update("先在首页完成 init；档案来自 manager.yaml，不需要控制器已启动。")
+            return
+        body.write(Text("代理档案 · 作用域 {}".format(value.get("scope", "unknown")), style="bold"))
+        rows = value.get("profiles") or []
+        if not rows:
+            body.write(Text("尚无代理档案。运行 mihomoctl init 创建默认档案。"))
+        for row in rows:
+            marker = ("✓" if row.get("selected") else " ") if not self.ascii_only else ("*" if row.get("selected") else " ")
+            listeners = ", ".join(str(item) for item in (row.get("listeners") or [])) or "未声明"
+            bypass = ", ".join(str(item) for item in (row.get("no_proxy") or [])) or "未声明"
+            body.write(Text("{} {} | 监听 {} | 凭据 {} | 绕过 {}".format(
+                marker, row.get("name"), listeners, row.get("credentials", "external"), bypass)))
+        body.write(Text("\n当前档案：" + str(value.get("selected") or "未选择")))
+        bindings = value.get("bindings") or {}
+        body.write(Text("\n接入（只写配置，不管理第三方生命周期）", style="bold"))
+        if not bindings:
+            body.write(Text("尚无接入声明。先在 manager.yaml 定义 binding，再使用 mihomoctl integration export NAME 导出。"))
+        for name, row in bindings.items():
+            row = row if isinstance(row, dict) else {}
+            body.write(Text("  {} → {} · {} · 目标 {}".format(
+                name, row.get("adapter", "unknown"), row.get("profile", "default"), row.get("target", "—"))))
+        body.write(Text("\n环境注入的固定边界", style="bold"))
+        for limit in value.get("environment") or []:
+            body.write(Text("  · " + str(limit)))
+        self.query_one("#hint", Static).update(
+            "环境变量只在进程创建时继承，不是网络强制策略；已运行的进程需要你自己重启。")
+
     def render_page(self):
         snap = self.store.state.snapshots.get(self.page)
         if not snap:
             self.query_one("#status", Static).update(PAGE_NAMES[self.page] + "：正在读取…")
             return
         sampled = time.strftime("%H:%M:%S", time.localtime(snap.sampled_at)) if snap.sampled_at else "never"
-        self.query_one("#status", Static).update(Text("{}：{} | 更新于 {} | {}{}".format(
-            PAGE_NAMES[self.page], {"fresh": "已更新", "stale": "旧数据", "unsupported": "核心不支持"}.get(snap.freshness, snap.freshness), sampled, snap.error, " | 已暂停" if self.paused else "")))
+        self.query_one("#status", Static).update(Text("{}：{} | 作用域 {} | 更新于 {} | {}{}".format(
+            PAGE_NAMES[self.page], {"fresh": "已更新", "stale": "旧数据", "unsupported": "核心不支持"}.get(snap.freshness, snap.freshness),
+            self.scope_badge(), sampled, snap.error, " | 已暂停" if self.paused else "")))
         value = snap.value
         if value is None:
             self.query_one("#body", RichLog).clear()
             self.query_one("#body", RichLog).write(Text("暂不可用。可回首页初始化控制器、启动或重启；服务与诊断仍可使用。 " + snap.error))
             self.query_one("#hint", Static).update("当前核心不支持此功能；其他页面仍可使用，r 重新检查。" if snap.freshness == "unsupported" else "连接或配置未就绪；回首页初始化、启动或重启。")
+            return
+        if self.page == "runtime":
+            self.render_runtime(value)
+            return
+        if self.page == "profile":
+            self.render_profile(value)
             return
         if self.page == "proxies":
             groups = [row for row in value.values() if "members" in row]
@@ -513,7 +683,8 @@ class Console(App):
             marker = "*" if self.ascii_only else "✓"
             self.replace_rows(self.query_one("#nodes", DataTable), [(node, (node, marker if node == group.get("selected") else "", self.latencies.get(node, ""))) for node in self.visible_nodes])
             self.query_one("#nodes").border_title = self.group + (" [回车选择]" if group.get("selectable") else " [自动组，只读]")
-            self.query_one("#hint", Static).update("回车选择分组/节点；自动测速、故障转移组由核心决定节点" if group.get("selectable") else "此组由核心自动选择节点；可测速，不能手动切换")
+            chain = " → ".join(group.get("selection_chain", []))
+            self.query_one("#hint", Static).update(Text(("当前链路：" + chain + "；: chain 查看自动路径与风险") if chain else "手动组回车选择；自动组由核心选择"))
         elif self.page == "connections":
             rows = []
             for index, row in enumerate(value["connections"]):
@@ -566,8 +737,8 @@ class Console(App):
                 for operation in list(self.store.state.operations)[-5:]:
                     body.write(Text(" | ".join(report_lines(operation)[:3])))
                 body.write(Text("更多 → 服务/诊断可查看详细状态；v 查看上次操作详情。"))
-            elif self.page == "profiles":
-                body.write(Text("订阅：预览 → 保存 → 重启生效；策略默认提供商，可切换“仅合并节点”", style="bold"))
+            elif self.page == "subscriptions":
+                body.write(Text("订阅：预览 → 保存 → 重启生效；默认自动判断，可显式选择提供商或节点合并", style="bold"))
                 if self.pending_restart:
                     body.write(Text("已保存，尚未生效：点击重启生效；失败时可恢复备份。", style="bold"))
                 if self.preview:
@@ -575,6 +746,8 @@ class Console(App):
                         body.write(Text(line))
                     for line in clearing_warnings(self.preview):
                         body.write(Text(line, style="bold"))
+                    if self.preview.get("probe_overwrites"):
+                        body.write(Text("订阅将覆盖 {} 项现有探测设置；v 查看修改前后。".format(len(self.preview["probe_overwrites"])), style="bold"))
                     ignored = [str(row) for row in (self.preview.get("ignored_fields") or [])]
                     body.write(Text("忽略的运行设置：" + ("、".join(ignored) if ignored else "无")))
                     body.write(Text("保存将写入此预览；v 查看完整变化。"))
@@ -601,7 +774,11 @@ class Console(App):
             if not snapshot or not (snapshot.value or {}).get(group, {}).get("selectable"):
                 self.query_one("#hint", Static).update("自动组由核心选择节点，可使用测速。")
                 return
-            self.push_screen(Confirm("将 {} 切换为 {}？已有连接保持打开。".format(group, node)),
+            impacts = (snapshot.value or {}).get(group, {}).get("affected_groups", [])
+            message = "将 {} 切换为 {}？已有连接保持打开。".format(group, node)
+            if impacts:
+                message += "\n共享入口影响：" + ", ".join(impacts)
+            self.push_screen(Confirm(message),
                              lambda yes: self.schedule("operation", lambda: self.service.choose(group, node)) if yes else None)
 
     def selected_node(self):
@@ -651,6 +828,8 @@ class Console(App):
                 self.preview = None
                 if "id" in preview:
                     self.schedule("operation", lambda: self.service.subscription_apply(preview["id"], preview["sha256"]))
+                elif preview.get("kind") == "health-check":
+                    self.schedule("operation", lambda: self.service.health_check(apply=True))
                 else:
                     self.schedule("operation", lambda: self.service.policy(apply=True))
         message = "校验、备份并保存此预览？保存后需单独重启生效。\n" + "\n".join(report_lines(preview))
@@ -690,8 +869,22 @@ class Console(App):
 
     def execute_command(self, command):
         verb, _, rest = command.partition(" ")
-        if verb == "page" and rest in PAGES:
-            self.query_one("#navigation", Select).value = rest
+        if verb == "health-check":
+            try:
+                scope, name, options = parse_console(rest)
+            except ControlError as error:
+                self.query_one("#hint", Static).update(error.code)
+                return
+            self.clear_preview()
+            self.schedule("operation", lambda: self.service.health_check(scope, name, options))
+            return
+        if verb == "chain" and not rest:
+            snapshot = self.store.state.snapshots.get("proxies")
+            row = (snapshot.value or {}).get(self.group, {}) if snapshot else {}
+            self.push_screen(Confirm("\n".join(guidance(row)), accept="已阅"))
+            return
+        if verb == "page" and PAGE_ALIASES.get(rest, rest) in PAGES:
+            self.query_one("#navigation", Select).value = PAGE_ALIASES.get(rest, rest)
         elif verb == "group" and rest:
             snapshot = self.store.state.snapshots.get("proxies")
             if snapshot and snapshot.value and "members" in snapshot.value.get(rest, {}):
@@ -718,10 +911,21 @@ class Console(App):
                 self.schedule("operation", lambda: self.service.diagnose(kind, target))
             else:
                 self.query_one("#hint", Static).update("用法：diagnose url 公网HTTPS地址 或 diagnose process PID")
-        elif verb in ("doctor", "ready", "codex", "rules-status", "rules-check") and not rest:
+        elif verb in ("health", "doctor", "ready", "rules-status", "rules-check") and not rest:
             self.schedule("operation", lambda: self.service.shell(verb))
-        elif verb == "journal" and not rest:
-            self.schedule("operation", self.service.journal)
+        elif verb in ("status", "profile", "profiles") and not rest:
+            self.change_page("runtime" if verb == "status" else
+                             ("subscriptions" if verb == "profiles" else "profile"))
+        elif verb == "journal":
+            try:
+                tokens = shlex.split(rest)
+                if len(tokens) % 2 or any(tokens[i] not in ("--since", "--until") for i in range(0, len(tokens), 2)):
+                    raise ValueError()
+                filters = {tokens[i][2:]: tokens[i+1] for i in range(0, len(tokens), 2)}
+            except ValueError:
+                self.query_one("#hint", Static).update('用法：journal --since "开始时间" --until "结束时间"')
+                return
+            self.schedule("operation", lambda: self.service.journal(**filters))
         elif verb == "cancel":
             self.batch_cancel.set()
         elif verb == "theme" and rest in ("dark", "light"):

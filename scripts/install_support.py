@@ -30,9 +30,12 @@ RUNTIME_060 = frozenset(RUNTIME.values()) - {"controller.py", "dashboard.html"}
 RUNTIME_080 = frozenset(RUNTIME.values())
 # Frozen historical sets must be defined before extending this release's files.
 for _component in ("types", "config", "api", "service", "policy", "transaction", "dashboard",
-                   "legacy", "state", "runtime", "subscriptions", "textual", "deps"):
+                   "legacy", "state", "runtime", "subscriptions", "textual", "deps", "health"):
     RUNTIME["scripts/controller_" + _component + ".py"] = "controller_" + _component + ".py"
 RUNTIME["scripts/textual-requirements.txt"] = "textual-requirements.txt"
+# v0.9.0-v0.9.2 shipped the same module inventory, before health/Paseo adapters.
+RUNTIME_092 = frozenset(RUNTIME.values()) - {"controller_health.py"}
+RUNTIME["scripts/paseo.py"] = "paseo.py"
 RUNTIME_020 = frozenset(("common.bash", "shell.bash", "mihomoctl", "completion.bash",
                          "update.py", "install_support.py", "acceptance.py"))
 RUNTIME_021 = frozenset(("common.bash", "shell.bash", "mihomoctl", "completion.bash",
@@ -205,7 +208,8 @@ def verify_generation(record):
     legacy = {"0.2.0": RUNTIME_020, "0.2.1": RUNTIME_021}
     release = tuple(int(n) for n in record.get("version", "0.0.0").split("."))
     expected_runtime = legacy.get(record.get("version"), RUNTIME_060 if release < (0, 7, 0) else
-                                  RUNTIME_080 if release < (0, 9, 0) else frozenset(RUNTIME.values()))
+                                  RUNTIME_080 if release < (0, 9, 0) else
+                                  RUNTIME_092 if release < (0, 9, 3) else frozenset(RUNTIME.values()))
     if (set(record["runtime_hashes"]) != expected_runtime or
             set(record["bootstrap_hashes"]) != {"mihomoctl", "common.bash", "shell.bash", "completion.bash"}):
         raise InstallError("incomplete-installation-integrity-record")

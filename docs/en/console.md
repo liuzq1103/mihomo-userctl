@@ -1,6 +1,16 @@
-# Server-first Mihomo console (v0.9.0)
+# Mihomo console (v1.0.0)
+
+> **v1.0.0 page changes:** the primary navigation is "overview, nodes,
+> subscriptions, access, more". The page that was labelled "profiles" is now
+> `subscriptions` (the retained identifier `profiles` still routes there), and a
+> new `profile` page shows **proxy profiles, binding declarations and the fixed
+> environment-injection boundaries**. The "service" page now always renders the
+> **seven runtime facts**. The command surface follows the
+> [V1 command and configuration contract](v1.md).
 
 `mihomoctl tui` automatically selects the available Chinese Textual task console, falling back to a Chinese numbered menu. Explicit curses, textual and plain engines remain available. Startup never downloads dependencies. All backends share controller services. Ordinary shells remain direct; node changes keep established connections open.
+
+See [automatic failover](failover.md) for import detection, existing routing paths, scoped probe settings and incident logs.
 
 ## Optional installation
 
@@ -29,13 +39,13 @@ Include the pip bootstrap wheel and all dependencies. The wheelhouse must be own
 
 ## Pages and interaction
 
-Main entries are Home, Nodes, Subscriptions and More (displayed in Chinese). Home exposes setup, start, stop, restart and mode selection. Nodes exposes search and latency buttons. More contains connections, rules, logs, providers, diagnostics and runtime. Subscriptions follows source → preview → save → restart. Private receipts preserve pending changes and backup recovery across sessions; external config edits invalidate automatic recovery.
+Main entries are Home, Nodes, Subscriptions, Access and More (displayed in Chinese). Home exposes setup, start, stop, restart and mode selection. Nodes exposes search and latency buttons. Access shows proxy profiles, binding declarations and the fixed environment-injection boundaries. More contains connections, rules, logs, providers, diagnostics and service. Subscriptions follows source → preview → save → restart. Private receipts preserve pending changes and backup recovery across sessions; external config edits invalidate automatic recovery.
 
-Overview separates service observations, listener, authentication and readiness, and shows version, traffic, memory, connections and selections. Proxies provides groups, search, sorting, switching, latency and policy previews. Connections is read-only. Rules shows type counts and rule-provider summaries without private payloads. Logs streams Controller events into a bounded buffer. Profiles shows disk configuration counts. Providers shows node-provider status. Diagnostics reuses offline doctor/Codex diagnosis; preflight and ready require explicit commands. Runtime exposes user-service status and explicit lifecycle commands.
+Overview separates service observations, listener, authentication and readiness, and shows version, traffic, memory, connections and selections. Proxies provides groups, search, sorting, switching, latency and policy previews. Connections is read-only. Rules shows type counts and rule-provider summaries without private payloads. Logs streams Controller events into a bounded buffer. Subscriptions shows disk configuration counts; the retained identifier `profiles` still routes there. Profile shows the redacted proxy profiles, their bindings and the environment boundaries. Providers shows node-provider status. Diagnostics shows generic runtime health: each check carries PASS / FAIL / UNVERIFIED / SKIPPED plus an evidence level, and the fixed boundary statements are always displayed. There is no application-specific branch. Runtime (service) always renders **the seven facts**: core, controller, every listener, active config, proxy layer, Mihomo routing mode, TUN and errors; a missing fact renders as unknown / UNVERIFIED rather than as healthy.
 
 Tab/Shift+Tab moves focus; arrows browse; Enter selects. `/` searches, `r` refreshes, `t` tests one node, `T` confirms a batch of visible nodes (at most four concurrent requests), `p` pauses connections/logs, `s` reverses sorting, `c` shows connections, `f` samples traffic and `v` opens the full last result. Latency does not prove model E2E. `m`/`o` preview manual-group/trusted-JS policy, and `y` reviews and saves the exact candidate. Esc cancels input, previews or queued latency tests; `q` quits outside input fields. `[`/`]` changes groups in compact layouts too.
 
-`?` opens help; `:` accepts commands: `page NAME`, `group NAME`, `start`, `stop`, `restart`, `mode rule|global|direct`, `dns NAME [TYPE]`, `provider NAME`, `subscribe FILE`, `subscribe-url PRIVATE_URL_FILE`, `cancel`, `log-level debug|info|warning|error`, `ready`, `doctor`, `codex`, `rules-status`, `rules-check`, `theme dark|light`.
+`?` opens help; `:` accepts commands: `page NAME`, `group NAME`, `start`, `stop`, `restart`, `mode rule|global|direct`, `dns NAME [TYPE]`, `provider NAME`, `subscribe FILE`, `subscribe-url PRIVATE_URL_FILE`, `cancel`, `log-level debug|info|warning|error`, `health`, `ready`, `doctor`, `status`, `profile`, `rules-status`, `rules-check`, `theme dark|light`.
 
 Keyboard operation is complete; mouse is optional. Full layout targets 80×24, compact layout 60×14; smaller terminals show guidance. `--ascii` uses ASCII selection markers, `--theme dark|light` selects the theme and `NO_COLOR=1` disables colors. No Nerd Font is needed. `--details` explicitly enables private connection hosts/rule payloads/log messages; known credentials remain masked in logs. Logs are not exported by default.
 
@@ -47,11 +57,11 @@ Refresh preserves filters, object identity and scroll position. Failed requests 
 
 `: diagnose url PUBLIC_HTTPS_URL` explicitly runs the existing network diagnosis (no userinfo, query or fragment). `: diagnose process PID` uses the existing current-UID process diagnosis. Results keep the original evidence statuses; `v` opens the full report.
 
-CLI defaults to `--policy nodes`: only a top-level `proxies` list is accepted; matching nodes replace existing entries and others remain. `--policy provider` accepts provider YAML and replaces `proxies`, `proxy-providers`, `proxy-groups`, `rules` and `rule-providers` together. Names, order, group types and references are retained without generating groups; missing policy fields become empty. Host ports, controller, secrets, DNS, TUN and other runtime settings are ignored and listed in preview. Duplicate names, missing references and unsafe provider paths are rejected. Provider preview and apply both validate with the installed core. Base64 and URI lists remain unsupported.
+CLI and TUI default to `--policy auto`: YAML containing only `proxies` merges nodes; other YAML uses provider policy. The preview reports the effective mode; validation failures never downgrade it. Explicit `--policy nodes` accepts only a top-level `proxies` list; matching nodes replace existing entries and others remain. `--policy provider` replaces `proxies`, `proxy-providers`, `proxy-groups`, `rules` and `rule-providers` together. Names, order, group types, member order, probe settings and references are retained without generating groups; missing policy fields become empty. Host ports, controller, secrets, DNS, TUN and other runtime settings are ignored and listed in preview. Duplicate names, missing references and unsafe provider paths are rejected. Provider preview and apply both validate with the installed core. Base64 and URI lists remain unsupported.
 
 Provider paths must stay in dedicated `providers/`, `proxy-providers/`, `proxy_provider/`, `proxy_providers/`, `rules/`, `rule-providers/` or `rule_provider/`, `rule_providers/` trees under the core home. HTTP providers require an explicit cache path. Paths overlapping the host configuration, backups, receipts or another provider are rejected; adjust unsafe subscription paths before previewing.
 
-The TUI defaults to provider policy; select node merging for a node-only list. Provider mode clears missing strategy fields; review removed groups/rules before saving. Equivalent CLI:
+The TUI defaults to content detection; explicit provider policy and node merging remain available. Provider mode clears missing strategy fields; review removed groups/rules and overwritten probe settings before saving. Equivalent CLI:
 
 ```bash
 mihomoctl subscription preview --source-file /ABSOLUTE/provider.yaml --policy provider --json

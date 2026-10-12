@@ -160,7 +160,7 @@ def expected_environment():
             "ALL_PROXY": socks, "NO_PROXY": bypass}
 
 
-def inspect(root, pid, port, uid=None):
+def inspect(root, pid, port, uid=None, expected=None):
     uid = os.getuid() if uid is None else uid
     owner, ppid = read_status(root, pid)
     if owner != uid:
@@ -177,8 +177,9 @@ def inspect(root, pid, port, uid=None):
                 parent["same_user"] = True
         except DiagnosticError:
             pass
+    expected = expected_environment() if expected is None else dict(expected)
     return {"pid": pid, "name": name, "parent": parent,
-            "proxy_environment": proxy_environment(read_environment(root, pid), expected_environment()),
+            "proxy_environment": proxy_environment(read_environment(root, pid), expected),
             "connections": connection_categories(root, pid, port)}
 
 
@@ -331,7 +332,8 @@ def codex_snapshot(root=Path("/proc")):
                 identity = process_identity(root, pid)
             if read_status(root, pid)[0] != uid or process_identity(root, pid) != identity:
                 raise DiagnosticError("process-changed")
-            env = proxy_environment(read_environment(root, pid), expected)
+            process_expected = expected
+            env = proxy_environment(read_environment(root, pid), process_expected)
             # Read only a bounded prefix, and never include command arguments in reports.
             if argv is None:
                 with (entry / "cmdline").open("rb") as stream:
@@ -565,6 +567,12 @@ def handle_format(args):
         payload = {"checks": checks, "service": {"active": args.service == "up",
                    "enabled": args.enabled}, "listener": {"listening": args.listener == "up",
                    "endpoint": "127.0.0.1:" + str(args.port)}}
+        if args.daemon_report:
+            import json
+            try:
+                payload["agent_daemon"] = json.loads(args.daemon_report)
+            except ValueError:
+                raise DiagnosticError("invalid-internal-daemon-report") from None
     emit_json(args.kind, overall, payload)
     return 0 if overall == "PASS" else 1 if overall == "FAIL" else 2
 
@@ -578,6 +586,7 @@ def parser():
     fmt.add_argument("--enabled", default="unknown")
     fmt.add_argument("--listener", choices=("up", "down"))
     fmt.add_argument("--ready", choices=("up", "down"))
+    fmt.add_argument("--daemon-report")
     fmt.add_argument("--port", type=int)
     fmt.add_argument("--check", action="append", default=[])
     error = sub.add_parser("error")

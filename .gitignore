@@ -3,3 +3,9 @@
 .shellcheckrc.local
 __pycache__/
 *.pyc
+dist/
+build/
+*.egg-info/
+.tmp-v1*
+*.baiduyun.uploading.cfg
+.tmp-*

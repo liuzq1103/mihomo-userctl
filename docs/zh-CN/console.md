@@ -1,6 +1,14 @@
-# Server-first Mihomo 控制台（v0.9.0）
+# Mihomo 控制台（v1.0.0）
+
+> **v1.0.0 页面变更：**主入口为“首页、节点、订阅、接入、更多”。
+> 原本实为“订阅”的页面现在调用 `subscriptions`（旧标识 `profiles`
+> 仍可用）；新增 `profile` 页面展示**代理档案、接入声明与环境注入边界**。
+> “服务”页现在固定呈现**七项运行时事实**。命令面以
+> [V1 命令与配置契约](v1.md) 为准。
 
 `mihomoctl tui` 自动选择可用的中文 Textual 任务界面，缺少依赖时进入中文编号菜单；保留显式 curses、textual 和 plain。启动时不下载安装依赖。适用于 SSH PTY、tmux 和 headless Linux。普通 Shell 保持直连，切换节点保留现有连接。
+
+订阅自动识别、已有自动链路诊断、探测参数调整和历史日志查询见[自动故障转移](failover.md)。
 
 ## 安装和降级
 
@@ -38,10 +46,11 @@ wheelhouse 包含 pip 引导 wheel 和全部依赖。目录须归当前用户所
 | Connections | 只读链路与流量、搜索、排序、暂停；无关闭连接功能 |
 | Rules | 按类型汇总运行规则及规则 Provider 状态；不显示私有规则正文 |
 | Logs | Controller 实时日志、有界缓冲、级别过滤和暂停；`: journal` 查看用户服务最近 200 条日志 |
-| Profiles | 磁盘配置计数；明确区分保存与当前运行状态 |
+| Subscriptions | 磁盘配置计数；明确区分保存与当前运行状态的区别（旧标识 `profiles` 仍可路由到此页） |
+| Profile | 代理档案、接入声明与环境注入的固定边界；始终脱敏，不展示凭据 |
 | Providers | 节点 Provider 类型、节点数、更新时间；显式刷新 |
-| Diagnostics | 离线 doctor 与 Codex 诊断；preflight/ready 由显式命令触发 |
-| Runtime | 用户服务状态；启停/重启由显式命令和确认触发 |
+| Diagnostics | 通用运行时健康检查，每项带证据等级并固定附带边界声明；不再有工具专属分支 |
+| Runtime | **七项运行时事实**：core、controller、每个 listener、生效配置、proxy layer、Mihomo 路由模式、TUN、错误；启停/重启由显式命令和确认弹窗 |
 
 Tab/Shift+Tab 切焦点，方向键浏览，Enter 选择。`/` 搜索，`r` 刷新，`t` 单节点测速，`T` 确认后测试当前可见节点（最多 4 并发），`p` 暂停连接/日志展示，`s` 切换排序，`c` 查看连接，`f` 获取流量，`v` 查看完整操作结果。测速不代表模型 E2E。
 
@@ -74,11 +83,11 @@ theme light
 
 ## 提供商策略与节点订阅
 
-CLI 默认 `--policy nodes`：仅接受顶层 `proxies`，同名节点替换，其余保留。`--policy provider` 接收提供商完整 YAML，整体替换 `proxies`、`proxy-providers`、`proxy-groups`、`rules`、`rule-providers`。保留原分组名称、顺序、类型和引用，不生成额外分组；缺失策略字段清空。端口、控制器、密钥、DNS、TUN 等运行设置忽略并列于预览，保留本机值。拒绝重复名称、缺失引用、越界及符号链接 Provider 路径；完整策略预览和保存均执行核心校验。Base64 和 URI 列表不支持。
+CLI 和 TUI 默认 `--policy auto`：仅含顶层 `proxies` 时合并节点，其余 YAML 按提供商策略处理；实际模式显示在预览中，验证失败不会降级。显式 `--policy nodes` 仅接受顶层 `proxies`，同名节点替换，其余保留。`--policy provider` 接收提供商完整 YAML，整体替换 `proxies`、`proxy-providers`、`proxy-groups`、`rules`、`rule-providers`。保留原分组名称、顺序、类型、候选顺序、探测设置和引用，不生成额外分组；缺失策略字段清空。端口、控制器、密钥、DNS、TUN 等运行设置忽略并列于预览，保留本机值。拒绝重复名称、缺失引用、越界及符号链接 Provider 路径；完整策略预览和保存均执行核心校验。Base64 和 URI 列表不支持。
 
 Provider 路径必须位于核心 home 下专用的 `providers/`、`proxy-providers/`、`proxy_provider/`、`proxy_providers/`、`rules/`、`rule-providers/` 或 `rule_provider/`, `rule_providers/` 目录。HTTP Provider 必须显式提供缓存路径；拒绝与主配置、备份、回执或其他 Provider 重合的路径。预览前请先调整订阅中的不安全路径。
 
-TUI 默认采用 provider 策略；纯节点列表可选择节点合并。provider 模式会清空缺失的策略字段，保存前请检查移除的分组与规则。CLI 等价操作：
+TUI 默认按内容自动判断，也可显式选择提供商或节点合并。provider 模式会清空缺失的策略字段，保存前请检查移除的分组、规则和现有探测设置的覆盖摘要。CLI 等价操作：
 
 ```bash
 mihomoctl subscription preview --source-file /ABSOLUTE/provider.yaml --policy provider --json

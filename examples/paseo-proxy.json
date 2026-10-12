@@ -1,0 +1,17 @@
+{
+  "direct_domains": [
+    "open.bigmodel.cn",
+    "api.z.ai",
+    "api.deepseek.com",
+    "api.minimaxi.com",
+    "api.minimax.io"
+  ],
+  "opencode_allowed_domains": [
+    "bigmodel.cn",
+    "z.ai",
+    "deepseek.com",
+    "minimaxi.com",
+    "minimax.io"
+  ],
+  "opencode_config_files": []
+}

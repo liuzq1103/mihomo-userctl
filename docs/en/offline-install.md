@@ -1,5 +1,9 @@
 # Install from a shared directory
 
+> Archived 0.9.x package workflow. V1 uses the reviewed source/wheel inventory and
+> offline installer in [INSTALL.md](../../INSTALL.md). The old
+> `scripts/offline_install.py` entry below is retired.
+
 Examples use the v0.7.0 release. Pin the version and verify the source before deployment.
 
 [中文](../zh-CN/offline-install.md) · [Local installation prompt](agent-local-install-prompt.md) · [Public online setup](setup.md)

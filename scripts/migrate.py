@@ -4,6 +4,13 @@
 Run only from an inspected official source snapshot. Download/validation and
 installation are shared with the updater; historical provenance stays unknown.
 """
+
+# V1 archive: reject execution before importing any legacy installer code.
+if __name__ == "__main__":
+    import sys
+    print("legacy-installation-entry-retired: mihomoctl migrate --dry-run, then mihomoctl migrate --apply", file=sys.stderr)
+    raise SystemExit(2)
+
 import os
 from pathlib import Path
 import re
@@ -22,6 +29,12 @@ ins = up.installer
 
 
 def main(argv=None, client=None):
+    """V1 retirement gate; refuse before parsing, network access or writes."""
+    print("legacy-installation-entry-retired: mihomoctl migrate --dry-run, then mihomoctl migrate --apply", file=sys.stderr)
+    return 2
+
+
+def _historical_main(argv=None, client=None):
     parser = up.Parser(description=__doc__)
     parser.add_argument("--version", required=True, metavar="TAG")
     parser.add_argument("--config-home", required=True)

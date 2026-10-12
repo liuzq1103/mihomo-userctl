@@ -1,5 +1,10 @@
 # 交给 Coding Agent 的安装 Prompt
 
+> **v1.0.0：**自动 Shell hook 已移除。本文中提到
+> `CODEX_REMOTE_PAYLOAD`、`.bashrc` loader 或 `with_proxy codex` 的部分已退役。
+> 代理接入现在始终是显式的 `mihomoctl exec` / `mihomoctl env` /
+> `mihomoctl integration`，命令面以 [V1 命令与配置契约](v1.md) 为准。
+
 这是面向公开仓库用户的**官方在线来源版**。已提前下载软件到共享目录的课题组用户请改用
 [本地安装 Prompt](agent-local-install-prompt.md)，不要混用两套获取流程。
 

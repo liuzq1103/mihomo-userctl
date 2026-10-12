@@ -1,5 +1,10 @@
 """Opt-in real Mihomo integration; never installs a service or uses root."""
 import os
+import http.client
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import select
+import socketserver
+import threading
 from pathlib import Path
 import secrets
 import socket
@@ -20,6 +25,116 @@ from scripts import controller_runtime as runtime
 
 
 class RealCoreTests(unittest.TestCase):
+    def test_local_url_test_failover_and_all_failed_evidence(self):
+        """Two controllable CONNECT proxies, a local target, and a real core."""
+        class Target(BaseHTTPRequestHandler):
+            def do_HEAD(self):
+                self.send_response(204)
+                self.end_headers()
+            do_GET = do_HEAD
+            def log_message(self, *args):
+                pass
+
+        class Proxy(socketserver.StreamRequestHandler):
+            def handle(self):
+                if self.server.failed.is_set():
+                    return
+                first = self.rfile.readline().decode("ascii").split()
+                if len(first) < 2 or first[0] != "CONNECT":
+                    return
+                while self.rfile.readline() not in (b"\r\n", b"\n", b""):
+                    pass
+                # Only the test's loopback target is allowed, no external network.
+                if first[1] != "127.0.0.1:" + str(target.server_port):
+                    return
+                with socket.create_connection(("127.0.0.1", target.server_port), timeout=2) as upstream:
+                    self.connection.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                    while not self.server.failed.is_set():
+                        readable, _, _ = select.select([self.connection, upstream], [], [], .1)
+                        for source in readable:
+                            data = source.recv(65536)
+                            if not data:
+                                return
+                            (upstream if source is self.connection else self.connection).sendall(data)
+
+        class ProxyServer(socketserver.ThreadingTCPServer):
+            daemon_threads = True
+            allow_reuse_address = True
+
+        target = ThreadingHTTPServer(("127.0.0.1", 0), Target)
+        servers = [target]
+        for _ in range(2):
+            server = ProxyServer(("127.0.0.1", 0), Proxy)
+            server.failed = threading.Event()
+            servers.append(server)
+        for server in servers:
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            with tempfile.TemporaryDirectory(prefix="muc-real-failover-") as folder:
+                root = Path(folder)
+                with socket.socket() as one, socket.socket() as two:
+                    one.bind(("127.0.0.1", 0)); two.bind(("127.0.0.1", 0))
+                    mixed, controller = one.getsockname()[1], two.getsockname()[1]
+                token = secrets.token_urlsafe(40)
+                config = root / "config.yaml"
+                config.write_text('''mixed-port: {mixed}
+bind-address: 127.0.0.1
+allow-lan: false
+external-controller: 127.0.0.1:{controller}
+secret: {token}
+geo-auto-update: false
+log-level: error
+proxies:
+- {{name: A, type: http, server: 127.0.0.1, port: {one}}}
+- {{name: B, type: http, server: 127.0.0.1, port: {two}}}
+proxy-groups:
+- {{name: Auto, type: url-test, proxies: [A, B], url: "http://127.0.0.1:{target}/204", expected-status: 204, interval: 1, timeout: 300, tolerance: 50, lazy: false}}
+- {{name: Entry, type: select, proxies: [Auto, A]}}
+rules: ["MATCH,Entry"]
+'''.format(mixed=mixed, controller=controller, token=token,
+           one=servers[1].server_address[1], two=servers[2].server_address[1], target=target.server_port))
+                config.chmod(0o600)
+                check = subprocess.run([CORE, "-t", "-d", str(root), "-f", str(config)], capture_output=True, timeout=20)
+                self.assertEqual(check.returncode, 0, "failover fixture must validate")
+                process = subprocess.Popen([CORE, "-d", str(root), "-f", str(config)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                try:
+                    service = ConsoleService(config, str(root))
+                    def wait_for(predicate, description, budget=15):
+                        deadline = time.monotonic() + budget
+                        while time.monotonic() < deadline:
+                            try:
+                                rows = service.read("proxies")
+                                if predicate(rows):
+                                    return rows
+                            except Exception:
+                                if process.poll() is not None:
+                                    self.fail("real core exited during " + description)
+                            time.sleep(.2)
+                        self.fail("real core timed out during " + description)
+                    rows = wait_for(lambda r: all(r.get(n, {}).get("probe_observed") for n in ("A", "B")), "initial probes")
+                    chosen = rows["Auto"]["selected"]
+                    healthy = "B" if chosen == "A" else "A"
+                    servers[1 if chosen == "A" else 2].failed.set()
+                    started = time.monotonic()
+                    wait_for(lambda r: r["Auto"]["selected"] == healthy, "automatic failover")
+                    self.assertLess(time.monotonic() - started, 15, "allow interval, timeout and core selection cache")
+                    connection = http.client.HTTPConnection("127.0.0.1", mixed, timeout=3)
+                    try:
+                        connection.request("GET", "http://127.0.0.1:{}/204".format(target.server_port))
+                        self.assertEqual(connection.getresponse().status, 204)
+                    finally:
+                        connection.close()
+                    servers[1 if healthy == "A" else 2].failed.set()
+                    rows = wait_for(lambda r: r["Auto"]["probe_state"] == "all-observed-failed", "all probes failed")
+                    self.assertIn("all-observed-failed", rows["Auto"]["warnings"])
+                finally:
+                    process.terminate()
+                    process.wait(timeout=10)
+        finally:
+            for server in servers:
+                server.shutdown()
+                server.server_close()
+
     def test_initialize_and_provider_policy_validate_with_real_core(self):
         from scripts.controller_dashboard import initialize
         from scripts.controller_config import read_config, endpoint

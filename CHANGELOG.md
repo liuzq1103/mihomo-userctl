@@ -1,5 +1,111 @@
 # Changelog
 
+## [1.0.0] - 2026-10-12
+
+**Acceptance status: PENDING.** Local unit, real-core listener/auth/config and
+process-lifecycle checks, Controller/TUI regressions, offline packaging/install
+checks and reviewed-content secret scans have passed. These local results do not
+replace the exact-commit release gates: real Ubuntu 22.04/24.04 user and system
+systemd lifecycle, two real UIDs on one VM, isolated TUN enable/disable/failure
+cleanup and the complete CI matrix remain pending. Model end-to-end success has
+not been established.
+
+### Breaking: the automatic shell hook is removed
+
+- The installer no longer writes any startup file. `.bashrc`, `.zshrc`, `profile`,
+  managed loaders, aliases and functions are left untouched; `--bashrc` is no longer
+  accepted.
+- The `CODEX_REMOTE_PAYLOAD` branch is deleted. The fail-closed gate itself is
+  retained and is carried by the generic `exec` entry point and `health` check.
+- Existing installations must run `mihomoctl migrate --dry-run` and then
+  `mihomoctl migrate --apply`. Migration removes only a positively identified project
+  loader, preserves every other byte and backs up every file it touches. A customized
+  or ambiguously shaped loader is refused.
+- The old Shell helper entry is retired and refuses execution when sourced.
+  Use explicit `mihomoctl exec`, `direct` and `env show|export` instead.
+
+### Breaking: third-party application lifecycle is retired
+
+- `mihomoctl paseo start|stop|restart|run|install-unit` no longer manage a daemon.
+  Old invocations return migration guidance and never start, stop or replace a
+  third-party process or unit. Nothing is ever stopped automatically, and a leftover
+  managed unit is only detected and reported.
+- `mihomoctl codex`, `mihomoctl codex preflight` and the old application-specific
+  `diagnose codex` entry are retired. They do not act as compatibility aliases.
+  Use `mihomoctl exec -- COMMAND`, `mihomoctl health check` and `mihomoctl doctor`.
+- Use `mihomoctl integration install NAME` to write an owned unit drop-in and reload
+  its manager. Applying the new environment to a running consumer remains an
+  operator-managed action.
+
+### Breaking: new scope and module model
+
+- Default scope is `user`; every system-scoped change requires an explicit `--system`.
+  UID 0 is not promoted automatically, and the tool never self-escalates.
+- Default user backend is `process`; switching to `systemd` is explicit and only
+  applies to a stopped managed runtime. There is no silent backend fallback.
+- `mihomoctl start`, `stop`, `restart`, `status` and `logs` remain the first-tier commands
+  that manage the Mihomo runtime itself, and they are what the default process backend
+  uses. `mihomoctl service install|start|stop|restart|status|uninstall` is offered in
+  parallel for the systemd backend; it does not replace the top-level lifecycle verbs.
+  Only the third-party `paseo start|restart` is retired.
+- `mihomoctl init --core PATH` creates managed configuration, credentials, a default
+  profile and one loopback-only authenticated named mixed listener.
+- Core installation uses a fixed version and the maintainer pin; unknown versions
+  require an explicit `--sha256 DIGEST`. No digest-verification bypass exists.
+- TUN is an independent module, disabled by default, enabled only by an administrator
+  via `--system tun enable` inside one rollbackable transaction. V1 grants the managed
+  service `CAP_NET_ADMIN` only while enabled; administrator-only access is the V1
+  permission policy.
+
+### Added
+
+- Runtime status reporting seven facts on every view: core, controller, every
+  listener, the active config, the proxy layer, the Mihomo routing mode, TUN and
+  errors. A missing fact renders as `unknown` / `UNVERIFIED` rather than as healthy.
+- Declarative bindings and adapters for `exec`, `systemd`, `docker`, `kubernetes`,
+  `supervisor`, `pm2` and `ci`. Docker/Kubernetes/PM2/Supervisor/CI are export only
+  and are never deployed or restarted automatically.
+- Proxy profiles resolved from named listeners, with redacted projections and no
+  credentials in the template.
+- Generic runtime health with per-check evidence levels and fixed boundary statements.
+- New console pages: `subscriptions` (the subscription work, previously labelled
+  "profiles") and `profile` (proxy profiles, bindings and environment boundaries).
+- A dedicated runtime page in both the Textual console and the plain menu showing the
+  seven facts.
+
+### Changed
+
+- The console no longer re-enters the Bash CLI in a subprocess; runtime, health,
+  profile, lifecycle and journal answers come from the shared application service or
+  are reported explicitly UNVERIFIED.
+- Without an application service the console reports UNVERIFIED with a reason and
+  never returns a guessed success.
+- Systemd integration writes a private `proxy.env` and a marked drop-in and reloads
+  only its own manager. The written `proxy.env` contains real proxy URLs and
+  credentials, so it is a private sensitive file (mode `0600`, owned by the running
+  account, never merged with the core config or credential file); `EnvironmentFile=` is
+  an integration format, not a secret isolation mechanism.
+- Bilingual documentation rewritten around the V1 contract; the Paseo tutorials are
+  marked as historical archives.
+- Release file selection is allowlist-based and the secret scan covers reviewed and
+  packaged files rather than every untracked file in a working tree.
+
+### Retained
+
+- Controller client, node selection, latency, connections, traffic, private custom
+  rules, provider and subscription import, policy override preview/apply, the browser
+  dashboard entry point, the Textual and plain consoles, generation switching and
+  self-contained rollback.
+
+## [0.9.3] - 2026-10-11
+
+- Add Paseo daemon preflight, per-process exec, idempotent start, complete supervisor stop/start repair and a verified foreground launcher, retaining direct-by-default shells and existing process ownership boundaries.
+- Build paired proxy variables from private client.env with mandatory local/relay bypasses and configurable, allowlisted OpenCode baseURL discovery; report OpenAI direct/listener reachability separately from model success.
+- Detect long-lived Paseo environment drift in doctor and recognize the validated Paseo bypass environment for its Codex descendants without relaxing independent Codex checks.
+- Add an optional credential-free systemd user unit with runtime credential reads, foreground supervision and on-failure restart; installation never enables or starts the unit.
+- Freeze v0.9.0-v0.9.2 receipt inventories, include the new adapter in installation/update verification, and add isolated Linux process regression tests and bilingual manual production migration guidance.
+- Retain 0.9.2: its Controller/console changes did not cause the historical daemon coverage gap; repository history establishes direct-by-default shells since v0.1.0.
+
 ## [0.9.2] - 2026-10-09
 
 - Initialize a private loopback Controller during installation when core/config are present, without dashboard assets or service restart; preserve valid existing settings and expose first-run recovery in the console.

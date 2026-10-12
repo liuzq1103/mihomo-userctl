@@ -1,5 +1,11 @@
 # Coding-agent prompt for local archives
 
+> **v1.0.0:** the automatic shell hook has been removed. Sections below that
+> mention `CODEX_REMOTE_PAYLOAD`, the `.bashrc` loader or `with_proxy codex` are
+> retired. Proxy access is now always an explicit `mihomoctl exec` /
+> `mihomoctl env` / `mihomoctl integration`; the command surface follows the
+> [V1 command and configuration contract](v1.md).
+
 [中文](../zh-CN/agent-local-install-prompt.md) · [Local setup](offline-install.md) · [Public online prompt](agent-install-prompt.md)
 
 Use the shared [deployment parameters and delivery contract](deployment-contract.md).

@@ -46,13 +46,53 @@ class Service:
 
 
 class TextualTests(unittest.IsolatedAsyncioTestCase):
+    async def test_health_preview_requires_confirmed_save_and_journal_filters(self):
+        class Tasks(Service):
+            def health_check(self, scope=None, name=None, options=None, apply=False):
+                self.calls.append(("health", scope, name, options, apply))
+                if apply:
+                    self.pending_restart = True
+                    return {"state": "restart-required"}
+                return {"state": "preview", "kind": "health-check", "scope": scope, "name": name,
+                        "before": {"interval": 600}, "after": {"interval": 120}, "affected_groups": ["Work"]}
+            def journal(self, **filters):
+                self.calls.append(("journal", filters))
+                return {"state": "no-records-in-window", "entries": []}
+        service = Tasks(); app = Console(service)
+        async with app.run_test(size=(80, 24)) as pilot:
+            app.execute_command('health-check group "Shared Auto" --preset resilient')
+            await self.wait_for(pilot, lambda: app.preview is not None, "health preview")
+            self.assertEqual(service.calls[0], ("health", "group", "Shared Auto", {"preset": "resilient"}, False))
+            app.action_save()
+            await pilot.pause()
+            self.assertEqual(len(service.calls), 1)
+            await pilot.click("#yes")
+            await self.wait_for(pilot, lambda: app.pending_restart, "health saved")
+            self.assertTrue(service.calls[-1][-1])
+            app.execute_command('journal --since "2026-10-10 21:09" --until "2026-10-10 21:14"')
+            await self.wait_for(pilot, lambda: service.calls[-1][0] == "journal", "journal filters")
+            self.assertEqual(service.calls[-1][1], {"since": "2026-10-10 21:09", "until": "2026-10-10 21:14"})
+            count = len(service.calls)
+            app.execute_command('health-check group Auto --apply')
+            await pilot.pause()
+            self.assertEqual(len(service.calls), count)
+
+    async def test_auto_stdin_preview_keeps_requested_mode_after_mount(self):
+        preview = {"state": "preview", "id": "a"*32, "sha256": "b"*64,
+                   "requested_policy": "auto", "policy": "provider", "nodes": 1, "groups": 1, "rules": 1}
+        app = Console(Service(), initial_preview=preview)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            self.assertEqual(app.source_policy, "auto")
+            self.assertIs(app.preview, preview)
+
     async def test_stdin_preview_opens_subscription_page_and_survives_mount_events(self):
         preview = {"state": "preview", "id": "a"*32, "sha256": "b"*64,
                    "policy": "provider", "nodes": 1, "groups": 1, "rules": 1}
         app = Console(Service(), initial_preview=preview)
         async with app.run_test(size=(80, 24)) as pilot:
-            await self.settle(pilot, app, "profiles")
-            self.assertEqual(app.page, "profiles")
+            await self.settle(pilot, app, "subscriptions")
+            self.assertEqual(app.page, "subscriptions")
             self.assertEqual(app.preview, preview)
             app.action_save()
             await pilot.pause()
@@ -79,13 +119,13 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
             service = Tasks(); app = Console(service)
             async with app.run_test(size=size) as pilot:
                 await pilot.click("#nav-profiles")
-                await self.settle(pilot, app, "profiles")
+                await self.settle(pilot, app, "subscriptions")
                 app.query_one("#source-path", Input).value = "/private/provider.yaml"
                 await pilot.pause()
                 self.assertGreaterEqual(app.query_one("#body", RichLog).region.height, 2)
                 await pilot.click("#subscription-preview")
                 await self.settle(pilot, app, "operation")
-                self.assertEqual(service.calls, [("preview", "/private/provider.yaml", False, "provider")])
+                self.assertEqual(service.calls, [("preview", "/private/provider.yaml", False, "auto")])
                 self.assertEqual(app.preview["groups"], 2)
                 await pilot.click("#subscription-save")
                 await pilot.pause()
@@ -137,7 +177,7 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(service.calls, [("initialize",)])
             self.assertEqual(len(app.screen_stack), 1)
 
-    async def test_policy_selector_defaults_to_provider_and_keeps_explicit_nodes(self):
+    async def test_policy_selector_defaults_to_auto_and_keeps_explicit_nodes(self):
         class Tasks(Service):
             def subscription_preview(self, path, url=False, policy="provider"):
                 self.calls.append(("preview", path, url, policy))
@@ -146,14 +186,14 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
         service = Tasks(); app = Console(service)
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.click("#nav-profiles")
-            await self.settle(pilot, app, "profiles")
-            self.assertEqual(app.source_policy, "provider")
-            self.assertEqual(app.query_one("#source-policy", Select).value, "provider")
+            await self.settle(pilot, app, "subscriptions")
+            self.assertEqual(app.source_policy, "auto")
+            self.assertEqual(app.query_one("#source-policy", Select).value, "auto")
             app.query_one("#source-path", Input).value = "/private/nodes.yaml"
             await pilot.pause()
             await pilot.click("#subscription-preview")
             await self.wait_for(pilot, lambda: len(service.calls) == 1, "provider preview")
-            self.assertEqual(service.calls[0], ("preview", "/private/nodes.yaml", False, "provider"))
+            self.assertEqual(service.calls[0], ("preview", "/private/nodes.yaml", False, "auto"))
             # Switching the policy invalidates the review; it never downgrades it.
             app.query_one("#source-policy", Select).value = "nodes"
             await pilot.pause()
@@ -176,7 +216,7 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
                        "policy": policy, "nodes": 1, "groups": 1, "rules": 1}
             app = Console(Service(), initial_preview=preview)
             async with app.run_test(size=(80, 24)) as pilot:
-                await self.settle(pilot, app, "profiles")
+                await self.settle(pilot, app, "subscriptions")
                 # The mount-time Select.Changed must not discard the piped review.
                 for _ in range(10):
                     await pilot.pause()
@@ -199,7 +239,7 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
         service = Tasks(); app = Console(service)
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.click("#nav-profiles")
-            await self.settle(pilot, app, "profiles")
+            await self.settle(pilot, app, "subscriptions")
             app.query_one("#source-path", Input).value = "/private/provider.yaml"
             await pilot.pause()
             await pilot.click("#subscription-preview")
@@ -219,7 +259,7 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.screen_stack[-1].accept, "确认")
             self.assertIn("57 条本地规则", app.screen_stack[-1].message)
             await pilot.press("escape")
-            self.assertEqual(service.calls, [("preview", "/private/provider.yaml", False, "provider")])
+            self.assertEqual(service.calls, [("preview", "/private/provider.yaml", False, "auto")])
 
     async def test_more_button_blanks_navigation_so_the_current_page_is_repickable(self):
         app = Console(Service())
@@ -240,7 +280,7 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
                    "policy": "provider", "nodes": 1, "groups": 1, "rules": 1}
         app = Console(Service(), initial_preview=preview)
         async with app.run_test(size=(80, 24)) as pilot:
-            await self.settle(pilot, app, "profiles")
+            await self.settle(pilot, app, "subscriptions")
             self.assertIs(app.preview, preview)
             app.action_cancel()
             await pilot.pause()
@@ -329,7 +369,8 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
     async def test_all_pages_and_compact_layout_and_pause(self):
         app = Console(Service(), ascii_only=True, theme="light")
         async with app.run_test(size=(60, 14)) as pilot:
-            for page in ("overview", "connections", "rules", "logs", "profiles", "providers", "diagnostics", "runtime"):
+            for page in ("overview", "connections", "rules", "logs", "subscriptions",
+                         "profile", "providers", "diagnostics", "runtime"):
                 app.query_one("#navigation", Select).value = page
                 await self.settle(pilot, app, page)
             app.query_one("#navigation", Select).value = "connections"
@@ -339,3 +380,26 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
             app.action_pause()
             self.assertFalse(app.paused)
             self.assertEqual(app.theme, "textual-light")
+
+    async def test_retained_profiles_identifier_still_routes_to_subscriptions(self):
+        """The old page name is a compatibility alias, not a second page."""
+        app = Console(Service())
+        async with app.run_test(size=(80, 24)) as pilot:
+            await self.settle(pilot, app, "overview")
+            app.change_page("profiles")
+            await pilot.pause()
+            self.assertEqual(app.page, "subscriptions")
+            # One subscription, two identifiers: the snapshot object is shared,
+            # so the alias never drifts from the canonical page.
+            canonical = app.store.state.snapshots["subscriptions"]
+            self.assertIs(app.store.state.snapshots["profiles"], canonical)
+            # The nav button keeps its retained widget id and opens the same page.
+            await pilot.click("#nav-profiles")
+            await self.settle(pilot, app, "subscriptions")
+            self.assertEqual(app.page, "subscriptions")
+            # The profile page is a genuinely different destination.
+            app.change_page("profile")
+            await self.settle(pilot, app, "profile")
+            self.assertEqual(app.page, "profile")
+            self.assertIsNot(app.store.state.snapshots["profile"],
+                              app.store.state.snapshots["subscriptions"])

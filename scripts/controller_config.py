@@ -15,10 +15,25 @@ except ImportError:
 def private(path, directory=False):
     path = files.safe_path(path, directory)
     info = path.stat()
-    if (info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != (0o700 if directory else 0o600)
-            or not (stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode))):
+    mode = stat.S_IMODE(info.st_mode)
+    kind = stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)
+    if not kind:
         raise ControlError("controller-path-must-be-private-owned-regular")
-    return path
+    if info.st_uid == os.getuid() and mode == (0o700 if directory else 0o600):
+        return path
+    # Managed system layout (mihomoctl V1): root-owned 0600, or 0640 with the
+    # dedicated mihomoctl service group so the core can read its config.
+    if info.st_uid == 0 and os.geteuid() == 0:
+        if mode == (0o700 if directory else 0o600):
+            return path
+        if not directory and mode == 0o640:
+            try:
+                import pwd
+                if info.st_gid == pwd.getpwnam("mihomoctl").pw_gid:
+                    return path
+            except KeyError:
+                pass
+    raise ControlError("controller-path-must-be-private-owned-regular")
 
 
 def read_config(path):
@@ -75,7 +90,7 @@ def patch_config(text, node, changes):
 
 
 def endpoint(data):
-    match = re.fullmatch(r"127\.0\.0\.1:([0-9]{1,5})", str(data.get("external-controller", "")))
+    match = re.fullmatch(r"(?:127\.0\.0\.1|\[::1\]|localhost):([0-9]{1,5})", str(data.get("external-controller", "")))
     token = data.get("secret")
     if not match or not 1024 <= int(match[1]) <= 65535:
         raise ControlError("controller-not-configured-as-loopback")

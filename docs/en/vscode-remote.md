@@ -1,5 +1,11 @@
 # Recommended VS Code Remote configuration
 
+> **v1.0.0:** the automatic shell hook has been removed. Sections below that
+> mention `CODEX_REMOTE_PAYLOAD`, the `.bashrc` loader or `with_proxy codex` are
+> retired. Proxy access is now always an explicit `mihomoctl exec` /
+> `mihomoctl env` / `mihomoctl integration`; the command surface follows the
+> [V1 command and configuration contract](v1.md).
+
 For first use, WebSocket errors or old-process recovery, start with [first use](first-run.md).
 
 Use this guide when Mihomo and `mihomo-userctl` are already installed in a

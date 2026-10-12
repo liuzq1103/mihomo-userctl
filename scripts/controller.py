@@ -1,5 +1,6 @@
 """User-level controller component; no global proxy or daemon."""
 import argparse
+from contextlib import nullcontext
 import importlib.util
 import hashlib
 import http.client
@@ -18,6 +19,8 @@ import time
 import unicodedata
 import zipfile
 from urllib.parse import quote, urlencode
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).absolute().parents[1]))
 try:
     from . import acceptance, install_support as files
 except ImportError:
@@ -25,17 +28,18 @@ except ImportError:
     import install_support as files
 
 # Verify every flat runtime component before importing executable Python code.
-# The containing generation is private; roots / same-UID attackers remain out of scope.
+# Trusted code is root-owned (wheel/system install) or same-UID owned, and
+# never group/other writable (V1 trust model; matches mihomoctl.trust).
 _COMPONENTS = ("controller_types", "controller_config", "controller_api", "controller_service",
                "controller_policy", "controller_transaction", "controller_dashboard", "controller_legacy",
                "controller_state", "controller_runtime", "controller_subscriptions", "controller_textual",
-               "controller_deps")
+               "controller_deps", "controller_health")
 if hasattr(os, "getuid"):
     for _name in _COMPONENTS:
         _path = Path(__file__).absolute().with_name(_name + ".py")
         try:
             _info = _path.lstat()
-            _safe = stat.S_ISREG(_info.st_mode) and _info.st_uid == os.getuid() and not _info.st_mode & 0o022
+            _safe = stat.S_ISREG(_info.st_mode) and _info.st_uid in (0, os.getuid()) and not _info.st_mode & 0o022
         except OSError:
             _safe = False
         if not _safe:
@@ -47,6 +51,7 @@ try:
     from .controller_config import private, read_config, patch_config, endpoint
     from .controller_api import Client
     from .controller_service import proxies, select, snapshot
+    from .controller_health import add_probe_options, probe_options, health_candidate
     from .controller_policy import POLICY_KEYS, OVERRIDE_RUNNER, flclash_input, policy_candidate
     from .controller_transaction import apply_policy
     from .controller_dashboard import choose_port, archive_ui, setup, initialize
@@ -56,6 +61,7 @@ except ImportError:
     from controller_config import private, read_config, patch_config, endpoint
     from controller_api import Client
     from controller_service import proxies, select, snapshot
+    from controller_health import add_probe_options, probe_options, health_candidate
     from controller_policy import POLICY_KEYS, OVERRIDE_RUNNER, flclash_input, policy_candidate
     from controller_transaction import apply_policy
     from controller_dashboard import choose_port, archive_ui, setup, initialize
@@ -82,7 +88,9 @@ def stdin_preview(service, policy):
         terminal.close()
 
 
-def main(argv=None):
+def main(argv=None, app=None):
+    if os.geteuid() == 0 and app is None:
+        raise ControlError('root-requires-v1-system-entrypoint')
     parser = Parser(description=__doc__)
     parser.add_argument("command", choices=COMMANDS)
     parser.add_argument("values", nargs="*")
@@ -99,12 +107,16 @@ def main(argv=None):
     parser.add_argument("--source-file", help="Private YAML: node list or provider routing policy selected by --policy")
     parser.add_argument("--url-file", help="Private file containing one HTTPS subscription URL")
     parser.add_argument("--stdin", action="store_true", dest="source_stdin")
-    parser.add_argument("--policy", choices=("nodes", "provider"), default=None)
+    parser.add_argument("--policy", choices=("auto", "nodes", "provider"), default=None)
+    add_probe_options(parser)
     parser.add_argument("--script", help="Trusted local JS main(config); Node vm is not a security sandbox")
     parser.add_argument("--apply", action="store_true", help="Validate, back up and save the preview; restart separately")
     parser.add_argument("--details", action="store_true", help="Opt in to private host/rule details for connections/TUI")
     parser.add_argument("--flclash-compat", action="store_true", help="Adapt local provider caches and missing Ai+/fallback groups for FlClash-rules")
     args = parser.parse_args(argv)
+    health_options = probe_options(args)
+    if health_options and args.command != "health-check":
+        raise ControlError("probe-options-require-health-check")
     if (args.engine or args.theme or args.ascii_only) and args.command != "tui":
         raise ControlError("engine-options-require-tui")
     if args.plain and args.engine not in (None, "plain"):
@@ -131,7 +143,7 @@ def main(argv=None):
         raise ControlError("policy-requires-subscription-preview")
     if args.plain and args.command != "tui":
         raise ControlError("plain-requires-tui")
-    if args.script and args.command not in ("override", "tui") or args.apply and args.command not in ("override", "manual"):
+    if args.script and args.command not in ("override", "tui") or args.apply and args.command not in ("override", "manual", "health-check"):
         raise ControlError("policy-options-require-override-manual-or-tui")
     if args.details and args.command not in ("connections", "tui"):
         raise ControlError("details-requires-connections-or-tui")
@@ -146,7 +158,7 @@ def main(argv=None):
         raise ControlError("initialize-does-not-install-dashboard")
     if not (setup_requested or initialize_requested) and (any(v is not None for v in (args.port, args.archive)) or
                                 args.sha256 is not None and args.command != "subscription" or
-                                args.home_dir is not None and args.command not in ("override", "manual", "tui", "subscription")):
+                                args.home_dir is not None and args.command not in ("override", "manual", "tui", "subscription", "health-check")):
         raise ControlError("setup-options-require-controller-setup")
     if args.command == "tui" and engine == "textual":
         if args.json or args.values:
@@ -157,7 +169,8 @@ def main(argv=None):
         except ImportError:
             from controller_deps import launch
             from controller_service import ConsoleService
-        launch(sys.argv[1:] if argv is None else argv)
+        if app is None:
+            launch(sys.argv[1:] if argv is None else argv)
         try:
             from .controller_textual import run
         except ImportError:
@@ -165,8 +178,8 @@ def main(argv=None):
                 from controller_textual import run
             except ImportError:
                 raise ControlError("textual-environment-incomplete-use-engine-curses") from None
-        service = ConsoleService(config, args.home_dir, args.details, args.script, args.flclash_compat)
-        preview = stdin_preview(service, args.policy or "provider") if tui_stdin else None
+        service = ConsoleService(config, args.home_dir, args.details, args.script, args.flclash_compat, app=app)
+        preview = stdin_preview(service, args.policy or "auto") if tui_stdin else None
         payload = run(service, ascii_only=args.ascii_only, theme=args.theme or "dark", initial_preview=preview)
     elif args.command == "tui" and engine == "plain":
         if args.json or args.values:
@@ -175,8 +188,8 @@ def main(argv=None):
             from .controller_service import ConsoleService
         except ImportError:
             from controller_service import ConsoleService
-        service = ConsoleService(config, args.home_dir, args.details)
-        preview = stdin_preview(service, args.policy or "provider") if tui_stdin else None
+        service = ConsoleService(config, args.home_dir, args.details, app=app)
+        preview = stdin_preview(service, args.policy or "auto") if tui_stdin else None
         try:
             payload = plain_console(service, initial_preview=preview)
         except (EOFError, KeyboardInterrupt):
@@ -188,17 +201,24 @@ def main(argv=None):
             from controller_subscriptions import Subscriptions
         subscriptions = Subscriptions(config, args.home_dir)
         if args.values == ["preview"] and not args.sha256:
-            payload = subscriptions.preview(args.source_file, args.url_file, args.source_stdin, args.policy or "nodes")
+            payload = subscriptions.preview(args.source_file, args.url_file, args.source_stdin, args.policy or "auto")
         elif len(args.values) == 2 and args.values[0] == "apply" and args.sha256:
             payload = subscriptions.apply(args.values[1], args.sha256)
         else:
             raise ControlError("invalid-subscription-options")
+    elif args.command == "health-check":
+        if len(args.values) != 2 or args.values[0] not in ("group", "provider"):
+            raise ControlError("invalid-health-check-options")
+        with (nullcontext() if app is not None else files.locked(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))):
+            original, updated, payload = health_candidate(config, *args.values, health_options)
+            if args.apply:
+                payload.update(apply_policy(config, original, updated, args.home_dir))
     elif args.command in ("providers", "provider", "dns", "mode"):
         try:
             from .controller_service import ConsoleService
         except ImportError:
             from controller_service import ConsoleService
-        service = ConsoleService(config, args.home_dir)
+        service = ConsoleService(config, args.home_dir, app=app)
         if args.command == "providers" and not args.values:
             payload = service.read("providers")
         elif args.command == "provider" and len(args.values) == 2 and args.values[0] == "refresh":
@@ -213,19 +233,19 @@ def main(argv=None):
         if (args.command == "override" and (not args.script or args.values) or
                 args.command == "manual" and len(args.values) != 1):
             raise ControlError("invalid-options")
-        with files.locked(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))):
+        with (nullcontext() if app is not None else files.locked(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))):
             original, updated, payload = policy_candidate(config, script=args.script,
                                                          group=args.values[0] if args.values else None,
                                                          flclash=args.flclash_compat, home_dir=args.home_dir)
             if args.apply:
                 payload.update(apply_policy(config, original, updated, args.home_dir))
     elif initialize_requested:
-        with files.locked(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))):
+        with (nullcontext() if app is not None else files.locked(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))):
             payload = initialize(config, args.home_dir, args.port)
     elif setup_requested:
         if bool(args.archive) != bool(args.sha256):
             raise ControlError("dashboard-requires-archive-and-sha256")
-        with files.locked(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))):
+        with (nullcontext() if app is not None else files.locked(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))):
             payload = setup(args, config)
     else:
         expected = 2 if args.command == "select" else 1 if args.command in ("controller", "latency") else 0

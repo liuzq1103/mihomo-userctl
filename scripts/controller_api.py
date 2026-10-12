@@ -17,10 +17,21 @@ except ImportError:
 class Client:
     def __init__(self, port, token):
         self.port, self.token = port, token
+        try:
+            from .controller_transaction import runtime_application
+        except ImportError:
+            from controller_transaction import runtime_application
+        self.app = runtime_application.get()
+        self.address = '127.0.0.1'
+        if self.app is not None:
+            controller = self.app.resolve()[2]
+            if controller is None or controller.port != port:
+                raise ControlError('controller-runtime-mismatch')
+            self.address = controller.address
 
     def request(self, path, method="GET", body=None, anonymous=False, stream=False, optional=False):
         # http.client ignores all proxy variables and never follows redirects.
-        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=8)
+        connection = http.client.HTTPConnection(self.address, self.port, timeout=8)
         headers = {} if anonymous else {"Authorization": "Bearer " + self.token}
         if body is not None:
             headers["Content-Type"] = "application/json"
@@ -52,6 +63,15 @@ class Client:
             connection.close()
 
     def verify(self):
+        if self.app is not None:
+            from mihomoctl.identity import owns_listener
+            manager, endpoints, controller, _, _ = self.app.resolve()
+            identity = self.app._backend(manager, endpoints, controller).running_identity()
+            if identity is None or not owns_listener(identity, self.address, self.port):
+                raise ControlError('controller-runtime-ownership-unverified', 1)
+            self.request('/version', anonymous=True)
+            self.request('/version')
+            return
         binding = acceptance.listener_check(self.port, 5)
         if binding.status != "PASS":
             raise ControlError("controller-" + binding.evidence, 1 if binding.status == "FAIL" else 2)
@@ -78,7 +98,7 @@ class Client:
         lines, authentication failures and redirects are never capabilities.
         """
         self.verify()
-        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=2)
+        connection = http.client.HTTPConnection(self.address, self.port, timeout=2)
         deadline, buffer = time.monotonic() + duration, b""
         try:
             connection.request("GET", path, headers={"Authorization": "Bearer " + self.token})

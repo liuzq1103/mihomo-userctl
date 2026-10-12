@@ -1,36 +1,63 @@
 # 简体中文文档
 
-首次使用、WebSocket 报错或旧进程问题，先看[安装后第一次使用 Codex](first-run.md)。
-
-公共目录只存放安装材料，默认安装到各用户私有目录；管理员共享运行时仅为明确选择的可选模式。
-
-[多用户共享 Node/Codex 规范](shared-runtime.md)
-
-[安装参数、授权与交付约定](deployment-contract.md)
-
-共享服务器已提前备包时，直接阅读[本地安装与下载清单](offline-install.md)和
-[本地安装 Prompt](agent-local-install-prompt.md)。
+> **v1.0.0：** 自动 Shell hook 已移除，安装器不写任何启动文件；应用专属 daemon
+> 生命周期已退役。命令面以 [V1 命令与配置契约](v1.md) 为准。
 
 全新服务器建议按顺序阅读：
 
-1. [安装 Mihomo 并配置完整环境](setup.md)
-2. [安装和使用 mihomo-userctl](../../README.md)
-3. [架构与数据流](architecture.md)
-4. [安全模型](security.md)
-5. [VS Code Remote 推荐配置](vscode-remote.md)（可选）
+1. [安装 · Installation](../../INSTALL.md)
+2. [安装指南与完整环境](setup.md)
+3. [首次使用](first-run.md)
+4. [V1 命令与配置契约](v1.md)
+5. [V1 架构与实现契约](../architecture-v1.md)
+6. [安全模型](security.md)
 
-按职责划分的参考资料：
+## V1 基线
 
-- [安装验收与证据要求](acceptance.md)
-- [可直接复制的 Coding Agent 安装 Prompt](agent-install-prompt.md)
-- [故障排查](troubleshooting.md)
-- [借鉴 Mihoro 的范围和明确差异](mihoro-inspiration.md)
-- [更新与一次性迁移](update.md)
-- [编码 Agent 更新 Prompt](agent-update-prompt.md)
-- [私有自定义规则契约与只读检查](rules.md)
+- [V1 命令与配置契约](v1.md)
+- [V1 架构与实现契约](../architecture-v1.md)
+- [ADR 0002：V1 通用运行时与退役第三方生命周期](../adr/0002-v1-generic-runtime.md)
+- [设计参考与边界推导](../design-reference.md)
+- [代码审计](../code-audit.md)
+- [安全策略](../../SECURITY.md)
 
+## 使用
+
+- [安装指南](setup.md) · [快速安装](quick-install.md) · [离线安装](offline-install.md)
+- [首次使用](first-run.md)
 - [节点管理 / Nodes and dashboards](control-plane.md)
-- [TUI 手动选节点与 JavaScript 覆写](tui-overrides.md)
-- [快速安装 / Quick installation](quick-install.md)
+- [控制台](console.md) · [控制台验收](console-acceptance.md)
+- [TUI 覆写与手动组](tui-overrides.md)
+- [私有自定义规则契约与只读检查](rules.md)
+- [VS Code Remote](vscode-remote.md)
+- [多用户共享运行时](shared-runtime.md)
 
-v0.9.0 实现较小范围的 [Server-first 控制台与节点订阅](console.md)，[验收](console-acceptance.md)单独进行；更广的 runtime/core/adoption 路线仍后置。
+## 运维与验证
+
+- [安装参数与交付约定](deployment-contract.md)
+- [安装验收与证据要求](acceptance.md)
+- [更新与回滚](update.md)
+- [故障排查](troubleshooting.md)
+- [安全模型](security.md)
+
+## Coding Agent 提示
+
+- [安装 Prompt](agent-install-prompt.md)
+- [本地安装 Prompt](agent-local-install-prompt.md)
+- [更新 Prompt](agent-update-prompt.md)
+
+## 已归档
+
+以下页面保留历史记录，**其中的命令面已在 v1.0.0 退役**：
+
+- [Paseo 后台注入与 systemd](paseo.md)
+- [Paseo 生产实施报告](paseo-production.md)
+
+替代方式是通用接入 `mihomoctl integration`；详见
+[V1 旧命令退役映射](v1.md#12-旧命令退役)。
+
+## 历史路线（不代表当前实现）
+
+[architecture-vnext.md](../architecture-vnext.md) ·
+[未来路线与 Agent 提示](future-roadmap-and-agent-prompts.md) ·
+[ADR 0001](../adr/0001-vnext-foundation.md)

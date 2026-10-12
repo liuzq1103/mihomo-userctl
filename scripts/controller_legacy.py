@@ -1,5 +1,6 @@
 """User-level controller component; no global proxy or daemon."""
 import os
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -15,11 +16,30 @@ try:
     from .controller_service import select, snapshot
     from .controller_policy import policy_candidate
     from .controller_transaction import apply_policy
+    from .controller_health import guidance, parse_console
 except ImportError:
     from controller_types import ControlError, TEST_URL, number
     from controller_service import select, snapshot
     from controller_policy import policy_candidate
     from controller_transaction import apply_policy
+    from controller_health import guidance, parse_console
+
+def describe(value):
+    """One-line rendering for a status field; unknown stays visible as unknown."""
+    if value is None:
+        return "unknown"
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return " ".join("{}={}".format(name, describe(item)) for name, item in list(value.items())[:8]) or "unknown"
+    if isinstance(value, list):
+        return " | ".join(describe(item) for item in value[:8])
+    return str(value)
+
 
 def plain_console(service, initial_preview=None):
     """Dependency-free task menu; controller failures do not prevent setup."""
@@ -44,17 +64,21 @@ def plain_console(service, initial_preview=None):
     while True:
         if initial_preview:
             print("已收到标准输入订阅预览；选择 3 审阅并保存。")
-        print("\nMihomo 管理\n1. 首页状态  2. 选择节点  3. 导入订阅\n4. 初始化控制器  5. 启动  6. 停止  7. 重启生效\n8. 切换模式  9. 恢复备份  q. 退出")
+        print("\nMihomo 管理\n1. 运行时状态  2. 选择节点  3. 导入订阅\n4. 初始化控制器  5. 启动  6. 停止  7. 重启生效\n8. 切换模式  9. 恢复备份  10. 探测配置  11. 历史日志\n12. 代理档案与接入  q. 退出")
         choice = input("请选择: ").strip().lower()
         try:
             if choice == "q":
                 return {"state": "closed", "shell": "unchanged"}
             if choice == "1":
-                try:
-                    runtime = service.read("runtime")
-                    print("服务状态：" + str(runtime.get("service", "未知")))
-                except (ControlError, OSError, ValueError, TypeError):
-                    print("服务状态：暂无法观测，可检查当前用户的 systemd 服务。")
+                runtime = service.read("runtime")
+                print("运行时（作用域 {}）".format(runtime.get("scope", "未知")))
+                for key, title in (("core", "核心"), ("controller", "控制器"),
+                                   ("listeners", "监听"), ("config", "生效配置"),
+                                   ("proxy_mode", "代理模式"), ("routing_mode", "核心路由模式"), ("tun", "TUN"),
+                                   ("error", "错误")):
+                    print("  {}：{}".format(title, describe(runtime.get(key))))
+                if runtime.get("reason"):
+                    print("  原因：" + str(runtime["reason"]))
                 value = service.read("overview")
                 print("控制器: {}  核心: {}  模式: {}".format(value.get("controller"), value.get("core", "未知"), value.get("mode", "未知")))
                 print("待重启: " + ("是" if value.get("pending_restart") else "否"))
@@ -68,12 +92,14 @@ def plain_console(service, initial_preview=None):
                 if initial_preview:
                     plan, initial_preview = initial_preview, None
                 else:
-                    policy = "nodes" if input("导入策略：1 提供商（节点/分组/规则整体替换） 2 仅合并节点 [1]: ").strip() == "2" else "provider"
+                    policy = {"1": "auto", "2": "provider", "3": "nodes"}.get(input("导入策略：1 自动判断 2 提供商（节点/分组/规则整体替换） 3 仅合并节点 [1]: ").strip(), "auto")
                     url = input("来源类型：1 YAML 文件 / 2 私有 URL 文件 [1]: ").strip() == "2"
                     path = input("私有文件路径（请勿输入订阅 URL）: ").strip()
                     plan = service.subscription_preview(path, url=url, policy=policy)
                 print("预览：策略 {}；节点 {}，分组 {}，规则 {}；移除节点 {}；忽略设置：{}".format(plan.get("policy", "provider"), plan.get("nodes", 0), plan.get("groups", 0), plan.get("rules", 0), plan.get("removed", 0), ", ".join(plan.get("ignored_fields", []))))
                 clearing_warning(plan)
+                if plan.get("probe_overwrites"):
+                    print("订阅会覆盖现有探测设置：" + json.dumps(plan["probe_overwrites"], ensure_ascii=False))
                 if confirm("备份并保存此订阅策略？"):
                     service.subscription_apply(plan["id"], plan["sha256"])
                     print("已保存，尚未生效。选择 7 重启生效，或 9 恢复备份。")
@@ -83,8 +109,11 @@ def plain_console(service, initial_preview=None):
             elif choice in ("5", "6", "7"):
                 action = {"5": "start", "6": "stop", "7": "restart"}[choice]
                 if confirm("确认更改当前用户的代理服务？"):
-                    service.shell(action)
-                    print("操作已完成。")
+                    result = service.lifecycle(action)
+                    if result.get("overall") != "PASS":
+                        print("未完成：" + str(result.get("reason", "运行时不可用")))
+                    else:
+                        print("操作已完成。")
             elif choice == "8":
                 mode = {"1": "rule", "2": "global", "3": "direct"}.get(input("1 规则 / 2 全局 / 3 直连: ").strip())
                 if mode:
@@ -93,6 +122,42 @@ def plain_console(service, initial_preview=None):
             elif choice == "9" and confirm("恢复本次操作前的配置？保存后仍需重启。"):
                 service.restore()
                 print("已恢复，请选择 7 重启。")
+            elif choice == "10":
+                print('输入 group "组名" 或 provider "名称"；可加 --preset resilient 或 --url / --expected-status / --interval / --timeout / --lazy / --tolerance。')
+                scope, name, options = parse_console(input("探测配置: "))
+                result = service.health_check(scope, name, options)
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+                if result.get("state") == "preview" and confirm("校验、备份并保存探测设置？需单独重启。"):
+                    service.health_check(apply=True)
+                    print("已保存，请选择 7 重启。")
+            elif choice == "11":
+                since, until = input("开始时间（留空不限）: ").strip(), input("结束时间（留空不限）: ").strip()
+                print(json.dumps(service.journal(since=since or None, until=until or None), ensure_ascii=False, indent=2))
+            elif choice == "12":
+                value = service.read("profile")
+                if value.get("overall") not in (None, "PASS"):
+                    print("代理档案暂不可用：" + str(value.get("reason", "未知")))
+                    print("先完成 init；档案来自 manager.yaml，不需要控制器已启动。")
+                else:
+                    print("代理档案（作用域 {}）".format(value.get("scope", "未知")))
+                    for row in value.get("profiles") or []:
+                        print(" {} {} 监听={} 凭据={}".format(
+                            "*" if row.get("selected") else " ", row.get("name"),
+                            ", ".join(str(item) for item in (row.get("listeners") or [])) or "未声明",
+                            row.get("credentials", "external")))
+                    print("当前档案：" + str(value.get("selected") or "未选择"))
+                    bindings = value.get("bindings") or {}
+                    print("\n接入（仅导出配置，不管理第三方生命周期）")
+                    if not bindings:
+                        print("  尚无接入声明。")
+                    for name, row in bindings.items():
+                        row = row if isinstance(row, dict) else {}
+                        print("  {} -> {} · {} · 目标 {}".format(
+                            name, row.get("adapter", "未知"), row.get("profile", "default"),
+                            row.get("target", "-")))
+                    print("\n环境注入边界")
+                    for limit in value.get("environment") or []:
+                        print("  - " + str(limit))
         except (ControlError, files.InstallError, OSError, ValueError, subprocess.TimeoutExpired) as error:
             print("操作未完成：" + getattr(error, "code", "配置或环境不可用"))
             print("检查私有配置与核心是否存在；重启失败可选 9 恢复备份。")
@@ -113,6 +178,8 @@ def plain_tui(client):
         if not answer.isdigit() or not 1 <= int(answer) <= len(groups):
             continue
         group = groups[int(answer) - 1]
+        for line in guidance(group):
+            print(line)
         if not group["selectable"]:
             print("自动/负载均衡组只读；请选择 Selector。 / Automatic group is read-only.")
             continue
@@ -120,8 +187,10 @@ def plain_tui(client):
             print("{}. {}{}".format(i, name, " ✓" if name == group["selected"] else ""))
         answer = input("切换到 / Select (Enter: cancel): ").strip()
         if answer.isdigit() and 1 <= int(answer) <= len(group["members"]):
-            select(client, group["name"], group["members"][int(answer) - 1])
-            print("已确认切换；已有连接不强制断开。 / Selection confirmed; existing connections unchanged.")
+            node = group["members"][int(answer) - 1]
+            if input("确认将 {} 切换为 {}？共享入口影响见上方 [y/N]: ".format(group["name"], node)).strip().lower() == "y":
+                select(client, group["name"], node)
+                print("已确认切换；已有连接不强制断开。 / Selection confirmed; existing connections unchanged.")
 
 
 def tui(client, plain=False, config=None, script=None, home_dir=None, details=False, flclash=False):

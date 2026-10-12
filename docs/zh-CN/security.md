@@ -1,5 +1,9 @@
 # 安全模型
 
+> **v1.0.0：** 自动 Shell hook 已移除，应用专属 daemon 生命周期已退役。
+> 本页中与 Codex 专属门禁相关的部分仅作历史记录保留；当前语义见
+> [V1 命令与配置契约](v1.md)。
+
 ## v0.6 Codex 运行时门禁
 
 `mihomoctl codex preflight` 按 [first-run.md](first-run.md) 的四层状态决定是否允许启动，
@@ -122,3 +126,12 @@ systemctl --user stop <白名单校验后的服务名>
 
 需要查看或切换节点时，按[节点管理与面板](control-plane.md)启用独立认证 loopback controller。
 快速安装入口见[固定链接安装](quick-install.md)。这些功能不绕过 Codex preflight，也不改变普通 Shell 默认直连。
+
+> **环境变量不是秘密隔离机制。**它们随进程树传播，并出现在
+> 诊断输出、崩溃报告和进程检查工具里，保护强度取决于文件权限与部署方式，
+> 而不是变量名。因此 mihomo 的控制面 `secret` 不写入
+> `Environment=` / `EnvironmentFile=` / `CLASH_OVERRIDE_SECRET` / `-secret`，而是写入 `0600` 的生成配置文件。
+> 接入写出的 `proxy.env` 包含**真实代理 URL 与凭据**，因此它是
+> **私有敏感文件**：权限 `0600`，不与 `0600` 的核心配置或凭据文件合并。
+> `EnvironmentFile=` 是**接入格式，不是秘密隔离机制**：变量会随进程树传播，并可能出现在诊断输出中。
+> 详见[项目安全策略](../../SECURITY.md)。

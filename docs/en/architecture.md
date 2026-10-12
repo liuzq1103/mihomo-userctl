@@ -1,5 +1,11 @@
 # Architecture and data flow
 
+> **v1.0.0:** the automatic shell hook has been removed. Sections below that
+> mention `CODEX_REMOTE_PAYLOAD`, the `.bashrc` loader or `with_proxy codex` are
+> retired. Proxy access is now always an explicit `mihomoctl exec` /
+> `mihomoctl env` / `mihomoctl integration`; the command surface follows the
+> [V1 command and configuration contract](v1.md).
+
 ## v0.6 Codex runtime gate
 
 `mihomoctl codex preflight` uses the four levels in [first-run.md](first-run.md) to decide launch;
@@ -69,7 +75,8 @@ The following remain **not implemented**. They are scope boundaries, not backlog
 
 `mihomoctl init`, `mihomoctl adopt`, `mihomoctl core`,
 `mihomoctl geodata`, `mihomoctl run` and `mihomoctl trace` **do not exist today**.
-Runtime installation and adoption remain outside this release.
+Their direction is recorded only in [vNext target architecture](../architecture-vnext.md),
+where it is explicitly marked "not yet implemented".
 
 ### v0.9 console components
 

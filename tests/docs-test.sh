@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# V1 entry point. The pre-V1 assertions below are retained as historical
+# migration evidence; they describe the retired shell-hook product.
+_v1_test_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+exec python3 "$_v1_test_root/scripts/check_docs_v1.py" "$@"
+
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
@@ -27,8 +32,11 @@ fi
 
 expected=(
   README.md
+  paseo.md
+  paseo-production.md
   control-plane.md
   console.md
+  failover.md
   console-acceptance.md
   quick-install.md
   acceptance.md
@@ -49,6 +57,21 @@ expected=(
   update.md
   vscode-remote.md
 )
+
+for language in en zh-CN; do
+  for marker in 'mihomoctl paseo preflight' 'mihomoctl paseo restart' 'paseo install-unit' 'Restart=on-failure' 'client.env' 'NO_PROXY'; do
+    if ! checked_grep -Fq -- "$marker" "$root/docs/$language/paseo.md"; then
+      printf 'Paseo guide lacks %s: %s\n' "$marker" "$language" >&2
+      failed=1
+    fi
+  done
+  for marker in 'loginctl enable-linger' 'provider diagnostic codex --json' 'paseo run --provider codex' '0.9.2'; do
+    if ! checked_grep -Fq -- "$marker" "$root/docs/$language/paseo-production.md"; then
+      printf 'Paseo migration lacks %s: %s\n' "$marker" "$language" >&2
+      failed=1
+    fi
+  done
+done
 
 for language in en zh-CN; do
   for topic in "${expected[@]}"; do

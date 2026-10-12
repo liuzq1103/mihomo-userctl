@@ -1,5 +1,9 @@
 # Install Mihomo and configure the complete stack
 
+> Archived 0.9.x installation tutorial. Its old installer and hook commands are
+> retired and must not be used for V1. Follow [INSTALL.md](../../INSTALL.md) for
+> the V1 source/wheel installation, then [first use](first-run.md).
+
 For first use, WebSocket errors or old-process recovery, start with [first use](first-run.md).
 
 Default to personal Mihomo/controller installation and reuse suitable existing tools; install other
@@ -302,10 +306,13 @@ exec bash
 ```
 
 The installer neither starts nor enables the service and does not overwrite an
+existing `client.env`. It also **never edits `.bashrc`, `.zshrc` or `profile`**:
+first use does not depend on a login shell, and proxy access is always an explicit
+`mihomoctl exec`, `mihomoctl env` or binding.
 existing `client.env`. Before changing active files it creates a mode-700
 transaction backup under `~/.local/share/mihomo-userctl-backups/`. If the final
 `mihomoctl doctor` fails, it restores the previous controller, modules,
-completion, non-secret configuration, and `.bashrc`; the backup is retained for
+completion and non-secret configuration; the backup is retained for
 inspection.
 
 ## 9. Acceptance tests
@@ -335,7 +342,7 @@ An ordinary new shell should be direct, with the service active and disabled.
 The verifier checks actual HTTP status, the local peer, unauthenticated HTTP
 407, and explicit SOCKS5 rejection of the no-auth method. Network failures are
 not authentication rejection evidence. Independently verify proxy_on/off,
-with_proxy isolation, installed loader/hook, download sockets, and optional VS
+mihomoctl exec isolation and its fail-closed gate, download sockets, and optional VS
 Code; none of these follow from the listener results alone.
 
 This example routes gstatic.com through MATCH,DIRECT. It tests a request through
@@ -345,7 +352,7 @@ does not verify S3 or large transfers.
 
 ### Optional: VS Code Remote
 
-A working terminal `with_proxy codex` and Codex Remote hook do not imply that
+A working terminal `mihomoctl exec` does not imply that
 the VS Code Extension Host inherits the same environment. If the Codex extension
 is required in VS Code Remote, continue with the
 [recommended VS Code Remote configuration](vscode-remote.md). This is a

@@ -6,6 +6,9 @@ import secrets
 import shutil
 import subprocess
 import tempfile
+from contextvars import ContextVar
+
+runtime_application = ContextVar('mihomoctl_runtime_application', default=None)
 try:
     from . import acceptance, install_support as files
 except ImportError:
@@ -29,6 +32,19 @@ def find_core():
 
 
 def validate_candidate(config, home_dir, updated):
+    app = runtime_application.get()
+    if app is not None:
+        from mihomoctl.lifecycle.runner import validate_config
+        from mihomoctl.lifecycle.systemd import service_account_uid
+        from mihomoctl.trust import require_executable_file
+        from mihomoctl.endpoints import parse_endpoints
+        from mihomoctl.yamlutil import strict_load
+        manager = app.load_manager()
+        require_executable_file(manager.core.binary, as_root=app.system)
+        parse_endpoints(strict_load(updated), system_scope=app.system, allowed_addresses=manager.allow_non_loopback)
+        validate_config(manager.core.binary, updated, app.scope.core_home,
+                        as_uid=service_account_uid() if app.system else None)
+        return
     home = Path(home_dir or str(Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "mihomo"))
     core = find_core()
     private(home, True)
@@ -49,6 +65,28 @@ def validate_candidate(config, home_dir, updated):
 def apply_policy(config, original, updated, home_dir=None):
     if original == updated:
         return {"state": "unchanged", "service": "unchanged"}
+    app = runtime_application.get()
+    if app is not None:
+        from mihomoctl.endpoints import assert_security_envelope
+        from mihomoctl.transaction import run_transaction
+        from mihomoctl.yamlutil import strict_load
+        app.scope.require_mutation()
+        assert_security_envelope(strict_load(original), strict_load(updated))
+        backup = config.with_name(config.name + '.before-policy-' + secrets.token_hex(8))
+        def action(tx):
+            validate_candidate(config, home_dir, updated)
+            private(config)
+            if config.read_text(encoding='utf-8') != original:
+                raise ControlError('config-changed-during-policy-edit')
+            tx.write_text(backup, original)
+            tx.write_text(config, updated, mode=0o640 if app.system else 0o600)
+            receipt = {'state': 'restart-required', 'backup': str(backup), 'service': 'unchanged',
+                       'sha256': hashlib.sha256(updated.encode()).hexdigest(),
+                       'backup_sha256': hashlib.sha256(original.encode()).hexdigest()}
+            import json
+            tx.write_text(config.with_name(config.name + '.userctl-state.json'), json.dumps(receipt))
+            return receipt
+        return run_transaction(app.scope, 'policy-apply', action)
     validate_candidate(config, home_dir, updated)
     private(config)
     if config.read_bytes().decode("utf-8") != original:

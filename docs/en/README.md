@@ -1,36 +1,64 @@
 # English documentation
 
-For first use, WebSocket errors or old-process recovery, start with [first use](first-run.md).
+> **v1.0.0:** the automatic shell hook has been removed and the installer writes no
+> startup file; application-specific daemon lifecycle is retired. The command
+> surface follows the [V1 command and configuration contract](v1.md).
 
-Public directories hold installation material; private per-user installation is the default, and administrator-shared runtime is an explicitly selected option.
+For a new server, read these in order:
 
-[Shared Node/Codex on multi-user servers](shared-runtime.md)
+1. [Installation](../../INSTALL.md)
+2. [Setup guide and the full stack](setup.md)
+3. [First use](first-run.md)
+4. [V1 command and configuration contract](v1.md)
+5. [V1 architecture and implementation contract](../architecture-v1.md)
+6. [Security model](security.md)
 
-[Deployment parameters, authorization and delivery contract](deployment-contract.md)
+## V1 baseline
 
-For pre-downloaded shared packages, start with [local installation](offline-install.md)
-and the [local installation prompt](agent-local-install-prompt.md).
+- [V1 command and configuration contract](v1.md)
+- [V1 architecture and implementation contract](../architecture-v1.md)
+- [ADR 0002: V1 generic runtime and retired third-party lifecycle](../adr/0002-v1-generic-runtime.md)
+- [Design reference and derived boundaries](../design-reference.md)
+- [Code audit](../code-audit.md)
+- [Security policy](../../SECURITY.md)
 
-If starting on a new server, read these in order:
+## Using
 
-1. [Install Mihomo and configure the full stack](setup.md)
-2. [Install and use mihomo-userctl](../../README.en.md)
-3. [Architecture and data flow](architecture.md)
-4. [Security model](security.md)
-5. [Recommended VS Code Remote configuration](vscode-remote.md) (optional)
-
-Reference by responsibility:
-
-- [Installation acceptance and evidence](acceptance.md)
-- [Copyable coding-agent installation prompt](agent-install-prompt.md)
-- [Troubleshooting](troubleshooting.md)
-- [Mihoro inspiration and deliberate differences](mihoro-inspiration.md)
-- [Update and one-time migration](update.md)
-- [Coding-agent update prompt](agent-update-prompt.md)
+- [Setup guide](setup.md) · [Quick installation](quick-install.md) ·
+  [Offline installation](offline-install.md)
+- [First use](first-run.md)
+- [Nodes and dashboards](control-plane.md)
+- [Console](console.md) · [Console acceptance](console-acceptance.md)
+- [TUI overrides and manual groups](tui-overrides.md)
 - [Private custom-rule contract and read-only checks](rules.md)
+- [VS Code Remote](vscode-remote.md)
+- [Shared runtime on multi-user servers](shared-runtime.md)
 
-- [节点管理 / Nodes and dashboards](control-plane.md)
-- [TUI selection and JavaScript overrides](tui-overrides.md)
-- [快速安装 / Quick installation](quick-install.md)
+## Operations and verification
 
-v0.9.0 implements a narrower [server-first console and node-only subscription](console.md), with separate [acceptance checks](console-acceptance.md). The broader runtime/core/adoption roadmap remains deferred.
+- [Deployment parameters and delivery contract](deployment-contract.md)
+- [Installation acceptance and evidence](acceptance.md)
+- [Updates and rollback](update.md)
+- [Troubleshooting](troubleshooting.md)
+- [Security model](security.md)
+
+## Coding agent prompts
+
+- [Installation prompt](agent-install-prompt.md)
+- [Local installation prompt](agent-local-install-prompt.md)
+- [Update prompt](agent-update-prompt.md)
+
+## Archived
+
+These pages are kept for the record; **their command surface was retired in v1.0.0**:
+
+- [Paseo background injection and systemd](paseo.md)
+- [Paseo production report](paseo-production.md)
+
+The replacement is generic integration via `mihomoctl integration`; see the
+[retired-command mapping](v1.md#12-retired-commands).
+
+## Historical roadmap (not the current implementation)
+
+[architecture-vnext.md](../architecture-vnext.md) ·
+[ADR 0001: V1 foundation decision](../adr/0001-vnext-foundation.md)

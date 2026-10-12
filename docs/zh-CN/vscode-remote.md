@@ -1,5 +1,10 @@
 # VS Code Remote 推荐配置
 
+> **v1.0.0：**自动 Shell hook 已移除。本文中提到
+> `CODEX_REMOTE_PAYLOAD`、`.bashrc` loader 或 `with_proxy codex` 的部分已退役。
+> 代理接入现在始终是显式的 `mihomoctl exec` / `mihomoctl env` /
+> `mihomoctl integration`，命令面以 [V1 命令与配置契约](v1.md) 为准。
+
 首次使用、WebSocket 报错或旧进程问题，先看[安装后第一次使用 Codex](first-run.md)。
 
 本文适用于：Mihomo 和 `mihomo-userctl` 已安装在远程 Linux 账户中，终端里的

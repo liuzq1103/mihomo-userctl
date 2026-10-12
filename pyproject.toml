@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mihomoctl"
+version = "1.0.0"
+description = "User-level Mihomo runtime manager: proxy profiles, environment injection, runtime integration, health checks"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = ["PyYAML>=6.0.1"]
+authors = [{ name = "mihomo-userctl maintainers" }]
+
+[project.optional-dependencies]
+tui = ["textual>=0.40"]
+
+[project.scripts]
+mihomoctl = "mihomoctl.cli:main"
+
+[tool.setuptools]
+packages = ["mihomoctl", "mihomoctl.lifecycle", "mihomoctl.integration", "scripts"]
+
+[tool.setuptools.package-data]
+mihomoctl = ["mihomo-digests.json"]
+scripts = ["dashboard.html", "textual-requirements.txt"]
+
+[tool.setuptools.cmdclass]
+build_py = "scripts.ReviewedBuildPy"
