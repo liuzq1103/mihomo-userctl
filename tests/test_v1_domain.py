@@ -164,6 +164,134 @@ class DomainFiles(unittest.TestCase):
                 self.assertEqual(json.loads(out.getvalue())['overall'], 'PASS')
         self.assertFalse(self.scope.manager_path.exists())
 
+    def _write_manager(self, config_path=None):
+        from mihomoctl.config import CoreSettings, Manager, Profile, compose_core_config, render_manager
+        from mihomoctl.credentials import Credentials
+        self.scope.credentials_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+        self.scope.credentials_dir.chmod(0o700)
+        credentials = self.scope.credentials_dir / 'work.yaml'
+        Credentials.create(credentials, 'test-user', 'private-password')
+        if config_path is None:
+            config_path = self.home / 'core' / 'config.yaml'
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(compose_core_config(
+            17890, 'test-user', 'private-password', 17891,
+            'private-controller-token-for-preview-fixture'), encoding='utf-8')
+        config_path.chmod(0o600)
+        self.scope.manager_path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+        self.scope.manager_path.write_text(render_manager(Manager(
+            core=CoreSettings('/bin/true', str(config_path), 'process'),
+            default_profile='work', profiles={'work': Profile(
+                name='work', http_listener='proxy', socks_listener='proxy',
+                credentials_file=str(credentials))})), encoding='utf-8')
+        self.scope.manager_path.chmod(0o600)
+        return config_path
+
+    def test_rules_is_dispatched_with_managed_paths_and_never_guessed(self):
+        from mihomoctl.cli import main
+        from scripts import rules as checker
+        config_path = self._write_manager()
+        seen = {}
+
+        def record(argv):
+            seen['argv'] = list(argv)
+            return 0
+
+        with patch.object(checker, 'main', record), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(main(['rules', 'status', '--json']), 0)
+        document = json.loads(out.getvalue())
+        self.assertEqual(document['command'], 'rules-status')
+        self.assertEqual(document['overall'], 'PASS')
+        self.assertEqual(document['data']['check'], 'status')
+        self.assertEqual(seen['argv'][0], 'status')
+        self.assertEqual(seen['argv'][-1], '--json')
+        self.assertIn(str(self.scope.core_home), seen['argv'])
+        self.assertIn(str(config_path), seen['argv'])
+        # An explicit path is honoured verbatim and never replaced.
+        with patch.object(checker, 'main', record), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(['rules', 'status', '--home-dir', '/a', '--config', '/b']), 0)
+        self.assertEqual(seen['argv'], ['status', '--home-dir', '/a', '--config', '/b'])
+
+    def test_rules_rejects_unknown_subcommands_and_reports_missing_paths(self):
+        from mihomoctl.cli import main
+        from mihomoctl.config import CoreSettings, Manager, Profile, render_manager
+        self._write_manager()
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(main(['rules', 'rewrite', '--json']), 2)
+        self.assertEqual(json.loads(out.getvalue())['errors'][0]['code'], 'usage-error')
+        credentials = self.scope.credentials_dir / 'work.yaml'
+        self.scope.manager_path.write_text(render_manager(Manager(
+            core=CoreSettings('/bin/true', '', 'process'), default_profile='work',
+            profiles={'work': Profile(name='work', http_listener='proxy',
+                                      socks_listener='proxy', credentials_file=str(credentials))})),
+            encoding='utf-8')
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(main(['rules', 'status', '--json']), 2)
+        self.assertEqual(json.loads(out.getvalue())['errors'][0]['code'], 'rules-unavailable')
+
+    def test_rules_exit_code_is_preserved_through_the_envelope(self):
+        from mihomoctl.cli import main
+        from scripts import rules as checker
+        self._write_manager()
+        for code, overall in ((0, 'PASS'), (1, 'FAIL'), (2, 'UNVERIFIED')):
+            with self.subTest(code=code), patch.object(checker, 'main', lambda argv: code), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(main(['rules', 'check', '--json']), code)
+            document = json.loads(out.getvalue())
+            self.assertEqual(document['overall'], overall)
+            self.assertEqual(document['data']['exit'], code)
+
+    def test_service_uninstall_preview_never_claims_a_removal_it_did_not_perform(self):
+        from mihomoctl.app import UNIT_NAME
+        from mihomoctl.cli import main
+        from mihomoctl.lifecycle import systemd as backend
+        self._write_manager()
+        installed = []
+        writes = []
+
+        class StubTransaction:
+            def write_text(self, path, text, mode=None):
+                writes.append(path)
+
+        def run_transaction(scope, name, body):
+            return body(StubTransaction())
+
+        with patch.object(backend.SystemdBackend, 'running', return_value=(False, {'ActiveState': 'inactive'})), \
+                patch.object(backend, 'uninstall_unit', side_effect=lambda scope, tx=None: installed.append(scope)), \
+                patch.object(backend, 'unit_transaction', side_effect=run_transaction), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(main(['service', 'uninstall', '--dry-run', '--json']), 0)
+        preview = json.loads(out.getvalue())
+        self.assertEqual(preview['command'], 'service-uninstall-preview')
+        self.assertEqual(preview['data'], {'unit': UNIT_NAME, 'dry_run': True})
+        self.assertEqual(installed, [], 'a preview must not remove the unit')
+        self.assertEqual(writes, [], 'a preview must not rewrite the manager')
+        with patch.object(backend.SystemdBackend, 'running', return_value=(False, {'ActiveState': 'inactive'})), \
+                patch.object(backend, 'uninstall_unit', side_effect=lambda scope, tx=None: installed.append(scope)), \
+                patch.object(backend, 'unit_transaction', side_effect=run_transaction), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(main(['service', 'uninstall', '--json']), 0)
+        applied = json.loads(out.getvalue())
+        self.assertEqual(applied['command'], 'service-uninstall')
+        self.assertNotIn('dry_run', applied['data'])
+        self.assertEqual(len(installed), 1)
+
+    def test_service_uninstall_preview_predicts_the_blocking_preconditions(self):
+        from mihomoctl.cli import main
+        from mihomoctl.lifecycle import systemd as backend
+        self._write_manager()
+        with patch.object(backend.SystemdBackend, 'running',
+                          return_value=(True, {'ActiveState': 'activating'})), \
+                patch.object(backend, 'uninstall_unit') as remove, \
+                patch.object(backend, 'unit_transaction') as transaction, \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(main(['service', 'uninstall', '--dry-run', '--json']), 2)
+        self.assertEqual(json.loads(out.getvalue())['errors'][0]['code'], 'backend-active')
+        remove.assert_not_called()
+        transaction.assert_not_called()
+
     def test_duplicate_sensitive_yaml_keys_are_not_echoed_by_cli(self):
         from mihomoctl.cli import main
         sensitive = 'https://subscription.example.invalid/private?token=' + 'never-echo-this-token'

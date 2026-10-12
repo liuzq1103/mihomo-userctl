@@ -29,7 +29,7 @@ Integration + Health Check**。核心不含任何具体工具的专属代码。
 
 ## non-goals
 
-- **不管理第三方 daemon 生命周期**；旧的应用专属命令已退役，见[退役映射](docs/zh-CN/v1.md#12-旧命令退役)。
+- **不管理第三方 daemon 生命周期**；旧的应用专属命令已退役，见[退役映射](docs/zh-CN/v1.md#13-旧命令退役)。
 - **不做桌面 GUI**；浏览器面板只是本地可选入口。
 - **不做通用 YAML editor**。
 - **不做无 root 的强 UID 网络隔离**；认证是凭据边界，不等于跨 UID 防火墙隔离。
@@ -77,14 +77,18 @@ mihomoctl exec -- curl --head https://example.com/
 ## 常用命令
 
 ```text
-mihomoctl init --core PATH [--config FILE]
+mihomoctl init --core PATH [--config FILE] [--port PORT] [--allow-non-loopback ADDRESS]
 mihomoctl [--user|--system] start | stop | restart
 mihomoctl [--user|--system] status [--json]
 mihomoctl logs [--lines N] [--follow]
+mihomoctl doctor [--json]
+mihomoctl config validate [--file FILE] [--profile NAME] | check
 
-mihomoctl service install | start | stop | restart | status | uninstall
+mihomoctl service install | start | stop | restart | status
+mihomoctl service uninstall [--dry-run]
 mihomoctl profile list | show NAME | validate NAME | set-default NAME
 mihomoctl exec [--profile NAME | --binding NAME] -- COMMAND [ARGS...]
+mihomoctl direct -- COMMAND [ARGS...]
 mihomoctl env show [--profile NAME | --binding NAME] [--reveal] [--json]
 mihomoctl env export [--profile NAME | --binding NAME] (--output PATH | --reveal)
 
@@ -96,7 +100,9 @@ mihomoctl tun status | enable | disable        # enable/disable 仅 --system
 mihomoctl core install --version VERSION [--sha256 DIGEST]
 mihomoctl core update --version VERSION [--sha256 DIGEST] [--dry-run]
 mihomoctl version
-mihomoctl migrate [--dry-run] [--apply]
+mihomoctl migrate [--dry-run] [--apply] [--core PATH] [--remove-loader] [--no-import]
+mihomoctl rollback BACKUP
+mihomoctl update
 
 # 保留的控制面能力
 mihomoctl controller status | tui | nodes | groups | select GROUP NODE

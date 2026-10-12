@@ -174,7 +174,7 @@ def dispatch(app, command, args, child_argv, json_mode):
         return _finish('help', name, env.PASS, {'usage': surface[command]}, json_mode=json_mode,
                        text='Usage: mihomoctl ' + command + ' ' + surface[command])
     if command in ('help', '--help', '-h'):
-        commands = 'init start stop restart status logs config profile env exec direct integration service tun core health doctor migrate rollback update controller nodes groups select latency connections traffic subscription tui version'
+        commands = 'init start stop restart status logs config profile env exec direct integration service tun core health doctor migrate rollback update controller nodes groups select latency connections traffic subscription rules tui version'
         return _finish('help', name, env.PASS, {'commands': commands.split()}, json_mode=json_mode,
                        text='Usage: mihomoctl [--user|--system] COMMAND [OPTIONS] [--json]\nCommands: ' + commands)
     if command == "init":
@@ -218,6 +218,11 @@ def dispatch(app, command, args, child_argv, json_mode):
         return cmd_config(app, args, json_mode)
     if command == "logs":
         return cmd_logs(app, args, json_mode)
+    if command == "rules":
+        from .legacy import run_rules
+        data, overall = run_rules(scope, args, json_mode)
+        return _finish("rules-" + data["check"], name, overall, data,
+                       json_mode=json_mode, text=data["output"])
     if command == "doctor":
         return cmd_doctor(app, args, json_mode)
     if command in ("update", "rollback"):
@@ -626,26 +631,31 @@ def cmd_service(app, args, json_mode):
         parser.add_argument('--dry-run', action='store_true')
         values = parser.parse_args(args[1:])
         scope.require_mutation()
-        if not values.dry_run:
-            manager, endpoints, controller, _, _ = app.resolve()
-            backend = systemd_backend.SystemdBackend(scope, manager, endpoints, controller)
-            _running, properties = backend.running()
-            if properties.get('ActiveState') not in ('inactive', 'failed', None):
-                raise UsageError('backend-active', 'stop the Mihomo service before uninstalling its unit')
-            if manager.tun.enabled:
-                raise UsageError('tun-enabled', 'disable TUN before uninstalling its managed service')
-            from .transaction import run_transaction
-            def uninstall(tx):
-                current, current_endpoints, current_controller, _, _ = app.resolve()
-                current_backend = systemd_backend.SystemdBackend(scope, current, current_endpoints, current_controller)
-                _, properties = current_backend.running()
-                if properties.get('ActiveState') not in ('inactive', 'failed', None) or current.tun.enabled:
-                    raise UsageError('backend-active', 'stop the managed runtime and disable TUN before uninstalling')
-                if not scope.system:
-                    current.core.backend = 'process'
-                    tx.write_text(scope.manager_path, render_manager(current))
-                return systemd_backend.uninstall_unit(scope, tx=tx)
-            systemd_backend.unit_transaction(scope, 'service-uninstall', uninstall)
+        # Preconditions are evaluated in both modes: a preview that could never
+        # predict the failure of the real operation is worse than no preview.
+        manager, endpoints, controller, _, _ = app.resolve()
+        backend = systemd_backend.SystemdBackend(scope, manager, endpoints, controller)
+        _running, properties = backend.running()
+        if properties.get('ActiveState') not in ('inactive', 'failed', None):
+            raise UsageError('backend-active', 'stop the Mihomo service before uninstalling its unit')
+        if manager.tun.enabled:
+            raise UsageError('tun-enabled', 'disable TUN before uninstalling its managed service')
+        if values.dry_run:
+            return _finish("service-uninstall-preview", scope.name, env.PASS,
+                           {"unit": UNIT_NAME, "dry_run": True},
+                           json_mode=json_mode, text="would remove %s" % UNIT_NAME)
+        from .transaction import run_transaction
+        def uninstall(tx):
+            current, current_endpoints, current_controller, _, _ = app.resolve()
+            current_backend = systemd_backend.SystemdBackend(scope, current, current_endpoints, current_controller)
+            _, properties = current_backend.running()
+            if properties.get('ActiveState') not in ('inactive', 'failed', None) or current.tun.enabled:
+                raise UsageError('backend-active', 'stop the managed runtime and disable TUN before uninstalling')
+            if not scope.system:
+                current.core.backend = 'process'
+                tx.write_text(scope.manager_path, render_manager(current))
+            return systemd_backend.uninstall_unit(scope, tx=tx)
+        systemd_backend.unit_transaction(scope, 'service-uninstall', uninstall)
         return _finish("service-uninstall", scope.name, env.PASS, {"unit": UNIT_NAME},
                        json_mode=json_mode, text="removed %s" % UNIT_NAME)
     if action in ("start", "stop", "restart"):

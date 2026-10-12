@@ -48,6 +48,15 @@ def _import_controller():
     return controller
 
 
+def _import_rules():
+    try:
+        from scripts import rules
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from scripts import rules
+    return rules
+
+
 def _v1_values(scope):
     """MIHOMO_* values + config path from the V1 manager, or None."""
     try:
@@ -187,6 +196,53 @@ def env_overall(payload, code):
         if value in ("PASS", "FAIL", "UNVERIFIED", "SKIPPED"):
             return value
     return "PASS"
+
+
+def run_rules(scope, args, json_mode=False):
+    """Read-only custom-rule contract checks over the managed core layout.
+
+    No mutation is requested and no proxy environment is synthesized: the
+    checker only needs the core HomeDir and the active config path, both owned
+    by the V1 manager, so the paths are supplied explicitly instead of guessed.
+    The checker's own 0/1/2 result already matches the CLI contract and is
+    preserved verbatim; output is re-emitted under the ``mihomoctl/v1``
+    envelope.
+    """
+    checker = _import_rules()
+    if not args or args[0] not in ("status", "check"):
+        raise UsageError("usage-error",
+                         "usage: mihomoctl rules status|check [--home-dir PATH] [--config PATH]")
+    manager = load_manager(scope)
+    forward = list(args)
+    if "--home-dir" not in forward:
+        forward.extend(["--home-dir", str(scope.core_home)])
+    if "--config" not in forward:
+        if not manager.core.config:
+            raise UsageError("rules-unavailable",
+                             "run mihomoctl init first so the active core config path is known")
+        forward.extend(["--config", manager.core.config])
+    if json_mode and "--json" not in forward:
+        forward.append("--json")
+    buffer = io.StringIO()
+    try:
+        with redirect_stdout(buffer):
+            code = checker.main(forward)
+    except checker.RuleError as exc:
+        raise BridgeError(exc.code) from None
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise BridgeError("rules-operation-unavailable", exc.__class__.__name__) from None
+    text = buffer.getvalue()
+    payload = None
+    if json_mode:
+        try:
+            payload = json.loads(text)
+        except ValueError:
+            payload = None
+    overall = "PASS" if code == 0 else "FAIL" if code == 1 else "UNVERIFIED"
+    data = {"check": args[0], "exit": code, "output": text}
+    if payload is not None:
+        data["rules"] = payload
+    return data, overall
 
 
 def guidance(command):

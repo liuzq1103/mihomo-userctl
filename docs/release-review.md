@@ -298,3 +298,71 @@ F 在独立临时安装 fixture 对三个阶段分别注入一次真实 OSError�
 `installation.py:1174-1176` 在安装目标写入前验证 launcher 祖先 trust；新增回归确认 unsafe launcher parent 在 staging 安装前拒绝、install_root 未创建、既有树不变。无 repair/chmod 既有 unsafe 目录，无 trust 豁免。六文件 `git diff --check` 通过。
 
 **本次未发现新增确定代码阻断，允许提交并推送所审六文件及本报告，运行下一轮真实 CI。正式 Release 保持 BLOCKED。** 下一轮必须使 test20 实际继承与 test60 系统安装验收全绿；若仍失败，利用固定安全因果码继续定位，不得放宽断言、跳过或沿用其他提交的部分 PASS。最终仍须两 Ubuntu 同一 clean 提交完整 CI/产物/privileged/release gate 一致通过。
+
+## 5afffd7 独立契约复核与修复（2026-10-12 13:05 +08:00）
+
+### 复核范围
+
+对冻结后的分支做**只读**交叉复核，逐项比对「文档声明 / 发布清单 / 测试声明」
+与「代码实际行为」：CLI 命令与 flag、退出码契约、`mihomoctl/v1` envelope 字段、
+`release-manifest.json` 与磁盘的一一对应、TUN 与权限边界声明、
+安装/更新路径中是否存在 shell 启动文件写入、以及文档是否声称了未通过的门禁。
+
+### BLOCKER：`mihomoctl rules` 有文档、无实现
+
+- 声明：`README.md:104`、`README.en.md:112`、`completions/mihomoctl.bash:6,59`
+  以及 `docs/{en,zh-CN}/rules.md` 整页共同承诺 `mihomoctl rules status|check`。
+- 实际：`mihomoctl/cli.py` 的 `dispatch()` 没有 `rules` 分支；
+  `BRIDGE_COMMANDS` / `GUIDANCE_COMMANDS` 也不含它。任何调用都落到
+  `cli.py` 的 `unknown-command`，退出码 `2`。
+  `scripts/rules.py` 随 `runtime_files` 打包并有 `tests/test_rules.py`，
+  但没有任何 CLI 入口能到达它。
+
+处置：按「保留 Controller、订阅、策略和 TUI 能力」的产品决策**接线**而非删文档。
+新增 `mihomoctl/legacy.py:run_rules()` 与 `cli.py` 的 `rules` 分支：只读、
+不合成代理环境、不请求变更；由 V1 manager 显式提供内核 HomeDir 与生效配置路径，
+`--home-dir` / `--config` 原样覆盖且绝不由工具猜测；检查器自身的 `0`/`1`/`2`
+原样保留，`--json` 下以 `mihomoctl/v1` 信封重述，检查器载荷位于 `data.rules`。
+
+实证（WSL Ubuntu 22.04，真实未 mock）：`rules status` 对三个 `0600` 规则文件
+退出 `0` 并输出 PASS；`--json` 输出 `command=rules-status`、嵌套 rules/v1 载荷；
+将 `rules` 目录放宽到 `0755` 后退出 `1`、`overall=FAIL`、
+`rules-directory-mode-must-be-700`，fail-closed 保持。
+
+### MAJOR：`service uninstall --dry-run` 谎报已完成
+
+`cli.py` 在 `--dry-run` 下跳过整个事务与全部前置检查，却返回与真实卸载
+**完全相同**的 `PASS` / `{"unit": ...}` / `removed mihomo.service`。
+预览因此无法预测真实操作会失败——一个比没有预览更危险的契约。
+
+处置：前置检查（受管运行时在运行、TUN 已启用）在两种模式下都执行；
+预览返回独立的 `service-uninstall-preview` 与 `data.dry_run: true`，
+不删除单元、不改写 manager，与 `migrate --dry-run` → `migrate-preview` 的既有约定一致。
+
+### MINOR
+
+`direct`、`config validate` / `config check`、`rollback`、`init --port`、
+`migrate --remove-loader/--no-import/--core` 此前已实现但五份入口文档均未收录，
+而 `rollback` 实际要求 `BACKUP` 位置参数。已在 README（中英）与
+`docs/{en,zh-CN}/v1.md` 新增「保留的控制面」章节并补齐签名；
+章节编号顺延，`README.md` / `README.en.md` 的锚点同步更新。
+`docs/release-review.md` 曾固定在更早的提交上，本节即为最新结论。
+
+### 复核确认无问题
+
+- 退出码：`errors.py` 与 `envelope.exit_code()` 的 0/1/2 三档与文档完全一致。
+- `exec` 透传：使用 `os.execve` 替换进程，子进程结果不重映射。
+- 发布清单：183 个 `files` 全部存在于磁盘，所有 tracked 文件均已登记，
+  无「磁盘有可执行 Python 但不在 `runtime_files`」的漏打包；
+  wheel 仅含 `mihomoctl` 包与 dist-info，`scripts/paseo.py`、`tests/test_paseo.py`
+  与私有笔记刻意不发布；归档的 paseo 文档页已带 ARCHIVED 标注。
+- 无 shell hook：`install.sh`、`uninstall.sh`、`installation.py`、
+  `bootstrap.py`、`scripts/{offline_install,update,migrate}.py`
+  中无任何写入启动文件的路径。
+
+### 本轮回归
+
+WSL Ubuntu 22.04 私有副本：定向 46 项全通过；完整单元回归 331 项 0 失败。
+真实 systemd、多 UID、隔离 TUN 与系统安装门禁由 CI 在本轮提交上重跑，
+结论以前一提交 `5afffd7` 的实测为基线，正式发布仍以**打标签那一提交**的
+完整 CI 与 `scripts/verify_release.py` 为准。

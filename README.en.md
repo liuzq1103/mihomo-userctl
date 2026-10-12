@@ -35,7 +35,7 @@ Runtime Integration + Health Check**. The core carries no application-specific c
 ## Non-goals
 
 - **No third-party daemon lifecycle management**; the old application-specific
-  commands are retired — see the [retirement mapping](docs/en/v1.md#12-retired-commands).
+  commands are retired — see the [retirement mapping](docs/en/v1.md#13-retired-commands).
 - **No desktop GUI**; the browser panel is an optional local entry point.
 - **No general YAML editor.**
 - **No rootless strong UID network isolation**; authentication is a credential
@@ -85,14 +85,18 @@ are refused. The tool **never self-escalates and never uses sudo**.
 ## Command surface
 
 ```text
-mihomoctl init --core PATH [--config FILE]
+mihomoctl init --core PATH [--config FILE] [--port PORT] [--allow-non-loopback ADDRESS]
 mihomoctl [--user|--system] start | stop | restart
 mihomoctl [--user|--system] status [--json]
 mihomoctl logs [--lines N] [--follow]
+mihomoctl doctor [--json]
+mihomoctl config validate [--file FILE] [--profile NAME] | check
 
-mihomoctl service install | start | stop | restart | status | uninstall
+mihomoctl service install | start | stop | restart | status
+mihomoctl service uninstall [--dry-run]
 mihomoctl profile list | show NAME | validate NAME | set-default NAME
 mihomoctl exec [--profile NAME | --binding NAME] -- COMMAND [ARGS...]
+mihomoctl direct -- COMMAND [ARGS...]
 mihomoctl env show [--profile NAME | --binding NAME] [--reveal] [--json]
 mihomoctl env export [--profile NAME | --binding NAME] (--output PATH | --reveal)
 
@@ -104,7 +108,9 @@ mihomoctl tun status | enable | disable        # enable/disable require --system
 mihomoctl core install --version VERSION [--sha256 DIGEST]
 mihomoctl core update --version VERSION [--sha256 DIGEST] [--dry-run]
 mihomoctl version
-mihomoctl migrate [--dry-run] [--apply]
+mihomoctl migrate [--dry-run] [--apply] [--core PATH] [--remove-loader] [--no-import]
+mihomoctl rollback BACKUP
+mihomoctl update
 
 # retained control plane
 mihomoctl controller status | tui | nodes | groups | select GROUP NODE

@@ -92,10 +92,33 @@ not been established.
 
 ### Retained
 
-- Controller client, node selection, latency, connections, traffic, private custom
-  rules, provider and subscription import, policy override preview/apply, the browser
-  dashboard entry point, the Textual and plain consoles, generation switching and
-  self-contained rollback.
+- Controller client, node selection, latency, connections, traffic, provider and
+  subscription import, policy override preview/apply, the browser dashboard entry
+  point, the Textual and plain consoles, generation switching and self-contained
+  rollback.
+- `mihomoctl rules status|check` is wired into the V1 CLI again. The checker stays
+  read-only and fail-closed: it never creates, rewrites or deletes rule files,
+  never restarts Mihomo and never uploads policy. The V1 manager supplies the core
+  HomeDir and the active config path explicitly, `--home-dir` / `--config` override
+  them verbatim, and the checker's own `0`/`1`/`2` result is preserved and
+  re-emitted under the `mihomoctl/v1` envelope.
+- `mihomoctl config validate` (alias `config check`), `mihomoctl doctor`,
+  `mihomoctl direct` and `mihomoctl rollback BACKUP` are part of the documented
+  surface; `rollback` requires its backup argument instead of silently choosing the
+  most recent generation.
+
+### Fixed
+
+- `service uninstall --dry-run` is a real preview. It evaluates the same
+  preconditions as the operation (a running managed runtime and an enabled TUN both
+  block it), returns the distinct command `service-uninstall-preview` with
+  `data.dry_run: true`, and never removes the unit or rewrites the manager. It
+  previously reported the same `PASS` / `removed mihomo.service` payload as a
+  completed removal while skipping every precondition.
+- Every command published in the README files, the V1 contract and the shell
+  completion is now reachable. `mihomoctl rules` had been promised by both READMEs
+  and by `completions/mihomoctl.bash` while `dispatch()` had no branch for it, so
+  every invocation exited `2` with `unknown-command`.
 
 ## [0.9.3] - 2026-10-11
 
