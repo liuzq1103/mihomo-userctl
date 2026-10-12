@@ -380,6 +380,57 @@ class DomainFiles(unittest.TestCase):
                 adapter.remove(self.scope, binding)
             reload.assert_not_called()
 
+    def test_systemd_environment_file_uses_actual_single_path_parser_and_literal_glob(self):
+        import ctypes
+        import shutil
+        import subprocess
+        from mihomoctl.integration import systemd_adapter as adapter
+        executable = shutil.which('systemd-analyze')
+        if executable is None:
+            self.skipTest('systemd-analyze is unavailable on this non-systemd development host')
+        class Glob(ctypes.Structure):
+            _fields_ = [('gl_pathc', ctypes.c_size_t), ('gl_pathv', ctypes.POINTER(ctypes.c_char_p)),
+                        ('gl_offs', ctypes.c_size_t), ('gl_flags', ctypes.c_int),
+                        ('gl_closedir', ctypes.c_void_p), ('gl_readdir', ctypes.c_void_p),
+                        ('gl_opendir', ctypes.c_void_p), ('gl_lstat', ctypes.c_void_p),
+                        ('gl_stat', ctypes.c_void_p)]
+        libc = ctypes.CDLL(None)
+        libc.glob.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_void_p, ctypes.POINTER(Glob)]
+        libc.globfree.argtypes = [ctypes.POINTER(Glob)]
+        unit = self.home / 'environment-parser.service'
+        unit.write_text('[Service]\nType=simple\nExecStart=/usr/bin/true\n')
+        directory = unit.parent / (unit.name + '.d')
+        directory.mkdir()
+        dropin = directory / adapter.DROPIN_NAME
+        for suffix in ('ordinary', 'with space', 'literal%percent', 'literal\\backslash', 'literal[*?]pattern'):
+            scope = Scope(config_dir=str(self.home / suffix))
+            target = adapter.env_file(scope, 'worker')
+            require_private_dir(target.parent, create=True)
+            target.write_text('HTTP_PROXY=http://example.invalid:7890\n')
+            target.chmod(0o600)
+            dropin.write_text(adapter.render_dropin(scope, 'worker'))
+            result = subprocess.run([executable, 'verify', str(unit)], capture_output=True, text=True,
+                env=dict(os.environ, SYSTEMD_LOG_LEVEL='debug', LC_ALL='C'), timeout=20)
+            diagnostic = result.stdout + result.stderr
+            with self.subTest(path_kind=suffix):
+                self.assertEqual(result.returncode, 0, 'systemd-unit-parse-failed')
+                self.assertFalse(any('EnvironmentFile=' in line for line in diagnostic.splitlines()),
+                                 'systemd-environment-file-parse-warning')
+                parsed = [line.strip().split(': ', 1)[1] for line in diagnostic.splitlines()
+                          if line.strip().startswith('EnvironmentFile: ')]
+                self.assertEqual(len(parsed), 1, 'systemd-did-not-load-environment-file')
+                matched = Glob()
+                try:
+                    self.assertEqual(libc.glob(parsed[0].encode(), 0, None, ctypes.byref(matched)), 0,
+                                     'environment-file-glob-did-not-match')
+                    self.assertEqual([os.fsdecode(matched.gl_pathv[index]) for index in range(matched.gl_pathc)],
+                                     [str(target)])
+                finally:
+                    libc.globfree(ctypes.byref(matched))
+        for suffix in ('bad\npath', 'bad\rpath', 'bad\tpath', 'bad\x00path'):
+            with self.subTest(invalid_path=True), self.assertRaises(ConfigError):
+                adapter.render_dropin(Scope(config_dir=str(self.home / suffix)), 'worker')
+
     def test_systemd_foreign_named_unit_is_rejected_before_any_lifecycle_call(self):
         from mihomoctl.config import Manager, CoreSettings
         from mihomoctl.lifecycle import systemd

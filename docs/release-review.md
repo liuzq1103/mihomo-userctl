@@ -2,7 +2,7 @@
 
 审查员：用户指定的 F 独立 Codex 审查员。初审落盘日期：2026-10-12（Asia/Shanghai）。
 
-**最新结论（2026-10-12 12:11 +08:00）：代码审查允许推送所审安装目录权限、私有 TUN receipt 路径及验收 fixture 增量，运行下一轮实际 CI；定向 installation/domain 共 106 tests，OK，1 privileged skip，额外 root 私有临时文件系统验证通过，未发现新增代码阻断。真实环境继承根因仍未确认。正式 Release 仍为 BLOCKED / 真实 CI pending，不构成正式发布批准。以下保留初审、复现和修复记录，最新复审结论见文末。**
+**最新结论（2026-10-12 12:30 +08:00）：代码审查允许推送所审 EnvironmentFile renderer、安装阶段安全诊断及 launcher 前置 trust 检查，运行下一轮实际 CI；定向 domain/installation 108 tests，OK，1 privileged skip，真实离线 parser 对照和三阶段恢复注入通过，未发现新增代码阻断。36bc 两平台已实际通过两 UID/process、system service/crash、完整 TUN 恢复与 foreign 拒绝；test20 环境继承和 test60 系统安装仍未通过。正式 Release 仍为 BLOCKED / 同提交完整真实 CI pending，不构成正式发布批准。以下保留初审、复现和修复记录，最新复审结论见文末。**
 
 ## 审查基线与边界
 
@@ -261,3 +261,40 @@ F 以 UID 0 创建 root 私有临时 scope，实际 state root=0750，使用真�
 - `git diff --check` 对这五个文件通过。
 
 **本次未发现新增确定代码阻断，允许提交并推送所审五文件和本报告，运行下一轮真实 CI。** 这表示权限修复和 fixture/诊断可以进入真实验收，不表示三项 privileged 失败已解决：特别是 test20 的真实环境继承根因尚未确认，只增加了诊断，必须保留失败门槛。正式 Release 继续 BLOCKED，直到最终同提交两 Ubuntu 的完整 privileged（真实 UID/systemd/TUN/system install）、产物、其余 CI 及正式 release gate 全绿。
+
+## 36bc CI 后六文件定向复审（2026-10-12 12:30 +08:00）
+
+基线 HEAD 为 `36bc14ac8c8520b8a186d49bf58b329757b28559`。本次仅审冻结的 adapter/domain 以及 installation/bootstrap/installation-test/acceptance-test 六文件，写入本报告，未修改业务代码或测试、未提交、未重跑业务全量。
+
+### 已下载真实平台证据
+
+独立读取 `.tmp-v1-ci-36bc-evidence` JSON 与 `job22-b/job24` 日志。两 Ubuntu 均为 clean 36bc：unit **320 OK/15 skip**、real-core **59 OK/0 skip**、完整三格式 artifact-install **3 OK/0 skip** 且 publishable_acceptance=true；privileged 均 **6 tests，2 failures，0 skip**。
+
+两个平台的实际 test10 两 UID/process、test30 system service/crash、test40 隔离 TUN enable/managed restart/SIGKILL 自动恢复/status/disable/路由恢复、test45 foreign device 拒绝均为 **PASS**。这更新此前“未执行/待运行”的历史记录，不能再将这些具体 36bc 用例写作未执行。但完整 privileged success 仍为 false：
+
+- test20 已加载自有 drop-in，但 EnvironmentFiles 为空，尚未进入实际继承成功验收。
+- test60 系统安装失败并回滚，稳定错误为 installation-failed-rolled-back；当前证据尚不能确定具体激活阶段根因。
+
+这些部分 PASS 属于 36bc，不能跨提交拼成下一冻结提交的正式发布批准。
+
+### F 独立定向执行
+
+私有 Linux 副本执行一次 `scripts/v1_ci.py --unit --pattern test_v1_domain.py --pattern test_v1_installation.py --report /tmp/mihomoctl-v1-f-environment-diagnostics-targeted.json`：**108 tests，OK，1 skipped，13.905s**（domain 41、installation 67）。唯一 skip 是 disposable privileged system install，真实 systemd-analyze/parser 用例已执行通过，没有 skip。
+
+### EnvironmentFile 真实解析与 literal path
+
+`mihomoctl/integration/systemd_adapter.py:32-43` 拒绝非绝对路径/控制字符，不再用双引号包住 EnvironmentFile 整条路径；独立处理 percent specifier 和 libc glob 中的 backslash、`*?[]` 字符。没有改动 env 值或降低文件 trust。
+
+F 独立实际运行 WSL 的 `systemd-analyze verify` 作旧/新对照（只解析临时 unit，不启动/改动服务）：旧 renderer **rc=0、loaded=false、warning=true**；新 renderer **rc=0、loaded=true、warning=false**。这证实不能只凭 verify 返回 0 断言 directive 已加载，根因确在旧引号格式。
+
+domain 新用例对普通、空格、百分号、backslash、glob 字符五类真实文件路径检查 debug 中的实际 EnvironmentFile 记录、没有对应解析 warning，再以 libc.glob 验证唯一匹配实际目标文件；四类控制字符输入被拒绝。全部在 F 的定向运行中通过。**离线 renderer/parser 缺陷已验证修复；真实 user manager 的实际环境继承仍需下一 CI test20 通过。**
+
+### 安装激活阶段与安全因果诊断
+
+`installation.py:1281-1290` 将 launcher、permissions、post-activation verify 分为三个固定错误 code，保留同一恢复路径。`:1532-1556` 的 failure_codes 只接受显式 allowlist，OSError 映射 io-error，其他 code/type 映射 unclassified-error，并防止 cause 环；不输出异常 detail/path。bootstrap 增加安全 chain 行，fixture 只摘该字段，未修改成功门或将失败当 PASS。
+
+F 在独立临时安装 fixture 对三个阶段分别注入一次真实 OSError，均得到 `installation-failed-rolled-back → 对应固定阶段码 → io-error`；实际旧 generation 恢复、pending 清除。另对 bootstrap main 注入含虚构敏感 code/detail 的未知 cause，返回 2，chain 只输出 unclassified-error，敏感内容不回显。此验证只证明恢复与诊断行为，**不代表 CI test60 的根因已修复或真实系统安装已通过**。
+
+`installation.py:1174-1176` 在安装目标写入前验证 launcher 祖先 trust；新增回归确认 unsafe launcher parent 在 staging 安装前拒绝、install_root 未创建、既有树不变。无 repair/chmod 既有 unsafe 目录，无 trust 豁免。六文件 `git diff --check` 通过。
+
+**本次未发现新增确定代码阻断，允许提交并推送所审六文件及本报告，运行下一轮真实 CI。正式 Release 保持 BLOCKED。** 下一轮必须使 test20 实际继承与 test60 系统安装验收全绿；若仍失败，利用固定安全因果码继续定位，不得放宽断言、跳过或沿用其他提交的部分 PASS。最终仍须两 Ubuntu 同一 clean 提交完整 CI/产物/privileged/release gate 一致通过。

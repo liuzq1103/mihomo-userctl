@@ -862,6 +862,15 @@ class BootstrapScriptTests(InstallationTestBase):
 
 @linux_only
 class InstallerSecurityRegressionTests(InstallationTestBase):
+    def test_untrusted_launcher_parent_refused_before_staging(self):
+        self.paths.bin_dir.mkdir(parents=True)
+        self.paths.bin_dir.chmod(0o777)
+        before = self.snapshot_home()
+        with self.assertRaisesRegex(MihomoctlError, "installation-target-untrusted"):
+            self.install()
+        self.assertFalse(self.paths.install_root.exists())
+        self.assertEqual(self.snapshot_home(), before)
+
     def test_group_writable_umask_does_not_contaminate_new_installation_paths(self):
         original = os.umask(0o002)
         try:
@@ -957,8 +966,11 @@ class InstallerSecurityRegressionTests(InstallationTestBase):
                 raise OSError("injected finalization failure")
             return real(paths)
         with patch.object(installation, "_ensure_launcher", side_effect=fail_once):
-            with self.assertRaisesRegex(installation.InstallationError, "failed-rolled-back"):
+            with self.assertRaisesRegex(installation.InstallationError, "failed-rolled-back") as raised:
                 self.install(source=write_source(self.base / "new-source", version="1.0.1"))
+        self.assertEqual(installation.failure_codes(raised.exception), [
+            "installation-failed-rolled-back", "installation-launcher-activation-failed", "io-error"])
+        self.assertNotIn("injected finalization failure", repr(installation.failure_codes(raised.exception)))
         self.assertEqual(installation.current_record(self.scope)["generation"], first["generation"])
         self.assertFalse(self.paths.pending.exists())
         self.assertEqual(self.run_cli("--version").stdout.strip(), "mihomoctl 1.0.0")

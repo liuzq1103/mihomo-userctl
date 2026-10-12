@@ -38,8 +38,11 @@ def command(argv, **kwargs):
         code = match.group(1) if match else "unparsed-tool-error"
         if "bootstrap: untrusted installation code path" in result.stderr:
             code = "bootstrap-code-untrusted"
+        causes = re.search(r"^bootstrap: failure-codes=([a-z-]+(?:,[a-z-]+)*)$",
+                           result.stderr, re.MULTILINE)
         raise AssertionError("acceptance-command-failed: " + str(argv[0]) +
-                             " rc=" + str(result.returncode) + " code=" + code)
+                             " rc=" + str(result.returncode) + " code=" + code +
+                             (" causes=" + causes.group(1) if causes else ""))
     return result.stdout
 
 

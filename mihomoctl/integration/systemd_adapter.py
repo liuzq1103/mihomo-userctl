@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 
-from ..errors import StateError, RollbackFailedError
+from ..errors import ConfigError, StateError, RollbackFailedError
 from ..trust import require_private_file
 from . import MARKER
 
@@ -30,8 +30,15 @@ def render_env(proxy_env):
 
 
 def render_dropin(scope, binding_name):
-    path = str(env_file(scope, binding_name)).replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%')
-    return MARKER + '\n[Service]\nEnvironmentFile="' + path + '"\n'
+    path = str(env_file(scope, binding_name))
+    if not Path(path).is_absolute() or any(ord(char) < 32 or ord(char) == 127 for char in path):
+        raise ConfigError('integration-path-invalid', 'environment file requires an absolute path without control characters')
+    # EnvironmentFile is a single path, not an argv/string-list directive:
+    # systemd preserves quotes rather than removing them. Its execution path
+    # subsequently uses glob(3), so protect literal glob metacharacters and
+    # backslashes independently of systemd's percent-specifier expansion.
+    path = ''.join('\\' + char if char in '\\*?[]' else char for char in path).replace('%', '%%')
+    return MARKER + '\n[Service]\nEnvironmentFile=' + path + '\n'
 
 
 def _owned(scope, binding):

@@ -1171,6 +1171,9 @@ def install(scope, source, *, wheelhouse=None, manifest_path=None, python=None,
         if conflict:
             raise InstallationError("legacy-installation-present", conflict[0], conflict[1])
         expected_link = str(paths.install_root / "current" / "bin" / CONSOLE_SCRIPT)
+        from .trust import _check_ancestors
+        _check_ancestors(paths.bin_link, "installation-target-untrusted",
+                         {0} if scope.system else {0, os.geteuid()})
         if paths.bin_link.is_symlink() and os.readlink(paths.bin_link) != expected_link:
             raise InstallationError("launcher-path-occupied", "refusing to replace a foreign launcher symlink")
         if paths.bin_link.exists() and not paths.bin_link.is_symlink():
@@ -1275,14 +1278,15 @@ def _install_locked(scope, paths, source_obj, interpreter, wheelhouse, *, smoke)
 
         _switch_current(paths, "generations/" + generation.name)
         switched = True
-        try:
-            _ensure_launcher(paths)
-            _make_readonly(generation)
-            verify_installed(scope)  # post-switch acceptance
-        except BaseException as exc:
-            raise InstallationError(
-                "installation-finalization-failed", str(exc) or exc.__class__.__name__,
-                "run: ./install.sh --rollback '%s'" % backup) from exc
+        for code, activate in (
+                ("installation-launcher-activation-failed", lambda: _ensure_launcher(paths)),
+                ("installation-permissions-activation-failed", lambda: _make_readonly(generation)),
+                ("installation-post-activation-verification-failed", lambda: verify_installed(scope))):
+            try:
+                activate()
+            except BaseException as exc:
+                raise InstallationError(code, "activation failed",
+                                        "run: ./install.sh --rollback '%s'" % backup) from exc
         _write_private_json(backup / "result.json",
                             {"kind": "install", "generation": generation.name,
                              "version": record["version"], "replaced": previous})
@@ -1523,6 +1527,33 @@ def update(scope, source=None, **kwargs):
     if source is None:
         raise InstallationError("update-source-required", "provide a reviewed local release source")
     return install(scope, source, **kwargs)
+
+
+def failure_codes(error):
+    """Public diagnostic codes only; never expose exception details or paths."""
+    allowed = frozenset({
+        "installation-failed-rolled-back", "installation-and-rollback-failed",
+        "installation-launcher-activation-failed", "installation-permissions-activation-failed",
+        "installation-post-activation-verification-failed", "installation-failed",
+        "installation-target-untrusted", "installation-drift", "runtime-untrusted",
+        "installation-file-set-changed", "installed-code-modified", "launcher-link-drifted",
+        "launcher-link-missing", "generation-not-group-other-writable",
+        "generation-symlink-refused", "generation-ownership-invalid", "generation-not-user-owned",
+        "record-does-not-match-this-installation", "generation-record-missing"})
+    codes = []
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, MihomoctlError) and error.code in allowed:
+            code = error.code
+        elif isinstance(error, OSError):
+            code = "io-error"
+        else:
+            code = "unclassified-error"
+        if code not in codes:
+            codes.append(code)
+        error = error.__cause__
+    return codes
 
 
 def _write_recovery(backup):

@@ -163,6 +163,7 @@ def main(argv=None):
         return 0
     except MihomoctlError as error:
         print("bootstrap: %s" % error.render(), file=sys.stderr)
+        print("bootstrap: failure-codes=" + ",".join(installation.failure_codes(error)), file=sys.stderr)
         return error.exit_code
     except (OSError, ValueError) as exc:
         print("bootstrap: operation failed: %s" % exc, file=sys.stderr)
