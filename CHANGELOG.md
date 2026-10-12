@@ -8,6 +8,19 @@ installed control plane, its command surface, its exit codes and its
 The installer, the updater, the core-installation gate and every acceptance
 suite behave exactly as in 1.0.0.
 
+**Acceptance status: VERIFIED.** The release gates pass on both supported
+platforms. On the fully verified tree `505a137`, CI run `38220035037` reported,
+identically for Ubuntu 22.04 (Python 3.10) and Ubuntu 24.04 (Python 3.12): unit,
+controller and TUI regression 331 passed, 0 failures, 15 environment-gated
+skips; real-core regression 59 passed, **0 skipped**; offline install, update and
+self-contained recovery of the complete source tarball, zip and wheel 3 passed,
+**0 skipped**; real users, systemd and isolated TUN 6 passed, **0 skipped**, with
+`real_uids`, `systemd` and `tun` all true. `scripts/verify_release.py` accepted
+the exact-commit artifacts and both Ubuntu evidence sets (`verified: true`).
+An independent read-only review (MiniMax-M3, with GLM as executor) found no
+blocking issues. Publishing is bound to the tagged commit's own CI run and gate
+result.
+
 ### Fixed: agent installation prompts follow the V1 gates
 
 - `docs/{en,zh-CN}/agent-local-install-prompt.md` now carry the same "archived

@@ -421,3 +421,74 @@ CI 在两平台上实际安装过的资产摘要与待发布资产完全相同�
 正式发布仍以**打标签那一提交**自身的 CI 与 `scripts/verify_release.py` 为准：
 该门禁绑定 commit，拒绝工作树构建、其他提交的证据或任一强制场景跳过。
 若标签提交的 CI 未通过，则不发布。
+
+## 505a137 发布门禁结论（2026-10-12 15:56 +08:00，v1.0.1）
+
+### 审查组织与本地预检
+
+- 双 agent 分工：GLM-5.3 执行（整理、核查、推送、发布操作），MiniMax-M3
+  独立只读审查（plan 模式，未修改任何文件）。
+- MiniMax-M3 最终结论 **PASS · 可推送发布，0 阻断项**：CHANGELOG [1.0.1]
+  三类修复"声称 → 代码证据"逐条闭环；"无运行时行为变化"按 runtime_files、
+  安装协议、退出码、CI 门槛数四个维度自证成立；183 个 tracked 文件与
+  `release-manifest.json` 完全一致；`docs/architecture-vnext.md` 的 ±2 行
+  确认为退役 `--suggest-port` 清理的一部分，非无关夹带。
+- MiniMax 登记的非阻断遗留（留待 v1.0.2）：P2-1 `docs/{en,zh-CN}/update.md`
+  仍以 `--bashrc` 作为 `scripts/migrate.py` 示例参数（退役入口，实际运行
+  得 `legacy-installation-entry-retired` / exit 2，不在
+  `check_docs_v1.py` 的 install.sh flag 扫描范围内）；P2-2
+  `check_docs_v1.py` 的 `ARCHIVED_PAGES` 白名单未含 `paseo.md` /
+  `paseo-production.md`（当下无违规，仅为未来添加示例时的误报风险）；
+  P3-1 工作区未跟踪文件卫生（均刻意不发布，产物取自 `git archive`）。
+- 执行方本地预检（Windows + WSL Ubuntu 22.04，Python 3.10.4）：
+  `check_docs_v1.py`、`secret_scan.py`、`compileall`、`audit-test.sh`
+  （pass=5 fail=0）全部通过；WSL 完整 unit **331 tests，OK，18 skipped**
+  （全部环境门控）；manifest ↔ 磁盘 ↔ tracked 三方核对 183 文件一一对应；
+  runtime 唯一 diff 为 `mihomoctl/__init__.py` 版本标记。
+
+### CI 结果
+
+提交 `505a13752158117af3b8b22abcaeb662325c4c04`，CI run `38220035037`，
+Ubuntu 22.04 (Python 3.10.12) 与 Ubuntu 24.04 (Python 3.12.3) **两个平台
+全部通过**，两平台数据完全一致：
+
+| 套件 | 结果 | 跳过 |
+| --- | --- | --- |
+| unit / controller / TUI | 331 通过，0 失败，0 错误 | 15（全部为环境门控） |
+| real-core（强制） | 59 通过 | **0** |
+| artifact-install（源码包 / ZIP / wheel 离线安装、更新、自含回滚、卸载） | 3 通过 | **0** |
+| privileged（真实双 UID、systemd 生命周期、隔离 TUN） | 6 通过 | **0** |
+
+`privileged` 的 `real_uids`、`systemd`、`tun` 三个平台证据标志均为 `true`；
+`artifact-install` 的 `publishable_acceptance` 为 `true`；两平台八份报告的
+`source_dirty` 均为 `false`，`commit` 均为上述同一提交。
+
+### 发布门禁
+
+```
+python scripts/verify_release.py \
+  --artifacts release-candidate-ubuntu-24.04 \
+  --evidence . --commit 505a13752158117af3b8b22abcaeb662325c4c04
+{"assets": ["mihomoctl-1.0.1-py3-none-any.whl", "mihomoctl-1.0.1.tar.gz",
+  "mihomoctl-1.0.1.zip"], "commit": "505a137...", "ubuntu": ["22.04", "24.04"],
+  "verified": true, "version": "1.0.1"}
+```
+
+门禁确认：收据来自 git commit 而非工作树、`publishable` 为 true、版本为
+1.0.1；三个资产的 SHA256 与实际文件逐字节一致；`SHA256SUMS` 内容与收据
+清单精确匹配；CI 在两平台上实际安装过的资产摘要与待发布资产完全相同。
+资产摘要：
+
+| 资产 | SHA256 |
+| --- | --- |
+| `mihomoctl-1.0.1.tar.gz` | `dc28a1161fe085f412c61a9c29b213a5838d7b3bb501907f633d7ba66fa6b80e` |
+| `mihomoctl-1.0.1.zip` | `d6089b3ec0261cc37ed12d568132ae62110f06d3c8607c98d508e0fc43120382` |
+| `mihomoctl-1.0.1-py3-none-any.whl` | `b3ae5248f10a2bf8a635a759a0bdc223b1d1d19872c47e01889785f5213f9839` |
+
+### 结论
+
+本节之后仅追加本文件与 CHANGELOG 的验收记录，不再改动实现、测试或发布
+清单；因此最终发布提交的代码树与本节实测的 `505a137` 完全一致，差异仅为
+文档表述。正式发布仍以**打标签那一提交**自身的 CI 与
+`scripts/verify_release.py` 为准：该门禁绑定 commit，拒绝工作树构建、其他
+提交的证据或任一强制场景跳过。若标签提交的 CI 未通过，则不发布。
