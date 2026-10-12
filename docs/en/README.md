@@ -1,6 +1,6 @@
 # English documentation
 
-> **v1.0.0:** the automatic shell hook has been removed and the installer writes no
+> **v1.0.1:** the automatic shell hook has been removed and the installer writes no
 > startup file; application-specific daemon lifecycle is retired. The command
 > surface follows the [V1 command and configuration contract](v1.md).
 

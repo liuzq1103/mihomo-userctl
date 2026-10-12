@@ -34,6 +34,9 @@ bash tests/secret-scan.sh
 git diff --check
 ```
 
+文档与密钥扫描的封装脚本同时由 V1 CI 工作流执行；`tests/audit-test.sh` 断言解释器故障时两者
+始终 fail-closed。
+
 可选 UI 用锁定依赖运行 `tests/test_textual.py`。提前下载 wheelhouse 后，设置测试专用 `MIHOMO_TEST_WHEELHOUSE=/ABSOLUTE/wheelhouse`，`test_update.py` 会验证真实离线 venv、环境复用、坏哈希回滚。此变量只由测试读取，产品不存在安全门禁绕过开关。CI 分别覆盖基础模式和 Python 3.9/3.12 的可选 UI。
 
 ## 专用测试主机

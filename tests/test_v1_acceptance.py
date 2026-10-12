@@ -28,6 +28,10 @@ from urllib.parse import unquote, urlsplit
 ENABLED = os.environ.get("MIHOMO_V1_PRIVILEGED") == "1"
 PROXY_KEYS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
               "http_proxy", "https_proxy", "all_proxy", "no_proxy")
+# The repository's own release identity; the acceptance run must follow the
+# manifest it is actually installing instead of a hard-coded literal.
+REPOSITORY_VERSION = json.loads(
+    (Path(__file__).resolve().parents[1] / "release-manifest.json").read_text(encoding="utf-8"))["version"]
 
 
 def command(argv, **kwargs):
@@ -577,7 +581,7 @@ class PrivilegedAcceptance(unittest.TestCase):
                     envargs = [k + "=" + v for k, v in self.env(account).items()]
                     result = command(["runuser", "-u", account[0], "--", "env", "-i", *envargs,
                                       "/usr/local/bin/mihomoctl", "version", "--json"], cwd=account[2])
-                    self.assertEqual(json.loads(result)["data"]["mihomoctl"], "1.0.0")
+                    self.assertEqual(json.loads(result)["data"]["mihomoctl"], REPOSITORY_VERSION)
                 for path, body in previous.items():
                     self.assertTrue(path.read_bytes() == body, "cli-install-changed-core-configuration")
             finally:

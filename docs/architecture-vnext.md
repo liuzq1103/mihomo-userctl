@@ -72,7 +72,7 @@ vNext 的定位是：
 | 能力 | userctl v0.8 现状 | Mihoro 审计结果 | vNext 决策 |
 | --- | --- | --- | --- |
 | 用户级 no-root 安装 | 已实现；`systemd --user`、操作锁、generation 事务与回滚 | `init.rs` + `systemctl.rs` 覆盖 provisioning | 保留，抽象为 provisioning（P1） |
-| 端口选择 | **仅"建议一个空闲端口"**：`install.sh --suggest-port` 打印候选、`controller.py:choose_port` 试探 bind；**启动前没有统一冲突门禁**，`start` 直接执行 `systemctl --user start` | 由 `init.rs` 与 `resolve_mihomo_bin.rs` 处理 | P0：同 UID 操作锁 + 启动前门禁 + 启动后身份确认 |
+| 端口选择 | **仅"建议一个空闲端口"**：`install.sh` 的端口建议步骤打印候选、`controller.py:choose_port` 试探 bind；**启动前没有统一冲突门禁**，`start` 直接执行 `systemctl --user start` | 由 `init.rs` 与 `resolve_mihomo_bin.rs` 处理 | P0：同 UID 操作锁 + 启动前门禁 + 启动后身份确认 |
 | Mihomo core 安装/更新 | **不安装也不升级 core**；`install.sh` 只装控制层 | `init.rs` + `upgrade.rs` 支持；审计**未发现 core 更新的 checksum 校验与 `mihomo -t` 门禁** | P1：实现，并强制 checksum + `mihomo -t` 门禁 |
 | 订阅下载 | **不提供订阅下载器**，用户自备配置 | 支持 | P1：raw subscription 与 generated config 分离 |
 | geodata 更新 | 不提供 | 支持 | P1：不依赖 workload |

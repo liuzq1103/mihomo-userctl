@@ -1,6 +1,6 @@
-# Mihomo console (v1.0.0)
+# Mihomo console (v1.0.1)
 
-> **v1.0.0 page changes:** the primary navigation is "overview, nodes,
+> **v1.0.1 page changes:** the primary navigation is "overview, nodes,
 > subscriptions, access, more". The page that was labelled "profiles" is now
 > `subscriptions` (the retained identifier `profiles` still routes there), and a
 > new `profile` page shows **proxy profiles, binding declarations and the fixed
@@ -19,23 +19,29 @@ Base CLI: Python 3.8+. Controller operations: PyYAML. Optional Textual environme
 When installed, the private environment also runs Controller commands and the start/restart validator, so its locked PyYAML does not need a system-wide installation.
 
 ```bash
-bash install.sh --port YOUR_PORT --with-textual --tui-python python3
+bash install.sh --wheelhouse /ABSOLUTE/wheelhouse
 mihomoctl tui --engine textual
 mihomoctl tui --engine curses
 mihomoctl tui --plain
 ```
 
-Omit `--port` for an existing installation. The installer builds a private venv in its generation using pinned versions, SHA256 hashes and wheels only. It never uses system pip, sudo, or starts/enables Mihomo. Missing UI dependencies produce an explicit error; opening the UI never installs packages. A pinned pip wheel bootstraps distributions without ensurepip.
+`--wheelhouse` may be omitted when the selected interpreter (default
+`/usr/bin/python3`) can already `import yaml`. V1 installs no port option:
+`mihomoctl init` creates the managed per-user listener, and the installer never
+writes a shell startup file. The installer builds a private venv in its
+generation using pinned versions, SHA256 hashes and wheels only. It never uses
+system pip, sudo, or starts/enables Mihomo. Missing UI dependencies produce
+an explicit error; opening the UI never installs packages. A pinned pip wheel
+bootstraps distributions without ensurepip.
 
 Prepare an offline wheelhouse for the target Python and architecture:
 
 ```bash
 python3 -m pip download --require-hashes --only-binary=:all: \
   -r scripts/textual-requirements.txt -d /ABSOLUTE/wheelhouse
-bash install.sh --with-textual --tui-python python3 --wheelhouse /ABSOLUTE/wheelhouse
 ```
 
-Include the pip bootstrap wheel and all dependencies. The wheelhouse must be owned by this user, without unsafe writable ancestors or symlinks. Offline installation never falls back to the network. Missing wheels or hash failures roll back the active installation. Normal updates reuse the private environment when the lock is unchanged; a changed lock requires an explicit `install.sh --with-textual`. The existing rollback lifecycle retains previous generations and environments.
+Include the pip bootstrap wheel and all dependencies. The wheelhouse must be owned by this user, without unsafe writable ancestors or symlinks. Offline installation never falls back to the network. Missing wheels or hash failures roll back the active installation. Normal updates reuse the private environment when the lock is unchanged; a changed lock requires re-running the documented install command explicitly. The existing rollback lifecycle retains previous generations and environments.
 
 ## Pages and interaction
 

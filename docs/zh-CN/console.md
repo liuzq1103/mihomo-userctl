@@ -1,6 +1,6 @@
-# Mihomo 控制台（v1.0.0）
+# Mihomo 控制台（v1.0.1）
 
-> **v1.0.0 页面变更：**主入口为“首页、节点、订阅、接入、更多”。
+> **v1.0.1 页面变更：**主入口为“首页、节点、订阅、接入、更多”。
 > 原本实为“订阅”的页面现在调用 `subscriptions`（旧标识 `profiles`
 > 仍可用）；新增 `profile` 页面展示**代理档案、接入声明与环境注入边界**。
 > “服务”页现在固定呈现**七项运行时事实**。命令面以
@@ -17,23 +17,26 @@
 安装可选环境后，Controller 命令和 start/restart 校验也使用该私有环境内锁定的 PyYAML，无需向系统 Python 安装依赖。
 
 ```bash
-bash install.sh --port YOUR_PORT --with-textual --tui-python python3
+bash install.sh --wheelhouse /ABSOLUTE/wheelhouse
 mihomoctl tui --engine textual
 mihomoctl tui --engine curses
 mihomoctl tui --plain
 ```
 
-已有安装省略 `--port`。安装器创建 generation 内的私有 venv，使用固定版本、SHA256 和仅 wheel 安装，不使用系统 pip、不执行 sudo、不启动或 enable Mihomo。缺少 Textual 时显式报错，运行界面不会联网安装依赖。发行版没有 ensurepip 时，使用已固定哈希的 pip wheel 在新 venv 内引导。
+`--wheelhouse` 在所选解释器（默认 `/usr/bin/python3`）已能 `import yaml` 时可以省略。
+V1 安装器没有端口选项：`mihomoctl init` 创建受管的个人 Listener，安装器不写任何
+Shell 启动文件。安装器创建 generation 内的私有 venv，使用固定版本、SHA256 和仅 wheel 安装，
+不使用系统 pip、不执行 sudo、不启动或 enable Mihomo。缺少 Textual 时显式报错，运行界面不会
+联网安装依赖。发行版没有 ensurepip 时，使用已固定哈希的 pip wheel 在新 venv 内引导。
 
 离线安装需提前在与目标 Python/架构相符的环境准备完整 wheelhouse：
 
 ```bash
 python3 -m pip download --require-hashes --only-binary=:all: \
   -r scripts/textual-requirements.txt -d /ABSOLUTE/wheelhouse
-bash install.sh --with-textual --tui-python python3 --wheelhouse /ABSOLUTE/wheelhouse
 ```
 
-wheelhouse 包含 pip 引导 wheel 和全部依赖。目录须归当前用户所有、无不安全的可写祖先、无符号链接。离线模式不回退联网；缺包或哈希错误使安装失败并恢复活动安装。普通更新在锁文件不变时复用已安装的私有环境，不下载 UI 包；锁文件变化时须显式重新使用 `install.sh --with-textual`。旧 generation 和环境由现有回滚生命周期保留。
+wheelhouse 包含 pip 引导 wheel 和全部依赖。目录须归当前用户所有、无不安全的可写祖先、无符号链接。离线模式不回退联网；缺包或哈希错误使安装失败并恢复活动安装。普通更新在锁文件不变时复用已安装的私有环境，不下载 UI 包；锁文件变化时须显式重新执行上面记录的安装命令。旧 generation 和环境由现有回滚生命周期保留。
 
 ## 页面和键盘
 

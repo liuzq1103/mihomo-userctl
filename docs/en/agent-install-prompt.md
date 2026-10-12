@@ -1,6 +1,6 @@
 # Coding-agent installation prompt
 
-> **v1.0.0:** the automatic shell hook has been removed. Sections below that
+> **v1.0.1:** the automatic shell hook has been removed. Sections below that
 > mention `CODEX_REMOTE_PAYLOAD`, the `.bashrc` loader or `with_proxy codex` are
 > retired. Proxy access is now always an explicit `mihomoctl exec` /
 > `mihomoctl env` / `mihomoctl integration`; the command surface follows the
@@ -62,8 +62,9 @@ goal permits starting the user service after configuration and port checks, keep
 Install-only preserves existing runtime state. For missing secrets, provide the restricted local
 file/editing method and wait for user completion; never ask for secret values in chat.
 
-Use only the reviewed checkout and documented deterministic installer. Obtain
-the pinned released tag before running ./install.sh --suggest-port. Verify the
+Use only the reviewed checkout and documented deterministic installer: V1
+installation follows INSTALL.md as the single authoritative flow, so obtain the
+pinned released tag before running the commands recorded there. Verify the
 official release source, asset, checksum, libc compatibility, configuration,
 authenticated loopback listener, default-direct Shell boundary, and the narrow
 MATCH,DIRECT fallback selected by the user. Use the documented

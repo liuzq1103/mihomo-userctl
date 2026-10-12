@@ -17,7 +17,11 @@ import time
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.0.0"
+# Single source of truth for the release identity: the reviewed manifest that is
+# shipped in the archive. Every artifact name below is derived from it, so a
+# version bump never needs a second edit here.
+ROOT_MANIFEST = json.loads((ROOT / "release-manifest.json").read_text(encoding="utf-8"))
+VERSION = ROOT_MANIFEST["version"]
 
 
 @contextlib.contextmanager
@@ -71,7 +75,7 @@ def main():
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    if any(output.glob("mihomoctl-*.whl")) or any(output.glob("mihomoctl-1.0.0.*")):
+    if any(output.glob("mihomoctl-*")):
         parser.error("output already contains release artifacts; choose a fresh directory")
     commit = git("rev-parse", "HEAD").decode().strip()
     epoch = int(git("show", "-s", "--format=%ct", "HEAD").decode().strip())

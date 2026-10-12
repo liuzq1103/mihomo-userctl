@@ -1,6 +1,12 @@
 # Coding-agent prompt for local archives
 
-> **v1.0.0:** the automatic shell hook has been removed. Sections below that
+> Archived 0.9.x package-preparation steps. **V1 installation follows
+> [INSTALL.md](../../INSTALL.md) as the single authoritative flow**; the bundle
+> steps in [offline-install.md](offline-install.md) are migration reference only
+> and never replace INSTALL.md. The old `scripts/offline_install.py` entry is
+> retired in V1.
+
+> **v1.0.1:** the automatic shell hook has been removed. Sections below that
 > mention `CODEX_REMOTE_PAYLOAD`, the `.bashrc` loader or `with_proxy codex` are
 > retired. Proxy access is now always an explicit `mihomoctl exec` /
 > `mihomoctl env` / `mihomoctl integration`; the command surface follows the
@@ -25,13 +31,23 @@ Network acceptance: <selected refresh/probes/minimal model request; not online i
 
 The public directory holds a source ZIP and independent dependency archives, not a shared runtime.
 List archives read-only and identify the exact source release; clarify ambiguous versions instead
-of guessing names or selecting latest. Follow offline-install.md's source preparation: copy the ZIP
-to a new private workspace, compare SHA256 before/after, and inspect paths, symlinks, duplicate members
-and size limits before extraction. Reject escapes and overwrites. Confirm release provenance/version
-against trusted records; a locally computed digest proves transfer consistency only. Stop if unknown.
+of guessing names or selecting latest. Follow offline-install.md's source preparation (migration
+reference only): copy the ZIP to a new private workspace, compare SHA256 before/after, and inspect
+paths, symlinks, duplicate members and size limits before extraction. Reject escapes and overwrites.
+Confirm release provenance/version against trusted records; a locally computed digest proves
+transfer consistency only. Stop if unknown.
 No pre-expanded source/, packages/, external scripts or SOURCE.txt are required in the public directory.
-Read the extracted release's offline-install.md, setup.md, security.md, acceptance.md, architecture.md,
-troubleshooting.md, deployment-contract.md and repository constraints before executing project scripts.
+Version checking covers only the three cross-checks the V1 installer actually performs; stop and
+report on any mismatch: release-manifest.json <-> project.version in pyproject.toml;
+release-manifest.json <-> __version__ in mihomoctl/__init__.py;
+the project wheel's Requires-Dist <-> release-manifest.json dependencies.
+Do not require install.sh's VERSION= or src/common.bash's MIHOMO_USERCTL_VERSION to agree with the
+rest. Neither file is listed in release-manifest.json runtime_files, the V1 installer never installs
+them, and only 0.9.x leftover tools read them; treating them as a version gate produces a false
+"version mismatch" missing item.
+Read the extracted release's INSTALL.md, offline-install.md, setup.md, security.md, acceptance.md,
+architecture.md, troubleshooting.md, deployment-contract.md and repository constraints before
+executing project scripts.
 Use one fixed release for documentation, scripts and tests; never expand authorization or mix in main.
 Replace online download/clone steps with local preparation. Never access GitHub/npm/apt or run
 mihomoctl update (including --check), and never download missing files as a fallback.
@@ -48,13 +64,25 @@ explicit selection, never cleanup commands copied from deployment notes.
 Follow shared-runtime.md for Remote hook, CLI/persistent-server Unix-socket and egress evidence;
 0/8 or 8/8 alone is insufficient. Never persist CODEX_REMOTE_PAYLOAD or automatically restart old servers.
 
-Use private-source scripts/offline_install.py check/install with examples/offline-packages.json;
---bundle-dir points to the actual archive directory. The installer copies and rechecks dependencies
-in private storage. Install only selected missing tools. Never run npm install,
+Install the controller with the V1 flow from INSTALL.md only, never the 0.9.x bundle installer:
+  bash install.sh --wheelhouse <dependency-wheel-directory> --dry-run
+  bash install.sh --wheelhouse <dependency-wheel-directory>
+  "$HOME/.local/bin/mihomoctl" version
+  python3 -I scripts/bootstrap.py verify
+--wheelhouse may be omitted when the selected interpreter (default /usr/bin/python3 when none is
+given) can already import yaml; the installer then uses the dependencies already present. Dependency
+wheels in that directory must match the target platform's Python version and architecture, and the
+installer rejects wheels whose platform tag does not fit: for example the Windows + CPython 3.9
+pyyaml-6.0.3-cp39-cp39-win_amd64.whl (the one in the local .tmp-v1-ui-wheels/) cannot be used as a
+dependency wheel.
+scripts/offline_install.py check/install is retired in V1: invoking it only prints
+legacy-installation-entry-retired and exits 2 without installing anything. It appears in this prompt
+as a counter-example only, never as an executable installation step. Never run npm install,
 download through npx, or execute archive install scripts. Preserve conflicting existing commands;
-report a concrete backup/migration plan before an unauthorized replacement. Use the original install.sh from the reviewed private source for the controller.
-Installed commands must not depend on the public archive directory. Proceed within existing
-authorization; clarify only unresolved configuration or changes outside that authorization.
+report a concrete backup/migration plan before an unauthorized replacement.
+Complete the installation above in the reviewed private source directory. Installed commands must not
+depend on the public archive directory. Proceed within existing authorization; clarify only unresolved
+configuration or changes outside that authorization.
 Do not use sudo or alter shared files/other users/system services/TUN/system proxies. The installer
 never starts services itself. Explicit install-and-start authorization permits starting the user service
 after configuration/port checks, keeping it disabled. Install-only preserves runtime state; never stop

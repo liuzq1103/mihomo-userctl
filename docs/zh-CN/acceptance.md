@@ -123,6 +123,11 @@ bash tests/secret-scan.sh
 git diff --check
 ```
 
+`tests/docs-test.sh` 与 `tests/secret-scan.sh` 只是薄封装，断言本体在
+`scripts/check_docs_v1.py` / `scripts/secret_scan.py`；`tests/audit-test.sh` 注入故障并确认
+两者 fail-closed。V1 CI（`.github/workflows/test.yml`）执行 `scripts/check_docs_v1.py` 与
+`bash tests/audit-test.sh`，不再单独调用这两个封装脚本。
+
 每条命令都必须保留退出码。使用日志管道时启用 pipefail 并立即记录
 `PIPESTATUS`，不能以 `tail`、`tee` 或成功提示的退出码替代被检查程序。
 仓库 secret-scan 只检测配置的有限模式和误放的 client.env，不扫描实机全部日志、

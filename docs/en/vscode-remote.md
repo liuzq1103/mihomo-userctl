@@ -1,6 +1,6 @@
 # Recommended VS Code Remote configuration
 
-> **v1.0.0:** the automatic shell hook has been removed. Sections below that
+> **v1.0.1:** the automatic shell hook has been removed. Sections below that
 > mention `CODEX_REMOTE_PAYLOAD`, the `.bashrc` loader or `with_proxy codex` are
 > retired. Proxy access is now always an explicit `mihomoctl exec` /
 > `mihomoctl env` / `mihomoctl integration`; the command surface follows the

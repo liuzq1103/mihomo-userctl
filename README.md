@@ -6,7 +6,7 @@
 [English](README.en.md) · [安装](INSTALL.md) · [V1 命令与配置契约](docs/zh-CN/v1.md) ·
 [中文文档](docs/zh-CN/README.md)
 
-v1.0.0 的领域模型是四层：**Proxy Profile + Environment Injection + Runtime
+v1.0.1 的领域模型是四层：**Proxy Profile + Environment Injection + Runtime
 Integration + Health Check**。核心不含任何具体工具的专属代码。
 
 ## 先记住这三件事

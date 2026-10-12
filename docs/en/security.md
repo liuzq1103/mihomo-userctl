@@ -1,6 +1,6 @@
 # Security model
 
-> **v1.0.0:** the automatic shell hook has been removed and application-specific
+> **v1.0.1:** the automatic shell hook has been removed and application-specific
 > daemon lifecycle is retired. The Codex-specific sections below are kept as
 > historical record; the current semantics are in the
 > [V1 command and configuration contract](v1.md).

@@ -13,7 +13,7 @@
 
 Automated tests use fictional credentials, disposable HOME directories, real loopback HTTP/sockets, PTYs and Textual Pilot. Installation/update fixtures replace systemd. Passing them does not establish real user-service, multiple-UID or SSH acceptance.
 
-Run the existing Linux checks: `bash tests/test.sh`, `python3 -m unittest discover -s tests -p 'test_*.py' -v`, `bash tests/audit-test.sh`, `bash tests/docs-test.sh`, `bash tests/secret-scan.sh` and `git diff --check`.
+Run the existing Linux checks: `bash tests/test.sh`, `python3 -m unittest discover -s tests -p 'test_*.py' -v`, `bash tests/audit-test.sh`, `bash tests/docs-test.sh`, `bash tests/secret-scan.sh` and `git diff --check`. The documentation and secret-scan wrappers are also executed by the V1 CI workflow; `tests/audit-test.sh` asserts that they fail closed when their interpreter is broken.
 
 Optional UI tests require the locked dependencies. A prepared private wheelhouse in test-only `MIHOMO_TEST_WHEELHOUSE` enables real offline venv installation, reuse and hash-failure rollback tests. This variable is consumed only by tests; production has no gate bypass. CI separates base checks and Python 3.9/3.12 optional UI checks.
 

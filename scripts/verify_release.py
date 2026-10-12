@@ -26,13 +26,18 @@ def verify(artifacts, evidence, commit):
         raise GateError("expected-full-git-commit")
     receipt = document(artifacts / "build-receipt.json")
     if (receipt.get("commit") != commit or receipt.get("publishable") is not True
-            or receipt.get("source") != "git-commit" or receipt.get("version") != "1.0.0"):
+            or receipt.get("source") != "git-commit"):
         raise GateError("build-is-not-publishable-for-expected-commit")
+    # The published version is whatever the exact-commit build actually produced;
+    # the gate follows the receipt instead of a second hard-coded literal.
+    version = receipt.get("version")
+    if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.]+)?", version):
+        raise GateError("build-receipt-version-invalid")
     hashes = receipt.get("sha256")
-    wheels = list(artifacts.glob("mihomoctl-1.0.0-*.whl"))
+    wheels = list(artifacts.glob("mihomoctl-" + version + "-*.whl"))
     if len(wheels) != 1:
         raise GateError("exactly-one-versioned-wheel-required")
-    names = {"mihomoctl-1.0.0.tar.gz", "mihomoctl-1.0.0.zip", wheels[0].name}
+    names = {"mihomoctl-" + version + ".tar.gz", "mihomoctl-" + version + ".zip", wheels[0].name}
     if not isinstance(hashes, dict) or set(hashes) != names:
         raise GateError("release-asset-inventory-mismatch")
     for name, digest in hashes.items():
@@ -61,7 +66,7 @@ def verify(artifacts, evidence, commit):
             raise GateError("installed-artifact-inventory-mismatch: " + ubuntu)
         if any(not re.fullmatch(r"[0-9a-f]{64}", str(value)) for value in tested_hashes.values()):
             raise GateError("installed-artifact-digest-invalid: " + ubuntu)
-        for name in ("mihomoctl-1.0.0.tar.gz", "mihomoctl-1.0.0.zip"):
+        for name in sorted(n for n in names if not n.endswith(".whl")):
             if tested_hashes[name] != hashes[name]:
                 raise GateError("installed-source-artifact-differs: " + ubuntu)
         installed_artifact_sets.append(tested_hashes)
@@ -94,7 +99,7 @@ def verify(artifacts, evidence, commit):
         raise GateError("selected-release-assets-were-not-installed")
     if len(core_digests) != 1:
         raise GateError("tested-core-differs-between-acceptance-environments")
-    return {"commit": commit, "version": "1.0.0", "assets": sorted(names),
+    return {"commit": commit, "version": version, "assets": sorted(names),
             "ubuntu": ["22.04", "24.04"], "verified": True}
 
 

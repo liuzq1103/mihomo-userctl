@@ -46,6 +46,10 @@ except ImportError:  # Windows hosts without fcntl: everything is skipped.
 
 TEST_PYTHON = Path("/tmp/mihomoctl-v1-test-env/bin/python")
 SHELL_DECOYS = (".bashrc", ".zshrc", ".profile", ".bash_profile")
+# The repository's own release identity is whatever release-manifest.json says;
+# fixture versions below stay literal so a version bump needs no test edit.
+REPOSITORY_VERSION = json.loads(
+    (ROOT / "release-manifest.json").read_text(encoding="utf-8"))["version"]
 
 FIXTURE_MANIFEST = {
     "format": 2,
@@ -213,7 +217,7 @@ class ManifestProtocolTests(unittest.TestCase):
     def test_repository_manifest_is_valid_protocol_2(self):
         manifest = installation.load_manifest(ROOT)
         self.assertEqual(manifest["update_protocol"], installation.PROTOCOL)
-        self.assertEqual(manifest["version"], "1.0.0")
+        self.assertEqual(manifest["version"], REPOSITORY_VERSION)
         init = (ROOT / "mihomoctl" / "__init__.py").read_text(encoding="utf-8")
         self.assertRegex(init, r"__version__\s*=\s*[\"']" + re.escape(manifest["version"]) + r"[\"']")
 

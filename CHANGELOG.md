@@ -1,5 +1,87 @@
 # Changelog
 
+## [1.0.1] - 2026-10-12
+
+**Documentation and release-tooling patch. No runtime behaviour changes:** the
+installed control plane, its command surface, its exit codes and its
+`release-manifest.json` inventory are unchanged apart from the version marker.
+The installer, the updater, the core-installation gate and every acceptance
+suite behave exactly as in 1.0.0.
+
+### Fixed: agent installation prompts follow the V1 gates
+
+- `docs/{en,zh-CN}/agent-local-install-prompt.md` now carry the same "archived
+  0.9.x steps" banner as `setup.md` / `offline-install.md` / `quick-install.md`,
+  and state that INSTALL.md is the single authoritative V1 installation flow and
+  that offline-install.md's bundle steps are migration reference only.
+- Version checking is now the three cross-checks the V1 installer actually
+  performs: `release-manifest.json` ↔ `pyproject.toml`,
+  `release-manifest.json` ↔ `mihomoctl/__init__.py`, and the project wheel's
+  `Requires-Dist` ↔ `release-manifest.json` `dependencies`. The prompts no longer
+  require checking `install.sh`'s `VERSION=` or `src/common.bash`'s
+  `MIHOMO_USERCTL_VERSION`: neither file is in the manifest `runtime_files`, V1
+  never installs them, and demanding them produced a false "version mismatch"
+  missing item.
+- `scripts/offline_install.py` keeps its name in both prompts but is now described
+  only as a counter-example: `check`/`install` are retired and only print
+  `legacy-installation-entry-retired` with exit code 2.
+- The prompts document the V1 install flow from INSTALL.md
+  (`install.sh --wheelhouse … --dry-run`, the real install, `mihomoctl version`,
+  `bootstrap.py verify`), when `--wheelhouse` may be omitted (the selected
+  interpreter, `/usr/bin/python3` by default, can already `import yaml`), and that
+  dependency wheels must carry a matching platform tag — the Windows/CPython 3.9
+  `pyyaml-6.0.3-cp39-cp39-win_amd64.whl` in the local `.tmp-v1-ui-wheels/` is
+  rejected by `wheel_compatible_here()` and cannot be used.
+- `SHA256SUMS` is a build artifact and not a source-tree file, so it is no longer
+  treated as a missing input.
+
+### Fixed: the documentation contract is actually enforced
+
+- `tests/docs-test.sh` and `tests/audit-test.sh` were never executed by the V1 CI
+  workflow — only the 0.9.x `scripts/update.py` invoked them — so the assertions
+  below their `exec` line were dead code and the documented command surface could
+  drift unnoticed.
+- Every assertion that still describes the V1 product was migrated into
+  `scripts/check_docs_v1.py`, the gate the workflow actually runs: bilingual
+  topic-set completeness, the maintainer-specific routing-policy ban, the private
+  value ban, README installation entry and language navigation, the generic
+  prompt's required markers and product-specific interface ban, the legacy prompt
+  pointers, and the ban on pre-expanded bundles.
+- The assertions that pinned retired content were removed instead: paseo daemon
+  markers, first-use handoff markers V1's rewritten `first-run.md` no longer
+  uses, `scripts/offline_install.py`, `--bundle-dir` and the retired `install.sh`
+  port-suggestion flag, the 90-line budget for the generic prompt, and the
+  assertion that the deleted `CODEX_REMOTE_PAYLOAD` hook is still present in
+  `src/shell.bash`.
+- A stricter check replaces them: every `install.sh --<flag>` in `docs/**/*.md`
+  must exist in `scripts/bootstrap.py`'s argparse (or in `install.sh`'s own
+  `-h` / `--help` / `--rollback`). Run against the 1.0.0 tree it reported 15
+  occurrences of the retired `--suggest-port`, `--port`, `--with-textual` and
+  `--tui-python` flags across five live pages (`docs/architecture-vnext.md` and
+  the English/Chinese console and generic installation prompts); those are fixed
+  and the gate now reports zero.
+- `tests/audit-test.sh` injected a broken `find`/`grep`, which no longer affected
+  the Python gates it was auditing. It now injects a failing interpreter, asserts
+  that neither wrapper can report success, and runs in the workflow next to the
+  other static checks.
+
+### Fixed: one source of truth for the release version
+
+- `scripts/build_release.py` derived artifact names from a hard-coded literal in
+  four places. `VERSION` now comes from `release-manifest.json`, the output guard
+  matches any `mihomoctl-*` artifact, and the `dist-info` prefix follows
+  automatically.
+- `scripts/verify_release.py` follows the version recorded in the exact-commit
+  build receipt instead of a second hard-coded literal.
+- `src/common.bash`'s `MIHOMO_USERCTL_VERSION`, `pyproject.toml`,
+  `mihomoctl/__init__.py` and `release-manifest.json` move to `1.0.1`;
+  `tests/test_v1_installation.py` and `tests/test_v1_acceptance.py` follow the
+  manifest instead of repeating the version.
+- Page-level release stamps (`INSTALL.md`, the README set and the documentation
+  entry pages) move to `1.0.1`. Historical records — the `[1.0.0]` changelog
+  section, `docs/release-review.md`, the accepted ADR and architecture status
+  lines, the archived paseo pages and the roadmap — keep `1.0.0`.
+
 ## [1.0.0] - 2026-10-12
 
 **Acceptance status: VERIFIED.** The mandatory release gates pass on both

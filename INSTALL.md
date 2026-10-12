@@ -1,6 +1,6 @@
 # 安装 · Installation
 
-- 适用版本：v1.0.0
+- 适用版本：v1.0.1
 - 完整命令与配置契约：[docs/zh-CN/v1.md](docs/zh-CN/v1.md) ·
   [docs/en/v1.md](docs/en/v1.md)
 - 冻结的实现契约：[docs/architecture-v1.md](docs/architecture-v1.md)

@@ -2,7 +2,7 @@
 
 [English](first-run.md) · [Setup](setup.md) · [V1 contract](v1.md) · [Troubleshooting](troubleshooting.md)
 
-> **v1.0.0:** the automatic shell hook has been removed. The installer writes no
+> **v1.0.1:** the automatic shell hook has been removed. The installer writes no
 > `.bashrc`, there is no loader, and there is no `CODEX_REMOTE_PAYLOAD`. All proxy
 > access is an explicit invocation.
 

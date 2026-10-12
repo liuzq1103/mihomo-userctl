@@ -143,6 +143,13 @@ bash tests/secret-scan.sh
 git diff --check
 ```
 
+`tests/docs-test.sh` and `tests/secret-scan.sh` are thin wrappers; the assertions
+live in `scripts/check_docs_v1.py` and `scripts/secret_scan.py`.
+`tests/audit-test.sh` injects a failure and asserts that both stay fail-closed.
+The V1 CI workflow (`.github/workflows/test.yml`) runs
+`scripts/check_docs_v1.py` and `bash tests/audit-test.sh`; it no longer calls the
+two wrappers directly.
+
 Preserve every command's exit code. For logging pipelines, use pipefail and
 capture `PIPESTATUS` immediately, not the exit status of tail, tee, or a success
 message. The repository secret scan covers only configured patterns and

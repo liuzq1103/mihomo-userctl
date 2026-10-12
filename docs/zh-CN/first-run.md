@@ -2,7 +2,7 @@
 
 [English](../en/first-run.md) · [安装](setup.md) · [V1 命令与配置契约](v1.md) · [排错](troubleshooting.md)
 
-> **v1.0.0：** 自动 Shell hook 已移除。安装器不写 `.bashrc`，不存在 loader，
+> **v1.0.1：** 自动 Shell hook 已移除。安装器不写 `.bashrc`，不存在 loader，
 > 也不存在 `CODEX_REMOTE_PAYLOAD`。代理接入全部是显式调用。
 
 ## 四层状态

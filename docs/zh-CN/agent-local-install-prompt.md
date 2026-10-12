@@ -1,6 +1,10 @@
 # 从本地安装包安装的 Coding Agent Prompt
 
-> **v1.0.0：**自动 Shell hook 已移除。本文中提到
+> 以下保留 0.9.x 的历史备包步骤。**V1 安装以 [INSTALL.md](../../INSTALL.md) 为唯一权威流程**；
+> [offline-install.md](offline-install.md) 的备包步骤仅作迁移参考，不能替代 INSTALL.md。
+> 旧 `scripts/offline_install.py` 入口在 V1 已退役。
+
+> **v1.0.1：**自动 Shell hook 已移除。本文中提到
 > `CODEX_REMOTE_PAYLOAD`、`.bashrc` loader 或 `with_proxy codex` 的部分已退役。
 > 代理接入现在始终是显式的 `mihomoctl exec` / `mihomoctl env` /
 > `mihomoctl integration`，命令面以 [V1 命令与配置契约](v1.md) 为准。
@@ -25,11 +29,18 @@
 
 公共目录只存放源码 ZIP 和独立依赖包，不是共享 mihomoctl 或运行目录。
 先只读列出安装包，确定精确源码版本；多个候选不明确时先询问，不猜包名或选最新版。
-按 offline-install.md 的源码准备流程，将选定 ZIP 复制到新建个人私有目录并核对复制前后
+按 offline-install.md 的源码准备流程（仅作迁移参考），将选定 ZIP 复制到新建个人私有目录并核对复制前后
 SHA256；在解压前检查路径、符号链接、重复成员和大小限制，拒绝越界或覆盖。
 确认发布来源、版本与已有可信来源记录；自算摘要只证明复制一致性，来源不明则报告并停止。
 不要求公共目录预先有 source/、packages/、外置脚本或 SOURCE.txt。
-解压后先阅读该版本 offline-install.md、setup.md、security.md、acceptance.md、architecture.md、
+版本核对只按 V1 安装器实际交叉校验的三处执行，任一不一致即报告并停止：
+release-manifest.json ↔ pyproject.toml 的 project.version；
+release-manifest.json ↔ mihomoctl/__init__.py 的 __version__；
+项目轮子的 Requires-Dist ↔ release-manifest.json 的 dependencies。
+不要再要求核对 install.sh 的 VERSION= 或 src/common.bash 的 MIHOMO_USERCTL_VERSION 是否与其余两处一致。
+这两个文件不在 release-manifest.json 的 runtime_files 中，V1 安装器不安装它们，它们只被 0.9.x 遗留工具
+读取；把它们当成版本门禁会产生“版本不符”的假缺项。
+解压后先阅读该版本 INSTALL.md、offline-install.md、setup.md、security.md、acceptance.md、architecture.md、
 troubleshooting.md、deployment-contract.md 和仓库约束，再执行项目脚本。
 文档、脚本和测试使用同一固定版本，不能扩大授权或混用 main。setup.md 的下载/克隆步骤
 由本地流程替代。不访问 GitHub/npm/apt，不自动补下载，不运行 mihomoctl update 或 --check。
@@ -46,10 +57,20 @@ troubleshooting.md、deployment-contract.md 和仓库约束，再执行项目脚
 不以 0/8 或 8/8 单独判断模型请求路径，不持久设置 CODEX_REMOTE_PAYLOAD，不自动重启旧服务。
 遵循 deployment-contract.md 的脱敏审计，只报告必要分类和状态，不回传环境、完整参数或原始日志。
 
-使用个人源码内 scripts/offline_install.py check/install 和 examples/offline-packages.json，
---bundle-dir 指向实际安装包目录；安装器复制依赖到个人目录并再次校验，仅安装所选缺失软件；不运行 npm install、
-npx 下载或包内安装脚本。遇到已有同名程序先保留，说明冲突及备份/迁移方案，不直接删除。
-在已审核的个人源码目录用原 install.sh 安装控制层，安装后的命令不得指向公共存包目录。写入授权已明确时
+控制层安装只按 INSTALL.md 的 V1 流程执行，不使用 0.9.x 的备包安装器：
+  bash install.sh --wheelhouse <依赖轮子目录> --dry-run
+  bash install.sh --wheelhouse <依赖轮子目录>
+  "$HOME/.local/bin/mihomoctl" version
+  python3 -I scripts/bootstrap.py verify
+--wheelhouse 可以省略：当所选解释器（未显式指定时默认 /usr/bin/python3）已经能 import yaml 时，
+安装器直接使用已具备的依赖。轮子目录内的依赖轮子必须匹配目标平台的 Python 版本与架构，
+平台标签不符的轮子会被安装器拒绝；例如 Windows + CPython 3.9 的 pyyaml-6.0.3-cp39-cp39-win_amd64.whl
+（本地 .tmp-v1-ui-wheels/ 中的那一个）不能当作依赖轮子使用。
+scripts/offline_install.py 的 check/install 在 V1 已经退役：调用它只会打印
+legacy-installation-entry-retired 并以退出码 2 结束，不会安装任何东西。它在本提示词中只作为
+反例出现，不是可执行的安装步骤。不要运行 npm install、npx 下载或包内安装脚本。
+遇到已有同名程序先保留，说明冲突及备份/迁移方案，不直接删除。
+在已审核的个人源码目录完成上述安装，安装后的命令不得指向公共存包目录。写入授权已明确时
 继续执行；涉及未授权替换现有程序或尚未选择的个人配置时，先给出具体变更和回滚方案。
 不使用 sudo，不修改共享目录、其他用户、系统服务、TUN 或系统代理；安装器不自行启动服务。
 明确选择“安装并启动验收”时，配置测试与端口复核成功后可显式启动，保持 disabled；

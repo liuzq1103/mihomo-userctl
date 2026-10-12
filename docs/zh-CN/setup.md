@@ -3,7 +3,7 @@
 > 以下保留 0.9.x 历史安装步骤，其中旧安装器和 hook 命令已经退役，不能用于 V1。
 > V1 源码/wheel 安装请遵循 [INSTALL.md](../../INSTALL.md)，再按[首次使用](first-run.md)初始化。
 
-> **v1.0.0 变更：**安装器不再写入任何 Shell 启动文件。
+> **v1.0.1 变更：**安装器不再写入任何 Shell 启动文件。
 > `--bashrc`、受管 loader 和 `CODEX_REMOTE_PAYLOAD` hook 已移除；
 > 命令面以 [V1 命令与配置契约](v1.md) 为准。
 > 本页保留完整手工步骤作为执行详细，

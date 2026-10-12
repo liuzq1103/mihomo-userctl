@@ -43,6 +43,8 @@ jobs:
           shellcheck -x install.sh uninstall.sh completions/mihomoctl.bash tests/secret-scan.sh
           python scripts/secret_scan.py
           git diff --check
+      - name: Fail-closed audit of the documentation and secret gates
+        run: bash tests/audit-test.sh
       - name: Unit, controller and TUI regression
         run: python scripts/v1_ci.py --unit --report "$RUNNER_TEMP/unit.json"
       - name: Prepare pinned real Mihomo binary

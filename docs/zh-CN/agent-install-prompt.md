@@ -1,6 +1,6 @@
 # 交给 Coding Agent 的安装 Prompt
 
-> **v1.0.0：**自动 Shell hook 已移除。本文中提到
+> **v1.0.1：**自动 Shell hook 已移除。本文中提到
 > `CODEX_REMOTE_PAYLOAD`、`.bashrc` loader 或 `with_proxy codex` 的部分已退役。
 > 代理接入现在始终是显式的 `mihomoctl exec` / `mihomoctl env` /
 > `mihomoctl integration`，命令面以 [V1 命令与配置契约](v1.md) 为准。
@@ -50,8 +50,8 @@ VS Code Remote http.proxy，以及保留/合并方案。给出简短审计及变
 明确选择“安装并启动验收”时，配置测试与端口复核成功后可显式启动，保持 disabled。
 只安装时保留已有运行状态。缺凭据时提供受限本地文件和编辑方法，等待用户填写，勿索取聊天值。
 
-只使用已审核检出和文档化的确定性安装器。在运行 ./install.sh --suggest-port 前，
-先取得固定已发布标签。核对官方 Release 来源、资产、摘要、libc 兼容性、配置、带
+只使用已审核检出和文档化的确定性安装器：V1 安装以 INSTALL.md 为唯一权威流程，
+先取得固定已发布标签再执行其中记录的命令。核对官方 Release 来源、资产、摘要、libc 兼容性、配置、带
 认证回环 Listener、默认直连 Shell 边界和用户选择的窄 MATCH,DIRECT fallback。
 仅在适用时使用文档化的 CODEX_REMOTE_PAYLOAD 兼容路径。不得另建安装器，也不得
 用字符串求值替代安全参数数组。
