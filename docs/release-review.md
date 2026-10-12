@@ -366,3 +366,58 @@ WSL Ubuntu 22.04 私有副本：定向 46 项全通过；完整单元回归 331 
 真实 systemd、多 UID、隔离 TUN 与系统安装门禁由 CI 在本轮提交上重跑，
 结论以前一提交 `5afffd7` 的实测为基线，正式发布仍以**打标签那一提交**的
 完整 CI 与 `scripts/verify_release.py` 为准。
+
+## dee8d0a 发布门禁结论（2026-10-12 13:40 +08:00）
+
+### CI 结果
+
+提交 `dee8d0a86e9ad65fecc77402286d3fc7305a71f3`，CI run `38206912788`，
+Ubuntu 22.04 (Python 3.10) 与 Ubuntu 24.04 (Python 3.12) **两个平台全部通过**，
+两平台数据完全一致：
+
+| 套件 | 结果 | 跳过 |
+| --- | --- | --- |
+| unit / controller / TUI | 331 通过，0 失败，0 错误 | 15（全部为环境门控） |
+| real-core（强制） | 59 通过，0 失败，0 错误 | **0** |
+| artifact-install（源码包 / ZIP / wheel 离线安装、更新、自含回滚、卸载） | 3 通过 | **0** |
+| privileged（真实双 UID、systemd、隔离 TUN） | 6 通过 | **0** |
+
+`privileged` 的 `real_uids`、`systemd`、`tun` 三个平台证据标志均为 `true`；
+`artifact-install` 的 `publishable_acceptance` 为 `true`；四份报告的
+`source_dirty` 均为 `false`，`commit` 均为上述同一提交。
+
+15 项单元跳过全部是环境门控，且每一项都在下面的专用套件里真实执行：
+6 项 `PrivilegedAcceptance` 由 `privileged` 套件覆盖、1 项系统安装由 `test_60`
+覆盖、7 项需真实内核由 `real-core` 覆盖，另有 1 项可选外部脚本夹具不属于
+任何强制门禁。
+
+### 发布门禁
+
+```
+python scripts/verify_release.py \
+  --artifacts release-candidate-ubuntu-24.04 \
+  --evidence . --commit dee8d0a86e9ad65fecc77402286d3fc7305a71f3
+{"assets": ["mihomoctl-1.0.0-py3-none-any.whl", "mihomoctl-1.0.0.tar.gz",
+ "mihomoctl-1.0.0.zip"], "commit": "dee8d0a...", "ubuntu": ["22.04", "24.04"],
+ "verified": true, "version": "1.0.0"}
+```
+
+门禁确认：收据来自 git commit 而非工作树、`publishable` 为 true、版本为 1.0.0；
+三个资产的 SHA256 与实际文件逐字节一致；`SHA256SUMS` 内容与收据清单精确匹配；
+CI 在两平台上实际安装过的资产摘要与待发布资产完全相同；两平台被测内核的
+`core_sha256` 是同一个摘要。缺失任一 Ubuntu 报告、任一强制套件出现跳过、
+证据来自其他提交或工作树非干净，都会使门禁返回非零。
+
+### 结论
+
+上一节记录的 BLOCKER（`mihomoctl rules` 有文档无实现）与 MAJOR
+（`service uninstall --dry-run` 谎报完成）均已修复并通过真实未 mock 验证，
+回归已并入上述 CI 数字。
+
+**代码层面不存在已知阻断项。** 本节之后仅追加 CHANGELOG 与本文件的验收结论，
+不再改动实现、测试或发布清单；因此最终发布提交的代码树与本节实测的
+`dee8d0a` 完全一致，差异仅为文档表述。
+
+正式发布仍以**打标签那一提交**自身的 CI 与 `scripts/verify_release.py` 为准：
+该门禁绑定 commit，拒绝工作树构建、其他提交的证据或任一强制场景跳过。
+若标签提交的 CI 未通过，则不发布。

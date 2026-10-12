@@ -2,13 +2,38 @@
 
 ## [1.0.0] - 2026-10-12
 
-**Acceptance status: PENDING.** Local unit, real-core listener/auth/config and
-process-lifecycle checks, Controller/TUI regressions, offline packaging/install
-checks and reviewed-content secret scans have passed. These local results do not
-replace the exact-commit release gates: real Ubuntu 22.04/24.04 user and system
-systemd lifecycle, two real UIDs on one VM, isolated TUN enable/disable/failure
-cleanup and the complete CI matrix remain pending. Model end-to-end success has
-not been established.
+**Acceptance status: VERIFIED.** The mandatory release gates pass on both
+supported platforms. On the last fully verified tree `dee8d0a`, CI run
+`38206912788` reported, identically for Ubuntu 22.04 (Python 3.10) and
+Ubuntu 24.04 (Python 3.12):
+
+- unit, controller and TUI regression: 331 passed, 0 failures, 15 skipped.
+  Every skip is environment-gated and each scenario runs for real inside a
+  dedicated suite below.
+- real-core regression: 59 passed, **0 skipped** — authenticated listeners,
+  listener separation, port conflicts, invalid configuration, crash reporting
+  and explicit restart recovery, and core-update rollback.
+- offline install / update / self-contained recovery of the complete source
+  tarball, zip and wheel: 3 passed, **0 skipped**.
+- real users, systemd and isolated TUN: 6 passed, **0 skipped**, with
+  `real_uids`, `systemd` and `tun` all true. This is the suite that exercises two
+  genuine UIDs on one VM, the user and system service lifecycle with crash
+  recovery, environment inheritance through a loaded `EnvironmentFile=` drop-in,
+  and TUN enable / managed restart / `SIGKILL` recovery / status / disable /
+  route restoration, plus the refusal to adopt a foreign device and the
+  preservation of the active generation when that refusal fires.
+
+`scripts/verify_release.py` accepted those artifacts and evidence for that exact
+commit (`verified: true`), confirming the three release assets, their SHA256
+digests, `SHA256SUMS`, and that the artifacts actually installed in CI are the
+artifacts selected for publication.
+
+Scope of the claim: this establishes the tool's own behaviour and boundaries. It
+does **not** establish model end-to-end success, and it is not a claim about any
+third-party upstream's signing or reproducibility. Publishing is bound to the
+tagged commit's own CI run and gate result — `scripts/verify_release.py` refuses
+a dirty worktree, a different commit, a missing Ubuntu acceptance report, any
+skipped mandatory suite, or mismatched asset digests.
 
 ### Breaking: the automatic shell hook is removed
 
