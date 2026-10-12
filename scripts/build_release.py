@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build reviewed source archives, a wheel and checksums from one Git commit."""
 import argparse
+import contextlib
 import gzip
 import hashlib
 import io
@@ -17,6 +18,16 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = "1.0.0"
+
+
+@contextlib.contextmanager
+def private_creation_mask():
+    """Keep builder-created staging paths private, including child build tools."""
+    previous = os.umask(0o077)
+    try:
+        yield
+    finally:
+        os.umask(previous)
 
 
 def git(*args):
@@ -52,6 +63,7 @@ def verify_wheel_inventory(wheel, manifest):
             raise ValueError("wheel-differs-from-reviewed-runtime-inventory")
 
 
+@private_creation_mask()
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "dist")
@@ -77,6 +89,7 @@ def main():
                 target = source / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(path, target)
+                target.chmod(0o700 if path.stat().st_mode & 0o111 else 0o600)
         else:
             archive = git("archive", "--format=tar", commit)
             with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as package:
@@ -88,7 +101,9 @@ def main():
                     target = source / name
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_bytes(package.extractfile(entry).read())
-                    target.chmod(entry.mode & 0o777)
+                    # Git's archive umask is independent of the process umask;
+                    # never carry writable archive permissions into trusted code.
+                    target.chmod(0o700 if entry.mode & 0o111 else 0o600)
         manifest = json.loads((source / "release-manifest.json").read_text(encoding="utf-8"))
         if manifest.get("version") != VERSION or manifest.get("update_protocol") != 2:
             parser.error("release-version-or-protocol-mismatch")

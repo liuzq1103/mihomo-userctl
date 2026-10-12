@@ -2,7 +2,7 @@
 
 审查员：用户指定的 F 独立 Codex 审查员。初审落盘日期：2026-10-12（Asia/Shanghai）。
 
-**最新结论（2026-10-12 11:16 +08:00）：代码审查允许推送增量修复后的发布分支运行下一轮实际 CI；F1–F12、duplicate 诊断及 public integration/锁外旧 manager 增量问题已在所审工作区关闭。正式 Release 仍为 BLOCKED / 真实 CI pending，不构成正式发布批准。以下保留初审、复现和修复记录，最新复审结论见文末。**
+**最新结论（2026-10-12 11:33 +08:00）：代码审查允许推送所审构建 staging 权限和 Textual 等待修复，运行下一轮实际 CI；本次定向 32 tests 全通过、0 skip，未发现新增阻断。既有 F1–F12 与后续已修问题状态见下文。正式 Release 仍为 BLOCKED / 真实 CI pending，不构成正式发布批准。以下保留初审、复现和修复记录，最新复审结论见文末。**
 
 ## 审查基线与边界
 
@@ -187,3 +187,35 @@ F 只执行一次增量 domain：**39 tests，OK，0 skipped，0.710s**，报告
 `git diff --check` 对上述增量通过。所有独立故障/竞争测试均使用临时 HOME/XDG 与私有副本，没有操作本机系统服务或全局网络，没有业务代码/测试写入和提交。
 
 **本次增量未发现新增确定阻断，允许 root 提交并推送这些修复到发布分支，运行下一轮真实 CI。** 此批准仅表示代码审查可进入 CI，不能继承首轮失败提交的验收身份。正式 Release 仍 BLOCKED；Ubuntu 22.04/24.04 的完整 unit、real-core、真实 systemd/两 UID/TUN、产物安装报告及最终同提交 digest/release gate 必须重新取得全绿证据。
+
+## df67aed CI 后三文件定向复审（2026-10-12 11:33 +08:00）
+
+基线 HEAD 为 `df67aed1306558d8553ee2bd6a91c51c90d99727`，本次只复审冻结增量 `scripts/build_release.py`、`tests/test_v1_tooling.py`、`tests/test_textual.py`，并更新本报告。未改业务代码、测试或提交；未重跑业务全量。
+
+已独立读取下载的 `.tmp-v1-ci-df67-evidence` JSON 和两份 job 日志，确认 run `38199392249` 的失败边界：
+
+| 平台 | 已下载真实 CI 证据 | 限制 |
+| --- | --- | --- |
+| Ubuntu 24.04 / Python 3.12.3 | clean df67aed，unit 316 OK/15 skip（43.626s），real-core 59 OK/0 skip（81.399s）；后续 builder 在 staging runtime import 报 runtime-untrusted | 构建未通过，完整产物安装/privileged 未取得成功报告，不得批准 Release |
+| Ubuntu 22.04 / Python 3.10.12 | clean df67aed，unit 316，1 error/15 skip（37.352s）；`test_policy_selector_defaults_to_auto_and_keeps_explicit_nodes` 读取尚未发布的 app.preview，TypeError: NoneType | unit 失败，不能继承为新提交的全绿证据 |
+
+F 独立通过私有 Linux 副本执行：
+
+```text
+scripts/v1_ci.py --unit --pattern test_v1_tooling.py --pattern test_textual.py --report /tmp/mihomoctl-v1-f-builder-textual-targeted.json
+```
+
+结果为 **32 tests，OK，0 skipped，35.084s**，其中 tooling 17、Textual 15。报告明确基线 df67aed、source_dirty=true、Ubuntu 22.04/Python 3.10.4；这是 F 的定向工作区验证，不是新提交真实 CI。
+
+### 构建权限修复
+
+- `scripts/build_release.py:24-31,66` 用 ContextDecorator 在 main 全程设置 umask 077，并在 finally 恢复；子构建进程继承该 mask。
+- `:92,106` 仅规范复制或 git archive 解出的临时 staging 文件为 0600/0700，不修改原 source tree。打包产物成员仍按既有 0644/0755 规则输出；清单、扫描、wheel exact runtime、receipt 的正式/开发区别未放宽。`mihomoctl` 生产模块没有本轮 diff。
+- 新 `tests/test_v1_tooling.py:141` 真实 Git fixture 设置 tar.umask=0002，先证实归档含 group/other writable mode，再在 caller umask=002 下分别完整执行 git-commit/worktree 构建。两个模式均通过清单、secret scan、wheel payload、receipt/commit/publishable 检查，源文件 SHA256 和 mode 保持原样。
+- F 额外独立检查 context 的正常返回、OSError、KeyboardInterrupt、装饰 main 的 `--help` SystemExit：caller mask 均恢复为 002；子进程创建目录为 0700、文件为 0600。没有通过削弱生产 runtime trust 解决 CI 失败。
+
+### Textual 等待修复
+
+`tests/test_textual.py:198,208,216` 的三处等待从“worker 已记录调用”改为“app.preview 已在 UI 发布”。保留第一次完整 calls 列表、第二/三次次数与参数断言，新增 preview policy 和 selector 可操作性检查；切换 policy/kind 后仍断言旧 preview 已失效。修复同步的是测试观察边界，没有改生产 UI、跳过测试或删除原行为断言。全部 15 项 Pilot 测试在 F 独立运行中通过。
+
+上述三文件 `git diff --check` 通过。**本次未发现新增确定阻断，允许提交并推送这三文件及审查报告到发布分支，运行下一轮 CI。** 正式 Release 仍 BLOCKED / PENDING：必须获得包含这些修复的同一最终 clean 提交对应的两 Ubuntu 完整 CI、真实 systemd/两 UID/TUN、完整产物安装/回滚及正式 release gate 成功证据；df67aed 的部分通过不能替代。

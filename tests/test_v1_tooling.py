@@ -4,10 +4,13 @@ import importlib
 import io
 import hashlib
 import json
+import os
 from pathlib import Path
 import pkgutil
+import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -134,6 +137,57 @@ class PackageIntegrityTests(unittest.TestCase):
 
 
 class ReleaseInventoryTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "linux", "Linux package trust permissions")
+    def test_real_builder_normalizes_git_archive_modes_under_group_writable_umask(self):
+        root = Path(__file__).resolve().parents[1]
+        manifest = json.loads((root / "release-manifest.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="mihomoctl-builder-test-") as folder:
+            repository = Path(folder) / "repository"
+            repository.mkdir(mode=0o700)
+            for name in build_release.reviewed_files(manifest):
+                target = repository / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(root / name, target)
+                target.chmod(0o775 if name.endswith((".sh", ".bash")) else 0o664)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", str(repository), *args],
+                                               stderr=subprocess.PIPE)
+            git("init", "--quiet")
+            git("config", "user.name", "Build fixture")
+            git("config", "user.email", "build@example.invalid")
+            git("config", "tar.umask", "0002")
+            git("add", ".")
+            git("commit", "--quiet", "-m", "Reviewed build fixture")
+            archive = git("archive", "--format=tar", "HEAD")
+            with tarfile.open(fileobj=io.BytesIO(archive)) as package:
+                self.assertTrue(any(entry.mode & 0o022 for entry in package.getmembers()))
+            original = {name: ((repository / name).stat().st_mode & 0o777,
+                               hashlib.sha256((repository / name).read_bytes()).hexdigest())
+                        for name in manifest["inventory"]["files"]}
+            for mode in ("git-commit", "worktree"):
+                output = Path(folder) / mode
+                command = [sys.executable, "-c",
+                           "import os,runpy,sys; os.umask(0o002); "
+                           "path=sys.argv.pop(1); runpy.run_path(path,run_name='__main__')",
+                           str(repository / "scripts" / "build_release.py"), "--output", str(output)]
+                if mode == "worktree":
+                    command.append("--worktree")
+                completed = subprocess.run(command, text=True, capture_output=True, timeout=180,
+                                           env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
+                self.assertEqual(completed.returncode, 0, completed.stderr[-3000:])
+                wheels = list(output.glob("mihomoctl-*.whl"))
+                self.assertEqual(len(wheels), 1)
+                build_release.verify_wheel_inventory(wheels[0], manifest)
+                receipt = json.loads((output / "build-receipt.json").read_text())
+                self.assertEqual(receipt["commit"], git("rev-parse", "HEAD").decode().strip())
+                self.assertEqual(receipt["source"], mode)
+                self.assertEqual(receipt["publishable"], mode == "git-commit")
+                self.assertTrue(all(not (p.stat().st_mode & 0o022) for p in output.rglob("*")))
+            for name, identity in original.items():
+                with self.subTest(name=name):
+                    self.assertEqual((repository / name).stat().st_mode & 0o777, identity[0])
+                    self.assertEqual(hashlib.sha256((repository / name).read_bytes()).hexdigest(), identity[1])
+
     def test_release_builder_refuses_directory_prefix_and_path_escape(self):
         for inventory in ({"roots": ["scripts"], "files": ["scripts/a.py"], "runtime_files": ["scripts/a.py"]},
                           {"roots": [], "files": ["../outside.py"], "runtime_files": ["../outside.py"]}):

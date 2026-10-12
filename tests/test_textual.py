@@ -192,23 +192,31 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
             app.query_one("#source-path", Input).value = "/private/nodes.yaml"
             await pilot.pause()
             await pilot.click("#subscription-preview")
-            await self.wait_for(pilot, lambda: len(service.calls) == 1, "provider preview")
-            self.assertEqual(service.calls[0], ("preview", "/private/nodes.yaml", False, "auto"))
+            # A worker records its call before Store publishes the result and
+            # Console.tick applies it. Wait for that UI completion before
+            # reading the preview or changing the selectors for the next one.
+            await self.wait_for(pilot, lambda: app.preview is not None, "provider preview published")
+            self.assertEqual(service.calls, [("preview", "/private/nodes.yaml", False, "auto")])
+            self.assertEqual(app.preview["policy"], "auto")
+            self.assertFalse(app.query_one("#source-policy", Select).disabled)
             # Switching the policy invalidates the review; it never downgrades it.
             app.query_one("#source-policy", Select).value = "nodes"
             await pilot.pause()
             self.assertEqual(app.source_policy, "nodes")
             self.assertIsNone(app.preview)
             await pilot.click("#subscription-preview")
-            await self.wait_for(pilot, lambda: len(service.calls) == 2, "nodes preview")
+            await self.wait_for(pilot, lambda: app.preview is not None, "nodes preview published")
+            self.assertEqual(len(service.calls), 2)
             self.assertEqual(service.calls[1], ("preview", "/private/nodes.yaml", False, "nodes"))
             self.assertEqual(app.preview["policy"], "nodes")
             app.query_one("#source-kind", Select).value = "url"
             await pilot.pause()
             self.assertIsNone(app.preview)
             await pilot.click("#subscription-preview")
-            await self.wait_for(pilot, lambda: len(service.calls) == 3, "url preview")
+            await self.wait_for(pilot, lambda: app.preview is not None, "url preview published")
+            self.assertEqual(len(service.calls), 3)
             self.assertEqual(service.calls[2], ("preview", "/private/nodes.yaml", True, "nodes"))
+            self.assertEqual(app.preview["policy"], "nodes")
 
     async def test_piped_nodes_policy_seeds_the_selector_and_keeps_the_review(self):
         for policy in ("provider", "nodes"):
