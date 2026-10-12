@@ -93,7 +93,7 @@ mihomoctl status
 
 ```bash
 mihomoctl core install --version vX.Y.Z --sha256 <DIGEST>
-mihomoctl core version
+mihomoctl version
 ```
 
 - 固定版本 + 摘要校验，**显式**执行，不会被隐式触发。

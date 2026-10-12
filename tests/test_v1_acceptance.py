@@ -4,6 +4,7 @@ Local test discovery skips this class. Its explicit CI entry point refuses missi
 prerequisites and any skipped test. Never run against a production host.
 """
 import base64
+from contextlib import contextmanager
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -14,12 +15,14 @@ import re
 import shutil
 import socket
 import shlex
+import stat
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from urllib.parse import unquote, urlsplit
 
 ENABLED = os.environ.get("MIHOMO_V1_PRIVILEGED") == "1"
@@ -57,6 +60,130 @@ def network_state(prefix=()):
     return {(family, kind): command([*prefix, "ip", "-j", family, kind, "show",
                                     *(["table", "all"] if kind == "route" else [])])
             for family in ("-4", "-6") for kind in ("route", "rule")}
+
+
+@contextmanager
+def provision_system_cli_bin():
+    """Administer exactly one disposable-VM fixture directory, then restore it.
+
+    The hosted image deliberately makes this directory world writable:
+    https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/install-nodejs.sh
+    Production installation correctly refuses that state. Never change its
+    trust rules or recursively change the image's existing tool files.
+    """
+    if (os.geteuid() != 0 or os.environ.get("MIHOMO_V1_DISPOSABLE_VM") != "1"
+            or os.environ.get("MIHOMO_V1_PRIVILEGED") != "1"):
+        raise RuntimeError("disposable-root-system-cli-fixture-required")
+    target = "/usr/local/bin"
+    for parent in ("/", "/usr", "/usr/local"):
+        info = os.lstat(parent)
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022):
+            raise RuntimeError("unsafe-system-cli-fixture-ancestor")
+    original = os.lstat(target)
+    if not stat.S_ISDIR(original.st_mode):
+        raise RuntimeError("system-cli-fixture-must-be-real-directory")
+    descriptor = os.open(target, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        opened = os.fstat(descriptor)
+        identity = (original.st_dev, original.st_ino)
+        if (opened.st_dev, opened.st_ino) != identity:
+            raise RuntimeError("system-cli-fixture-directory-changed")
+        evidence = {"path": target, "original_uid": original.st_uid,
+                    "original_gid": original.st_gid, "original_mode": oct(stat.S_IMODE(original.st_mode)),
+                    "restored": False}
+        try:
+            os.fchown(descriptor, 0, 0)
+            os.fchmod(descriptor, 0o755)
+            yield evidence
+        finally:
+            # Restore through the opened directory, never through a replaced
+            # name or a symlink. chown may clear mode bits, so restore mode last.
+            os.fchown(descriptor, original.st_uid, original.st_gid)
+            os.fchmod(descriptor, stat.S_IMODE(original.st_mode))
+            restored = os.fstat(descriptor)
+            if (restored.st_uid, restored.st_gid, stat.S_IMODE(restored.st_mode)) != (
+                    original.st_uid, original.st_gid, stat.S_IMODE(original.st_mode)):
+                raise RuntimeError("system-cli-fixture-metadata-restore-failed")
+            current = os.lstat(target)
+            if (current.st_dev, current.st_ino) != identity:
+                raise RuntimeError("system-cli-fixture-directory-changed")
+            evidence["restored"] = True
+    finally:
+        os.close(descriptor)
+
+
+class FixtureProvisioningTests(unittest.TestCase):
+    """Real chmod/finally checks redirected to a private directory; no system writes."""
+    def test_provision_refuses_missing_disposable_permission(self):
+        with patch.dict(os.environ, {"MIHOMO_V1_DISPOSABLE_VM": "0"}), \
+                patch("os.open", side_effect=AssertionError("unexpected directory open")):
+            with self.assertRaisesRegex(RuntimeError, "disposable-root"):
+                with provision_system_cli_bin():
+                    self.fail("unsafe fixture entered")
+
+    def exercise(self, body_fails=False, kind="directory"):
+        with tempfile.TemporaryDirectory(prefix="mihomoctl-bin-fixture-test-") as folder:
+            directory = Path(folder) / "bin"
+            directory.mkdir(mode=0o777)
+            directory.chmod(0o777)
+            if kind == "symlink":
+                fake_target = Path(folder) / "link"
+                fake_target.symlink_to(directory, target_is_directory=True)
+            elif kind == "file":
+                fake_target = Path(folder) / "file"
+                fake_target.write_text("fixture", encoding="utf-8")
+            else:
+                fake_target = directory
+            original = fake_target.lstat()
+            real_lstat, real_open = os.lstat, os.open
+            def lstat(path, *args, **kwargs):
+                if str(path) == "/usr/local/bin":
+                    return real_lstat(fake_target)
+                if str(path) in ("/", "/usr", "/usr/local"):
+                    values = list(real_lstat(folder))
+                    values[0], values[4], values[5] = stat.S_IFDIR | 0o755, 0, 0
+                    return os.stat_result(values)
+                return real_lstat(path, *args, **kwargs)
+            def open_directory(path, flags):
+                self.assertEqual(path, "/usr/local/bin")
+                self.assertTrue(flags & os.O_NOFOLLOW)
+                self.assertTrue(flags & os.O_DIRECTORY)
+                return real_open(directory, flags)
+            with patch.dict(os.environ, {"MIHOMO_V1_DISPOSABLE_VM": "1", "MIHOMO_V1_PRIVILEGED": "1"}), \
+                    patch("os.geteuid", return_value=0), patch("os.lstat", side_effect=lstat), \
+                    patch("os.open", side_effect=open_directory) as opened, patch("os.fchown") as ownership:
+                if kind != "directory":
+                    with self.assertRaisesRegex(RuntimeError, "must-be-real-directory"):
+                        with provision_system_cli_bin():
+                            self.fail("unsafe target entered")
+                    opened.assert_not_called()
+                    ownership.assert_not_called()
+                    return
+                def run():
+                    with provision_system_cli_bin() as evidence:
+                        self.assertEqual(stat.S_IMODE(real_lstat(directory).st_mode), 0o755)
+                        if body_fails:
+                            raise ValueError("fixture body failed")
+                    return evidence
+                if body_fails:
+                    with self.assertRaisesRegex(ValueError, "fixture body failed"):
+                        run()
+                else:
+                    self.assertTrue(run()["restored"])
+                self.assertEqual(stat.S_IMODE(real_lstat(directory).st_mode), 0o777)
+                self.assertEqual(ownership.call_args_list[0].args[1:], (0, 0))
+                self.assertEqual(ownership.call_args_list[-1].args[1:], (original.st_uid, original.st_gid))
+
+    def test_provision_restores_original_metadata(self):
+        self.exercise()
+
+    def test_provision_restores_metadata_when_body_fails(self):
+        self.exercise(body_fails=True)
+
+    def test_provision_refuses_symlink_and_regular_file(self):
+        for kind in ("symlink", "file"):
+            with self.subTest(kind=kind):
+                self.exercise(kind=kind)
 
 
 @unittest.skipUnless(ENABLED, "explicit disposable Ubuntu VM acceptance")
@@ -439,22 +566,25 @@ class PrivilegedAcceptance(unittest.TestCase):
         config_path = Path(manager["core"]["config"])
         previous = {p: p.read_bytes() for p in (manager_path, config_path)}
         bootstrap = self.source / "scripts/bootstrap.py"
-        installed = False
-        try:
-            command([self.python, bootstrap, "install", "--system", "--source", self.source,
-                     "--wheelhouse", os.environ["MIHOMO_V1_WHEELHOUSE"],
-                     "--python", "/usr/bin/python3"], timeout=180)
-            installed = True
-            for account in self.accounts:
-                envargs = [k + "=" + v for k, v in self.env(account).items()]
-                result = command(["runuser", "-u", account[0], "--", "env", "-i", *envargs,
-                                  "/usr/local/bin/mihomoctl", "version", "--json"], cwd=account[2])
-                self.assertEqual(json.loads(result)["data"]["mihomoctl"], "1.0.0")
-            for path, body in previous.items():
-                self.assertTrue(path.read_bytes() == body, "cli-install-changed-core-configuration")
-        finally:
-            if installed:
-                command([self.python, bootstrap, "uninstall", "--system"], timeout=180)
+        with provision_system_cli_bin() as fixture:
+            installed = False
+            try:
+                command([self.python, bootstrap, "install", "--system", "--source", self.source,
+                         "--wheelhouse", os.environ["MIHOMO_V1_WHEELHOUSE"],
+                         "--python", "/usr/bin/python3"], timeout=180)
+                installed = True
+                for account in self.accounts:
+                    envargs = [k + "=" + v for k, v in self.env(account).items()]
+                    result = command(["runuser", "-u", account[0], "--", "env", "-i", *envargs,
+                                      "/usr/local/bin/mihomoctl", "version", "--json"], cwd=account[2])
+                    self.assertEqual(json.loads(result)["data"]["mihomoctl"], "1.0.0")
+                for path, body in previous.items():
+                    self.assertTrue(path.read_bytes() == body, "cli-install-changed-core-configuration")
+            finally:
+                if installed:
+                    command([self.python, bootstrap, "uninstall", "--system"], timeout=180)
+        self.assertTrue(fixture["restored"], "system-cli-fixture-metadata-not-restored")
+        type(self).system_cli_bin_fixture = fixture
         for path, body in previous.items():
             self.assertTrue(path.read_bytes() == body, "cli-uninstall-removed-core-configuration")
         self.check_shells()
@@ -488,6 +618,8 @@ if __name__ == "__main__":
               "skipped": len(result.skipped), "success": result.wasSuccessful() and not result.skipped,
               "platform": sys.platform, "real_uids": True, "systemd": True, "tun": True}
     report.update(json.loads(os.environ.get("MIHOMO_V1_SOURCE_EVIDENCE", "{}")))
+    if hasattr(PrivilegedAcceptance, "system_cli_bin_fixture"):
+        report["system_cli_bin_fixture"] = PrivilegedAcceptance.system_cli_bin_fixture
     if os.environ.get("MIHOMO_V1_REPORT"):
         Path(os.environ["MIHOMO_V1_REPORT"]).write_text(json.dumps(report, sort_keys=True) + "\n", encoding="utf-8")
     raise SystemExit(0 if report["success"] and result.testsRun >= 6 else 1)

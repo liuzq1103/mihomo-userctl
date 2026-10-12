@@ -88,14 +88,14 @@ mihomoctl exec [--profile NAME | --binding NAME] -- COMMAND [ARGS...]
 mihomoctl env show [--profile NAME | --binding NAME] [--reveal] [--json]
 mihomoctl env export [--profile NAME | --binding NAME] (--output PATH | --reveal)
 
-mihomoctl integration list | show NAME | check NAME NAME
+mihomoctl integration list | show NAME | check NAME
 mihomoctl integration export NAME | install NAME | remove NAME
 mihomoctl health check [--profile NAME | --binding NAME] [--egress-url URL] [--json]
 mihomoctl tun status | enable | disable        # enable/disable 仅 --system
 
 mihomoctl core install --version VERSION [--sha256 DIGEST]
 mihomoctl core update --version VERSION [--sha256 DIGEST] [--dry-run]
-mihomoctl core version
+mihomoctl version
 mihomoctl migrate [--dry-run] [--apply]
 
 # 保留的控制面能力
