@@ -150,7 +150,7 @@ def _record_digest(payload):
 
 def build_wheel(dest, name="mihomoctl", version="1.0.0", files=None, entry=None,
                 requires=("PyYAML>=6.0.1",), requires_python=">=3.10",
-                tag=("py3", "none", "any"), corrupt=None, unlisted=None):
+                tag=("py3", "none", "any"), wheel_tag=None, corrupt=None, unlisted=None):
     """Construct a wheel with a correct RECORD, or deliberate defects.
 
     ``corrupt`` rewrites payload bytes after RECORD digests are computed;
@@ -181,7 +181,7 @@ def build_wheel(dest, name="mihomoctl", version="1.0.0", files=None, entry=None,
         members[dist + ".dist-info/METADATA"] = ("\n".join(metadata) + "\n\n").encode()
     members[dist + ".dist-info/WHEEL"] = (
         "Wheel-Version: 1.0\nGenerator: fixture\nRoot-Is-Purelib: true\nTag: %s\n"
-        % "-".join(tag)).encode()
+        % "-".join(wheel_tag or tag)).encode()
     record = ["%s,sha256=%s,%d" % (member, _record_digest(payload), len(payload))
               for member, payload in sorted(members.items())]
     # Defects are applied only after the RECORD has been finalized.

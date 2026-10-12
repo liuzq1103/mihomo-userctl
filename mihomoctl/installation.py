@@ -510,6 +510,18 @@ def _read_wheel_metadata(zf, info):
             headers.setdefault(key.strip().lower(), value.strip())
     if not re.search(r"^Wheel-Version:\s*1\.", wheel_md, re.M):
         raise InstallationError("unsupported-wheel-version", Path(info["path"]).name)
+    def expanded_tag(value):
+        parts = value.split("-")
+        if len(parts) != 3 or any(not re.fullmatch(r"[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*", p) for p in parts):
+            raise InstallationError("wheel-tag-invalid", Path(info["path"]).name)
+        return {"-".join((py, abi, plat)) for py in parts[0].split(".")
+                for abi in parts[1].split(".") for plat in parts[2].split(".")}
+    filename_tags = expanded_tag("-".join(info[key] for key in ("py", "abi", "plat")))
+    metadata_tags = set()
+    for value in re.findall(r"^Tag:\s*([^\n]+)$", wheel_md, re.M):
+        metadata_tags.update(expanded_tag(value.strip()))
+    if metadata_tags != filename_tags:
+        raise InstallationError("wheel-tags-disagree-with-filename", Path(info["path"]).name)
     return {"name": headers.get("name", ""), "version": headers.get("version", ""),
             "requires_python": headers.get("requires-python", ""),
             "requires": [r for r in requires if r], "prefix": prefix}

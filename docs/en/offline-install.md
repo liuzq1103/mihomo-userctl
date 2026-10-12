@@ -50,7 +50,8 @@ duplicates and multiple roots; it bounds members and actual copied bytes. `DEST`
 
 ```bash
 /usr/bin/python3 - "$ARCHIVE" "$DEST" <<'PY'
-import pathlib, sys, tarfile
+import os, pathlib, sys, tarfile
+os.umask(0o077)
 out = pathlib.Path(sys.argv[2])
 out.mkdir(mode=0o700)
 seen, roots, used = set(), set(), 0

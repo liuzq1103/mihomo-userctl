@@ -2,6 +2,7 @@
 import hashlib
 import io
 import json
+import os
 import re
 from pathlib import Path
 import shutil
@@ -13,6 +14,7 @@ import unittest
 import zipfile
 
 from scripts import build_release, build_offline_bundle, verify_offline_bundle
+from scripts import verify_artifact_install
 
 if sys.platform == "linux":
     from mihomoctl import installation
@@ -74,6 +76,21 @@ class OfflineBundleTests(unittest.TestCase):
         first = self.build(self.base / "first")
         second = self.build(self.base / "second")
         self.assertEqual(first["sha256"], second["sha256"])
+
+    def test_acceptance_unpack_is_private_under_sudo_group_writable_umask(self):
+        archive = self.base / "acceptance.tar.gz"
+        with tarfile.open(archive, "w:gz") as package:
+            for name in (".github/workflows/test.yml", "scripts/bootstrap.py"):
+                member = tarfile.TarInfo("mihomoctl-1.0.0/" + name)
+                package.addfile(member, io.BytesIO(b""))
+        previous = os.umask(0o002)
+        try:
+            destination = self.base / "unpacked"
+            verify_artifact_install.unpack(archive, destination, "mihomoctl-1.0.0")
+            self.assertTrue(all(not path.stat().st_mode & 0o022 for path in [destination, *destination.rglob("*")]))
+            self.assertEqual(os.umask(0o002), 0o002)
+        finally:
+            os.umask(previous)
 
     def test_existing_or_linked_checksum_is_never_overwritten(self):
         output = self.base / "kits"
@@ -217,6 +234,20 @@ if sys.platform == "linux":
                 before = self.snapshot_home()
                 with self.subTest(dry_run=dry_run), self.assertRaisesRegex(
                         installation.InstallationError, "wheel-record-digest-mismatch"):
+                    self.install(dry_run=dry_run)
+                self.assertEqual(before, self.snapshot_home())
+                self.assertFalse(self.paths.install_root.exists())
+
+        def test_mismatched_internal_wheel_tags_are_rejected_before_writes(self):
+            for wheel in self.wheelhouse.glob("*.whl"):
+                wheel.unlink()
+            build_wheel(self.wheelhouse, name="pyyaml", version="6.0.3", requires=(),
+                        files={"yaml/__init__.py": b"__version__ = '6.0.3'\n"},
+                        wheel_tag=("cp312", "cp312", "win_amd64"))
+            for dry_run in (True, False):
+                before = self.snapshot_home()
+                with self.subTest(dry_run=dry_run), self.assertRaisesRegex(
+                        installation.InstallationError, "wheel-tags-disagree-with-filename"):
                     self.install(dry_run=dry_run)
                 self.assertEqual(before, self.snapshot_home())
                 self.assertFalse(self.paths.install_root.exists())

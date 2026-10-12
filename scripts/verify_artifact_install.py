@@ -5,6 +5,7 @@ Only fresh temporary HOME/XDG trees are modified. This does not replace the
 separate privileged, systemd, multi-user, or real-core acceptance gates.
 """
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -25,6 +26,17 @@ MAX_MEMBERS = 20000
 
 class VerificationError(ValueError):
     pass
+
+
+@contextmanager
+def private_creation_mask():
+    # sudo may reset umask to 0002. Intermediate mkdir(parents=True) paths
+    # must remain trusted without relaxing bootstrap's production checks.
+    previous = os.umask(0o077)
+    try:
+        yield
+    finally:
+        os.umask(previous)
 
 
 def digest(path):
@@ -74,6 +86,7 @@ def load_artifacts(folder, worktree):
     return receipt, digest(receipt_path)
 
 
+@private_creation_mask()
 def unpack(archive_path, target, root_name):
     """Extract bounded regular files, rejecting links and ambiguous paths."""
     target.mkdir(mode=0o700)
@@ -138,7 +151,11 @@ def invoke(args, env, stage):
                             capture_output=True, timeout=120)
     if result.returncode:
         # Do not copy child diagnostics or environment values into public reports.
-        raise VerificationError("command-failed: %s (exit %d)" % (stage, result.returncode))
+        codes = re.findall(r"(?m)^bootstrap: failure-codes=([a-z0-9,-]{1,256})$", result.stderr)
+        detail = ("; codes=" + codes[-1]) if codes else ""
+        if "bootstrap: untrusted installation code path" in result.stderr:
+            detail = "; codes=bootstrap-code-untrusted"
+        raise VerificationError("command-failed: %s (exit %d)%s" % (stage, result.returncode, detail))
     try:
         document = json.loads(result.stdout[result.stdout.index("{"):])
     except (ValueError, TypeError):
@@ -155,6 +172,7 @@ def version_check(launcher, env, version):
         raise VerificationError("installed-version-mismatch")
 
 
+@private_creation_mask()
 def verify_case(kind, artifacts, wheelhouse, python, version):
     with tempfile.TemporaryDirectory(prefix="mihomoctl-artifact-install-") as temporary:
         base = Path(temporary)
