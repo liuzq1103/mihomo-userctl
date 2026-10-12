@@ -2,7 +2,7 @@
 
 审查员：用户指定的 F 独立 Codex 审查员。初审落盘日期：2026-10-12（Asia/Shanghai）。
 
-**最新结论（2026-10-12 11:07 +08:00）：代码审查允许推送发布分支运行实际 CI；F1–F12 及 duplicate 诊断问题已在所审冻结工作区关闭。正式 Release 仍为 BLOCKED / 真实 CI pending，不构成正式发布批准。以下保留初审、复现和修复记录，最新复审结论见文末。**
+**最新结论（2026-10-12 11:16 +08:00）：代码审查允许推送增量修复后的发布分支运行下一轮实际 CI；F1–F12、duplicate 诊断及 public integration/锁外旧 manager 增量问题已在所审工作区关闭。正式 Release 仍为 BLOCKED / 真实 CI pending，不构成正式发布批准。以下保留初审、复现和修复记录，最新复审结论见文末。**
 
 ## 审查基线与边界
 
@@ -166,3 +166,24 @@ F 在私有 Linux 副本独立重跑真实 CLI `profile list`：含虚构 token 
 **F11 CLOSED。F1–F12 与 duplicate 诊断的已证实阻断均已关闭，F 的代码审查允许将所审冻结工作区提交并推送发布分支运行实际 CI。** 此批准仅用于推分支验收，不是 tag/Release 正式发布批准，也不能将旧 HEAD 标记为已覆盖当前未提交内容。
 
 正式 Release 继续 **BLOCKED / PENDING**：必须取得最终 clean 提交对应的 Ubuntu 22.04/24.04 真实 user/system systemd、两个真实 UID、隔离真实 TUN（含 restart/SIGKILL 恢复、强归属与安全 disable）、mandatory 无 skip、完整三类产物离线安装/回滚及 digest/receipt 一致性证据，并通过正式 release gate。此前 worktree/dev 产物与 WSL 非 systemd 测试不能替代这些门禁。
+
+## 首轮 CI 后增量独立复审（2026-10-12 11:16 +08:00）
+
+基线 HEAD 为 `bcfa5b30f07d8ec636b568df30f6b729679ad04f`，本次审查其上的未提交增量：`cli.py`、`app.py`、domain 测试及 workflow。root 报告首轮两个 Ubuntu 各 314 unit 只有 1 error：setup-python 的 `/opt` 祖先可被其他账户写入，安装器正确拒绝解释器；F 未独立下载 CI 日志，不将此转述冒充亲自执行的 CI 结果。
+
+root 额外发现 public integration install 绕过 adapter 恢复事务，以及部分命令在锁外捕获旧 manager/binding 的边界遗漏。这也修正前文 F5 关闭的覆盖范围：此前已测 adapter API，但不足以证明 public CLI 的缓存恢复。现已纳入独立 CLI 定向验证。
+
+F 只执行一次增量 domain：**39 tests，OK，0 skipped，0.710s**，报告 `/tmp/mihomoctl-v1-f-ci-incremental-domain.json`。没有重跑完整 unit 或 real-core。另在私有 Linux 副本使用真实 flock、替身 systemctl/backend 的独立注入检查如下：
+
+| 增量 | 代码与证据 | 复审结论 |
+| --- | --- | --- |
+| Public integration install 恢复 | `cli.py:734-741` 改走 adapter `_transaction`，锁内重新读取 binding 并构建 env。独立注入使初始和锁内 binding target/profile 不同，证实使用锁内新值；首次 reload 抛错后共 reload 2 次，三个旧产物 bytes 全部恢复。 | CLOSED |
+| Public integration 锁争用 | 持有真实 operation_lock 后调用 CLI install，拒绝并 reload=0；未修改原产物。domain 同时覆盖该公开入口。 | CLOSED |
+| Profile set-default 旧 manager 覆盖 | `cli.py:400-403` 锁内重新 resolve。独立让锁外返回旧 core、锁内返回新 core/新 binding，发布后的 manager 保留新 core 和 binding，只更新 default。 | CLOSED |
+| Service install/uninstall 旧 manager/active 状态 | `cli.py:610-617,639-647` 锁内重新 resolve、重新检查运行状态/TUN，并写 fresh manager。独立真实锁测试确认两个路径保留新 core/binding；静态核验 active 检查在锁内再次执行。 | CLOSED |
+| Application.lifecycle 旧身份 | `app.py:146-148` 在 operation lock 内 resolve 和构造 backend。独立在 resolve 与 backend.start 内尝试竞争真实 flock，均确认锁被持有。 | CLOSED |
+| CI interpreter trust | workflow 使用 `/usr/bin/python3 -m venv /tmp/mihomoctl-v1-ci-python`，激活并通过 GITHUB_PATH 供后续步骤使用，显式断言矩阵 Python 3.10/3.12。`installation.py:832-884` 的 interpreter/venv owner、writability、祖先与 symlink target 信任检查未被弱化。 | 静态审查通过；实际 Ubuntu CI 待运行 |
+
+`git diff --check` 对上述增量通过。所有独立故障/竞争测试均使用临时 HOME/XDG 与私有副本，没有操作本机系统服务或全局网络，没有业务代码/测试写入和提交。
+
+**本次增量未发现新增确定阻断，允许 root 提交并推送这些修复到发布分支，运行下一轮真实 CI。** 此批准仅表示代码审查可进入 CI，不能继承首轮失败提交的验收身份。正式 Release 仍 BLOCKED；Ubuntu 22.04/24.04 的完整 unit、real-core、真实 systemd/两 UID/TUN、产物安装报告及最终同提交 digest/release gate 必须重新取得全绿证据。

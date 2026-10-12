@@ -398,8 +398,9 @@ def cmd_profile(app, args, json_mode):
         from .transaction import run_transaction
 
         def mutate(tx):
-            manager.default_profile = name
-            tx.write_text(app.scope.manager_path, render_manager(manager), mode=0o600)
+            current, _endpoints, _controller, _profile, _cfg = app.resolve(name)
+            current.default_profile = name
+            tx.write_text(app.scope.manager_path, render_manager(current), mode=0o600)
         run_transaction(app.scope, "profile-set-default", mutate)
         return _finish("profile-set-default", app.scope.name, env.PASS,
                        {"default_profile": name}, json_mode=json_mode,
@@ -606,6 +607,12 @@ def cmd_service(app, args, json_mode):
             manager.core.backend = "systemd"
             tx.write_text(scope.manager_path, render_manager(manager), mode=0o600)
         def install(tx):
+            nonlocal manager
+            manager, current_endpoints, current_controller, _profile, _cfg = app.resolve()
+            if manager.core.backend != "systemd":
+                from .lifecycle.process import ProcessBackend
+                if ProcessBackend(scope, manager, current_endpoints, current_controller).running_identity() is not None:
+                    raise MihomoctlError("backend-active", "stop the running process backend before switching to systemd")
             result = systemd_backend.install_unit(manager, scope, tx=tx)
             mutate(tx)
             return result
@@ -629,9 +636,14 @@ def cmd_service(app, args, json_mode):
                 raise UsageError('tun-enabled', 'disable TUN before uninstalling its managed service')
             from .transaction import run_transaction
             def uninstall(tx):
+                current, current_endpoints, current_controller, _, _ = app.resolve()
+                current_backend = systemd_backend.SystemdBackend(scope, current, current_endpoints, current_controller)
+                _, properties = current_backend.running()
+                if properties.get('ActiveState') not in ('inactive', 'failed', None) or current.tun.enabled:
+                    raise UsageError('backend-active', 'stop the managed runtime and disable TUN before uninstalling')
                 if not scope.system:
-                    manager.core.backend = 'process'
-                    tx.write_text(scope.manager_path, render_manager(manager))
+                    current.core.backend = 'process'
+                    tx.write_text(scope.manager_path, render_manager(current))
                 return systemd_backend.uninstall_unit(scope, tx=tx)
             systemd_backend.unit_transaction(scope, 'service-uninstall', uninstall)
         return _finish("service-uninstall", scope.name, env.PASS, {"unit": UNIT_NAME},
@@ -718,12 +730,15 @@ def cmd_integration(app, args, json_mode):
         if binding.adapter != "systemd" or not binding.target:
             raise UsageError("integration-unsupported",
                              "install supports the systemd adapter; use export for artifacts")
-        proxy_env = app.proxy_environment(binding.profile)
-        from .transaction import run_transaction
-
         def mutate(tx):
-            return systemd_adapter.install(app.scope, binding, proxy_env, tx=tx)
-        data = run_transaction(app.scope, "integration-install", mutate)
+            current = app.load_manager().bindings.get(binding_name)
+            if current is None or current.adapter != "systemd" or not current.target:
+                raise UsageError("integration-unsupported", "binding changed before installation; inspect it and retry")
+            proxy_env = app.proxy_environment(current.profile)
+            return systemd_adapter.install(app.scope, current, proxy_env, tx=tx)
+        # Include cached-definition recovery for the public CLI path as well
+        # as the adapter API, under the same operation lock.
+        data = systemd_adapter._transaction(app.scope, "integration-install", mutate)
         return _finish("integration-install", app.scope.name, env.PASS, data,
                        json_mode=json_mode, text=_kv_text(data))
     if action == "remove":

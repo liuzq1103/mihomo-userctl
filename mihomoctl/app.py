@@ -136,15 +136,14 @@ class Application:
             raise UsageError("lifecycle-unknown", repr(action))
         from .locks import operation_lock
         self.scope.require_mutation()
-        manager, endpoints, controller, profile, _cfg = self.resolve()
-        backend = self._backend(manager, endpoints, controller)
-
         def local_health():
             _data, checks, overall = self._health_result(profile.name)
             return overall == env.PASS, "; ".join(
                 "%s=%s" % (c.name, c.status) for c in checks if c.status != env.PASS)
 
         with operation_lock(self.scope):
+            manager, endpoints, controller, profile, _cfg = self.resolve()
+            backend = self._backend(manager, endpoints, controller)
             if action == "start":
                 backend.start(health_check=local_health)
             elif action == "stop":

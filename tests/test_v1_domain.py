@@ -320,6 +320,52 @@ class DomainFiles(unittest.TestCase):
                     self.assertEqual(reload.call_count, 2)
                 self.assertEqual({path: path.read_bytes() for path in paths}, before)
 
+    def test_public_integration_install_recovers_cached_definitions_and_respects_lock(self):
+        from types import SimpleNamespace
+        from mihomoctl.cli import cmd_integration
+        from mihomoctl.config import Manager
+        from mihomoctl.environment import ProxyEnvironment
+        from mihomoctl.errors import LockError
+        from mihomoctl.integration import systemd_adapter as adapter
+        from mihomoctl.locks import operation_lock
+        binding = Binding('worker', 'default', 'systemd', 'worker.service')
+        old = ProxyEnvironment('default', 'http://u:old@127.0.0.1:7890', 'socks5h://u:old@127.0.0.1:7890', 'localhost')
+        new = ProxyEnvironment('default', 'http://u:new@127.0.0.1:7890', 'socks5h://u:new@127.0.0.1:7890', 'localhost')
+        manager = Manager(bindings={'worker': binding})
+        app = SimpleNamespace(scope=self.scope, load_manager=lambda: manager, proxy_environment=lambda _: new)
+        with patch.object(adapter, '_daemon_reload'):
+            adapter.install(self.scope, binding, old)
+        paths = (adapter.env_file(self.scope, binding.name), adapter.dropin_path(self.scope, binding.target), adapter._receipt_file(self.scope, binding))
+        before = {path: path.read_bytes() for path in paths}
+        with patch.object(adapter, '_daemon_reload', side_effect=[StateError('reload-failed'), None]) as reload:
+            with self.assertRaises(StateError):
+                cmd_integration(app, ['install', 'worker'], True)
+            self.assertEqual(reload.call_count, 2)
+        self.assertEqual({path: path.read_bytes() for path in paths}, before)
+        with operation_lock(self.scope), patch.object(adapter, '_daemon_reload') as reload:
+            with self.assertRaises(LockError):
+                cmd_integration(app, ['install', 'worker'], True)
+            reload.assert_not_called()
+        self.assertEqual({path: path.read_bytes() for path in paths}, before)
+
+    def test_setting_default_profile_preserves_newer_manager_fields(self):
+        from types import SimpleNamespace
+        import yaml
+        from mihomoctl.cli import cmd_profile
+        from mihomoctl.config import Manager, CoreSettings
+        profiles = {'default': Profile('default', 'proxy'), 'other': Profile('other', 'proxy')}
+        old = Manager(core=CoreSettings('/old-core', '/config'), profiles=profiles)
+        current = Manager(core=CoreSettings('/new-core', '/config'), profiles=profiles,
+                          bindings={'worker': Binding('worker', 'default', 'ci')})
+        app = SimpleNamespace(scope=self.scope, load_manager=lambda: old,
+                              resolve=lambda _: (current, [], None, profiles['other'], {}))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(cmd_profile(app, ['set-default', 'other'], True), 0)
+        written = yaml.safe_load(self.scope.manager_path.read_text())
+        self.assertEqual(written['core']['binary'], '/new-core')
+        self.assertIn('worker', written['bindings'])
+        self.assertEqual(written['default_profile'], 'other')
+
     def test_integration_lock_contention_cannot_reload_another_transaction(self):
         from mihomoctl.environment import ProxyEnvironment
         from mihomoctl.errors import LockError

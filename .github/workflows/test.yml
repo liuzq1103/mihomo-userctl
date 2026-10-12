@@ -25,13 +25,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
       - name: Prepare build and optional UI dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y shellcheck python3-venv iproute2 dbus-user-session
+          /usr/bin/python3 -m venv /tmp/mihomoctl-v1-ci-python
+          source /tmp/mihomoctl-v1-ci-python/bin/activate
+          echo /tmp/mihomoctl-v1-ci-python/bin >> "$GITHUB_PATH"
+          python -c "import sys; assert '.'.join(map(str, sys.version_info[:2])) == '${{ matrix.python }}'"
           python -m pip install --upgrade pip setuptools wheel build
           python -m pip install .
           python -m pip install --require-hashes --only-binary=:all: -r scripts/textual-requirements.txt
