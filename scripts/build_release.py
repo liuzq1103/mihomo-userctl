@@ -71,6 +71,10 @@ def verify_wheel_inventory(wheel, manifest):
         payload = {name for name in names if not name.startswith(prefix)}
         if payload != set(manifest["inventory"]["runtime_files"]):
             raise ValueError("wheel-differs-from-reviewed-runtime-inventory")
+        metadata_files = {prefix + name for name in (
+            "METADATA", "WHEEL", "RECORD", "entry_points.txt", "top_level.txt", "licenses/LICENSE", "LICENSE")}
+        if any(name.startswith(prefix) and name not in metadata_files for name in names):
+            raise ValueError("wheel-differs-from-reviewed-metadata-inventory")
         reject_bytecode(names)
 
 

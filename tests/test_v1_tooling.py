@@ -263,6 +263,16 @@ class ReleaseInventoryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "runtime-inventory"):
                 build_release.verify_wheel_inventory(path, manifest)
 
+    def test_wheel_cannot_hide_unreviewed_files_in_metadata(self):
+        manifest = {"version": "1.0.0", "inventory": {"runtime_files": ["mihomoctl/__init__.py"]}}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "mihomoctl-1.0.0-py3-none-any.whl"
+            with zipfile.ZipFile(path, "w") as package:
+                package.writestr("mihomoctl/__init__.py", "")
+                package.writestr("mihomoctl-1.0.0.dist-info/extra.py", "")
+            with self.assertRaisesRegex(ValueError, "metadata-inventory"):
+                build_release.verify_wheel_inventory(path, manifest)
+
     def test_compressed_wheel_contents_are_scanned_without_disclosing_match(self):
         with tempfile.TemporaryDirectory() as folder:
             wheel = Path(folder) / "sample.whl"
