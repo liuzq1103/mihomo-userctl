@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import secrets
 import select
 import signal
 import struct
@@ -79,6 +80,30 @@ rules: ["RULE-SET,Sites,出口", "MATCH,出口"]
         self.assertTrue(service.pending_restart)
         service.restore()
         self.assertEqual(self.config.read_bytes(), self.original)
+
+    def test_initialize_backfills_store_selected_on_a_configured_controller(self):
+        """An already initialized controller keeps its address and secret but
+        gains profile.store-selected, so Selector choices stop resetting to
+        each group's first member after `mihomoctl restart`."""
+        configured = ('mixed-port: 25000\n'
+                      'external-controller: 127.0.0.1:29000\n'
+                      'secret: ' + 'a' * 40 + '\n'
+                      'proxy-groups: [{name: Ai+, type: select, proxies: [DIRECT]}]\n')
+        self.write(self.config, configured)
+        before = self.config.read_bytes()
+        result = dashboard.initialize(self.config, str(self.root))
+        _, data, _ = read_config(self.config)
+        self.assertEqual(result["state"], "restart-required")
+        self.assertIs(data["profile"]["store-selected"], True)
+        # The endpoint and the secret are carried over, never regenerated.
+        self.assertEqual(data["external-controller"], "127.0.0.1:29000")
+        self.assertEqual(data["secret"], 'a' * 40)
+        self.assertNotEqual(data["secret"], secrets.token_urlsafe(32))
+        self.assertNotEqual(self.config.read_bytes(), before)
+        # Idempotent: a second run has nothing left to do.
+        settled = self.config.read_bytes()
+        self.assertEqual(dashboard.initialize(self.config, str(self.root))["state"], "unchanged")
+        self.assertEqual(self.config.read_bytes(), settled)
 
     def test_initialize_rejects_exposed_listener_extra_listener_and_port_conflict(self):
         for extra in ('external-controller: 0.0.0.0:29000\nsecret: ' + 'a'*32 + '\n',

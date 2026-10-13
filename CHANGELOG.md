@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.0.4] - 2026-10-13
+
+**Runtime behaviour fix.** `mihomoctl select` and the other bridge commands that take positional
+values work without a hand-written `--config`, and a managed configuration always persists Selector
+choices across a restart.
+
+### Fixed: bridged commands rejected their own positional values
+
+- `run_bridge` synthesized `--config <path>` by splicing it at index 1, between the command name and
+  its values. The child parser takes those values as a `nargs="*"` positional, and argparse cannot
+  match an optional that precedes such a positional, so `mihomoctl select "Ai+" "节点名称"` arrived as
+  `select --config PATH Ai+ 节点名称` and failed as `invalid-options`. Only a caller-written trailing
+  `--config` happened to work.
+- The synthesized options are now appended, matching the `--json` and `--home-dir` already in the
+  same function. `select`, `latency`, `mode`, `controller status` and `subscription apply` are
+  restored; `nodes`/`groups`/`connections`/`traffic`/`ui` take no values and were unaffected.
+- argv construction is extracted into `mihomoctl.legacy.bridge_forward` so the contract is unit
+  tested against the real child parser.
+
+### Fixed: Selector choices reset to the first member on every restart
+
+- `compose_core_config` never emitted a `profile` block, and `controller initialize` returned
+  `unchanged` as soon as `external-controller` was present — which the managed configuration always
+  sets. `profile.store-selected: true` therefore never reached a standard V1 install, so the core
+  discarded every Selector choice on a cold start and the group fell back to its first member (an
+  airport `Expire: …` information node in practice).
+- `mihomoctl init` and the `--config` import path now write `profile.store-selected: true`,
+  preserving any other imported `profile` keys.
+- `mihomoctl controller initialize` backfills the key on an already configured controller. **This is
+  a one-time write to an existing installation** and reports `restart-required`; the controller
+  address and secret are carried over and never regenerated, and a second run is a byte-identical
+  no-op. The listener and port-conflict checks still run only while the controller is unconfigured.
+
+### Fixed: the process backend let the core inherit a permissive umask
+
+- The managed systemd unit already runs the core with `UMask=0077`, but the process backend inherited
+  the caller's shell umask, leaving `cache.db` and downloaded geodata at `0644`. `start()` now sets
+  `0077` around the spawn and restores the previous mask in a `finally`. An existing `cache.db`
+  becomes `0600` on the next start; its contents are unaffected.
+
+上一版证据不适用于本版。No 1.0.1/1.0.2/1.0.3 result approves this release. Publication still
+requires the tagged 1.0.4 commit's own two-platform CI, offline kits, acceptance reports and
+`verified: true` release gate.
+
 ## [1.0.3] - 2026-10-12
 
 无运行时行为变更。This patch completes the reviewed source release inventory

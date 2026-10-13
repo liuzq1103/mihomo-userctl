@@ -51,6 +51,22 @@ class DomainValues(unittest.TestCase):
             with self.subTest(cfg=cfg), self.assertRaises(ConfigError):
                 parse_endpoints(cfg)
 
+    def test_managed_config_persists_selector_choices(self):
+        """A managed config must carry store-selected explicitly.
+
+        Without it the core drops every Selector choice on the next start and
+        falls back to each group's first member — for an airport subscription
+        that is the "Expire:" information node.
+        """
+        from mihomoctl.config import compose_core_config
+        from mihomoctl.yamlutil import strict_load
+        cfg = strict_load(compose_core_config(17890, 'user', 'pw', 17891,
+                                              'private-controller-token-for-preview-fixture'))
+        self.assertIs(cfg['profile']['store-selected'], True)
+        # Still a valid managed layout: exactly one loopback controller.
+        _, controller = parse_endpoints(cfg)
+        self.assertEqual(controller.address, '127.0.0.1')
+
     def test_custom_templates_use_format_literals_and_reject_unknown_placeholders(self):
         from mihomoctl.integration import render_template
         value = 'secret"; injected=true; %2F\\tail'

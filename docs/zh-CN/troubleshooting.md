@@ -63,6 +63,34 @@ ss -lntp "sport = :$PROXY_PORT"
 常见原因：订阅失效、节点不可用、`config.yaml` 与 `client.env` 凭据不同、端口
 不同、READY URL 被规则阻断。诊断输出不会显示密码。
 
+## 重启后 select 组回落到第一个成员
+
+症状：`mihomoctl restart` 之后某个 Selector 组（例如 `Proxy`）又选中了列表第一个成员（机场订阅里通常是
+`Expire: …` 信息节点），必须重新执行一次 `mihomoctl select`。
+
+1. 先看配置有没有该键：
+
+```bash
+grep -A3 '^profile:' ~/.config/mihomoctl/mihomo/config.yaml
+```
+
+没有输出或没有 `store-selected: true`，说明托管配置缺这一项。`mihomoctl controller initialize`
+是幂等的，只补这一项，不会重新分配控制器端口或密钥：
+
+```bash
+mihomoctl controller initialize
+mihomoctl restart
+```
+
+2. 若配置里已经有 `store-selected: true` 却不生效，看核心工作目录能否写入（`cache.db` 存放在此）：
+
+```bash
+ls -l ~/.local/share/mihomoctl/core-home/cache.db
+```
+
+文件不存在、重启后 mtime 不变，或属主不是你，说明核心写不进去，选择自然无法保存。修好该目录的
+属主与权限（私有目录 `700`、文件 `600`）后再 `mihomoctl restart`。
+
 ## 端口被占用
 
 停止用户服务：

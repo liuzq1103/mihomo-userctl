@@ -133,6 +133,29 @@ def bridge_environment(scope):
                 os.environ[key] = old
 
 
+def bridge_forward(args, values, json_mode=False):
+    """Build the child argv for one bridged controller command.
+
+    Every synthesized option is *appended*, never spliced between the command
+    name and its values: the child parser takes the command values as a
+    ``nargs="*"`` positional, and argparse cannot match an optional that
+    precedes such a positional.  ``mihomoctl select GROUP NODE`` therefore
+    arrived at the child as ``select --config PATH GROUP NODE`` and was
+    rejected as ``invalid-options``.  ``--json`` and ``--home-dir`` follow the
+    same append-only rule; an option the caller already supplied wins.
+    """
+    passthrough = args and args[0] == "tui"
+    forward = list(args)
+    if json_mode and not passthrough and "--json" not in forward:
+        forward.append("--json")
+    if values.get("config") and "--config" not in forward:
+        forward.extend(["--config", values["config"]])
+    if values.get('home') and args[0] in ('tui', 'subscription', 'manual', 'override', 'health-check') \
+            and '--home-dir' not in forward:
+        forward.extend(['--home-dir', values['home']])
+    return forward
+
+
 def run_bridge(scope, args, json_mode=False):
     """Run one legacy controller command.  JSON mode captures output and
     re-emits it under the mihomoctl/v1 envelope; TUI passes through."""
@@ -144,16 +167,9 @@ def run_bridge(scope, args, json_mode=False):
             args[0] == 'controller' and args[1:] in (['setup'], ['initialize'], ['token']):
         scope.require_mutation()
     passthrough = args and args[0] == "tui"
-    forward = list(args)
-    if json_mode and not passthrough and "--json" not in forward:
-        forward.append("--json")
     with bridge_environment(scope) as values:
         token = runtime_application.set(app)
-        if values.get("config") and "--config" not in forward:
-            index = 1 if forward and not forward[0].startswith("-") else 0
-            forward[index:index] = ["--config", values["config"]]
-        if values.get('home') and args[0] in ('tui', 'subscription', 'manual', 'override', 'health-check') and '--home-dir' not in forward:
-            forward.extend(['--home-dir', values['home']])
+        forward = bridge_forward(args, values, json_mode)
         try:
             if passthrough or not json_mode:
                 code = controller.main(forward, app=app)

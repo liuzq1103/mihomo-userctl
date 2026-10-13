@@ -48,6 +48,9 @@ requires_service = unittest.skipIf(
 
 RUNTIME_FIELDS = ("core", "controller", "listeners", "config", "proxy_mode", "tun", "error")
 
+# Pure argv construction: importable on every platform, no runtime probe.
+from mihomoctl.legacy import bridge_forward
+
 
 class FakeContext(dict):
     """A stand-in for Application.context; attribute access must also work."""
@@ -422,6 +425,81 @@ class NoBashReentryTests(unittest.TestCase):
             with self.subTest(module=name):
                 for token in forbidden:
                     self.assertNotIn(token, text, "%s still references %s" % (name, token))
+
+
+class BridgeForwardTests(unittest.TestCase):
+    """Synthesized controller options are appended, never spliced before values.
+
+    The child parser takes command values as a ``nargs="*"`` positional and
+    argparse cannot match an optional that precedes such a positional.  When
+    ``run_bridge`` inserted ``--config`` at index 1, ``mihomoctl select GROUP
+    NODE`` arrived as ``select --config PATH GROUP NODE`` and was rejected as
+    ``invalid-options``; only a caller-written trailing ``--config`` worked.
+    """
+
+    CONFIG = "/srv/mihomoctl/mihomo/config.yaml"
+    HOME = "/srv/mihomoctl/core-home"
+
+    def parser(self):
+        from scripts.controller_types import COMMANDS, Parser
+        p = Parser()
+        p.add_argument("command", choices=COMMANDS)
+        p.add_argument("values", nargs="*")
+        p.add_argument("--json", action="store_true")
+        p.add_argument("--config")
+        p.add_argument("--home-dir")
+        return p
+
+    def values(self, **overrides):
+        base = {"config": self.CONFIG, "home": self.HOME}
+        base.update(overrides)
+        return base
+
+    def test_every_bridged_command_parses_with_the_synthesized_config(self):
+        cases = [
+            ("select", ["Ai+", "\U0001F1FA\U0001F1F8 美国-BGP-05"]),
+            ("latency", ["US-BGP-05"]),
+            ("mode", ["rule"]),
+            ("controller", ["status"]),
+            ("subscription", ["apply", "a" * 32, "b" * 64]),
+            ("nodes", []), ("groups", []), ("connections", []),
+            ("traffic", []), ("ui", []), ("dashboard", []),
+        ]
+        for command, expected in cases:
+            with self.subTest(command=command):
+                forward = bridge_forward([command, *expected], self.values())
+                parsed = self.parser().parse_args(forward)
+                self.assertEqual(parsed.command, command)
+                self.assertEqual(parsed.values, expected)
+                self.assertEqual(parsed.config, self.CONFIG)
+
+    def test_config_lands_after_the_values_not_before_them(self):
+        forward = bridge_forward(["select", "Ai+", "NODE"], self.values())
+        self.assertEqual(forward, ["select", "Ai+", "NODE", "--config", self.CONFIG])
+
+    def test_home_dir_is_appended_only_for_the_commands_that_take_it(self):
+        for command, takes_home in (("select", False), ("nodes", False),
+                                    ("tui", True), ("health-check", True)):
+            with self.subTest(command=command):
+                forward = bridge_forward([command, "grp", "NODE"], self.values())
+                self.assertEqual("--home-dir" in forward, takes_home)
+                self.assertEqual(self.parser().parse_args(forward).home_dir,
+                                 self.HOME if takes_home else None)
+
+    def test_caller_supplied_options_are_never_duplicated(self):
+        forward = bridge_forward(["select", "Ai+", "NODE", "--config", "/mine.yaml"],
+                                 self.values())
+        self.assertEqual(forward.count("--config"), 1)
+        self.assertEqual(self.parser().parse_args(forward).config, "/mine.yaml")
+
+    def test_json_is_appended_once_and_never_for_the_tui_passthrough(self):
+        forward = bridge_forward(["nodes"], self.values(), json_mode=True)
+        self.assertEqual(forward.count("--json"), 1)
+        self.assertNotIn("--json", bridge_forward(["tui"], self.values(), json_mode=True))
+
+    def test_a_legacy_fallback_without_a_managed_config_adds_no_config_option(self):
+        forward = bridge_forward(["nodes"], {"config": None, "home": self.HOME})
+        self.assertNotIn("--config", forward)
 
 
 @requires_service

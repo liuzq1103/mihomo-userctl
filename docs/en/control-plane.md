@@ -61,8 +61,10 @@ Automatic URLTest/Fallback/LoadBalance groups remain read-only. **Prefer `mihomo
 The fullscreen interface shows groups and nodes side by side, marking the current node with `[*]`.
 Use arrows to browse, Tab/left/right to switch panes, Enter to enter/select, r to refresh, t for latency,
 c for the first two active chains, f for a traffic sample, and q to quit. Groups refresh every five seconds.
-Use `mihomoctl tui --plain` for a numbered menu on narrow terminals or with screen readers. Existing connections are not forcibly closed. `profile.store-selected` enables
-persistence, which also requires the core working directory to remain writable.
+Use `mihomoctl tui --plain` for a numbered menu on narrow terminals or with screen readers. Existing connections are not forcibly closed. The managed
+configuration carries `profile.store-selected: true`; both `mihomoctl init` and `mihomoctl controller initialize` guarantee that key, so a selection
+survives a restart. Persistence still requires the core working directory (the `-d` core-home) to stay writable: when it is not, the core cannot update
+`cache.db` and every start falls back to each group's first member.
 
 **Group selection is not proof of every request's exit.** Rules, nested groups, load balancing and existing connections
 affect routing. `connections` reports active chains and rule types, omitting hostnames, IPs, process paths and rule payloads.

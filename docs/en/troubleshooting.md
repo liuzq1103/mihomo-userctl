@@ -67,6 +67,38 @@ ss -lntp "sport = :$PROXY_PORT"
 Typical causes are expired providers, unavailable nodes, listener credentials
 or ports differing from `client.env`, or policy blocking the readiness URL.
 
+## A select group falls back to its first member after a restart
+
+Symptom: after `mihomoctl restart`, a Selector group such as `Proxy` is back on the first member of its
+list — for an airport subscription that is usually the `Expire: …` information node — and you have to
+run `mihomoctl select` again.
+
+1. Check whether the managed configuration carries the key at all:
+
+```bash
+grep -A3 '^profile:' ~/.config/mihomoctl/mihomo/config.yaml
+```
+
+No output, or no `store-selected: true`, means the managed configuration never had it.
+`mihomoctl controller initialize` is idempotent and backfills only this key; it never reallocates the
+controller port or secret:
+
+```bash
+mihomoctl controller initialize
+mihomoctl restart
+```
+
+2. If `store-selected: true` is already present but the choice still resets, check that the core
+working directory is writable — `cache.db` lives there:
+
+```bash
+ls -l ~/.local/share/mihomoctl/core-home/cache.db
+```
+
+If the file is missing, its mtime does not move across a restart, or it is not owned by you, the core
+cannot update it and no selection can survive. Fix the ownership and mode of that directory (private
+directory `700`, files `600`), then run `mihomoctl restart`.
+
 ## Port remains occupied
 
 Perform only a read-only check. Do not kill unknown `ssh`/`sshd` or another
