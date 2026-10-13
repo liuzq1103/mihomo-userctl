@@ -114,14 +114,22 @@ class ProcessBackend:
         fd = os.open(str(log_path), os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         os.fchmod(fd, 0o600)
         log = os.fdopen(fd, 'ab', 0)
+        # The managed unit already runs the core with UMask=0077. Set the same
+        # mask here so the process backend does not let the core's geodata and
+        # cache.db inherit a permissive shell umask (0644). start() runs under
+        # the operation lock, so no concurrent thread observes this.
+        previous_umask = os.umask(0o077)
         try:
-            process = subprocess.Popen(
-                [binary, "-d", str(home), "-f", str(self.manager.core.config)],
-                stdout=log, stderr=log, stdin=subprocess.DEVNULL,
-                env=runner.child_environment(), start_new_session=True)
-        except OSError as exc:
-            log.close()
-            raise StateError("start-failed", str(exc.strerror or exc)) from None
+            try:
+                process = subprocess.Popen(
+                    [binary, "-d", str(home), "-f", str(self.manager.core.config)],
+                    stdout=log, stderr=log, stdin=subprocess.DEVNULL,
+                    env=runner.child_environment(), start_new_session=True)
+            except OSError as exc:
+                log.close()
+                raise StateError("start-failed", str(exc.strerror or exc)) from None
+        finally:
+            os.umask(previous_umask)
         log.close()
         identity = None
         try:

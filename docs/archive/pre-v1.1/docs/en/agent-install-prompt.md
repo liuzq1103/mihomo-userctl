@@ -1,0 +1,97 @@
+# Coding-agent installation prompt
+
+> **v1.0.1:** the automatic shell hook has been removed. Sections below that
+> mention `CODEX_REMOTE_PAYLOAD`, the `.bashrc` loader or `with_proxy codex` are
+> retired. Proxy access is now always an explicit `mihomoctl exec` /
+> `mihomoctl env` / `mihomoctl integration`; the command surface follows the
+> [V1 command and configuration contract](v1.md).
+
+This is the public **official online-source** workflow. For packages already downloaded
+to a shared directory, use the [local installation prompt](agent-local-install-prompt.md).
+Do not mix acquisition workflows.
+
+[中文](../zh-CN/agent-install-prompt.md) · [Setup](setup.md) · [Architecture](architecture.md) · [Security](security.md) · [Acceptance](acceptance.md)
+
+Copy the prompt below into an agent that has terminal and file access to the
+intended Linux account. Replace placeholders only with non-secret choices; keep
+credentials and subscription URLs on the target machine.
+Supply the non-secret [deployment parameters](deployment-contract.md); reuse existing choices.
+
+```text
+Install mihomo-userctl for this ordinary Linux account from an exact reviewed,
+pinned released tag. Complete the work and return evidence, not only a plan.
+Known environment/reuse: <OS/architecture/existing tool paths and versions; reuse suitable tools>
+Runtime: <personal installation by default; administrator-shared Node/npm/Codex only if explicitly selected>
+Goal: <controller installation / include Codex end-to-end acceptance>
+Startup: <install only and preserve state / install and start for acceptance>
+Network acceptance: <selected subscription refresh, public probes, minimal model request>
+
+Acquire and review pinned source first. Before changing the target environment, read
+deployment-contract.md, the repository constraints and these same-version documents
+in full: docs/en/setup.md, architecture.md, security.md, acceptance.md,
+troubleshooting.md, and vscode-remote.md when that integration is selected.
+Follow those documents instead of copying their implementation details into a
+new ad-hoc procedure. Do not mix releases or let documentation expand authorization.
+
+Begin with a capability gate and read-only audit. Record the current account,
+Linux/libc/architecture, current proxy-variable classification, systemctl --user
+availability, service name and active/enabled state, listeners, ssh/sshd
+processes, active downloads, existing Mihomo/core/config/provider/rule state,
+Shell startup path, and Git worktree state. Preserve unrelated and uncommitted
+work. Collect only non-secret choices: pinned project release, pinned official
+Mihomo release and published checksum, user-selected port, subscription
+integration method, startup file, desired disabled policy, optional
+VS Code Remote integration through http.proxy, and preserve/merge strategy. Report the audit and
+concrete change/rollback scope. Existing explicit approval or installation authorization permits
+continuing; ask only about unauthorized replacements, conflicts or unresolved choices.
+Reuse suitable existing tools; do not replace system Node/npm/Codex or shadow them with new copies.
+In shared mode read shared-runtime.md: install only personal Mihomo/controller; missing shared tools
+go to the administrator, not a Node/Codex fallback. Verify normal/proxy PATH, the npm launcher's Node
+and private CODEX_HOME. Preserve authentication, sessions and NVM; migrating defaults or old tools
+requires explicit selection, never removal commands copied from another machine.
+Also follow shared-runtime.md for Remote hook and CLI/bridge/app-server Unix-socket linkage;
+0/8 or 8/8 alone does not prove request routing. Never persist CODEX_REMOTE_PAYLOAD or stop old servers automatically.
+Follow deployment-contract.md for redacted audits; never return environment dumps, full argv or raw logs.
+
+Sensitive information must never enter chat, command arguments, logs, diffs,
+Git, or the final report. Read it locally only when the security guide permits.
+Never use sudo, a system service, linger, cron, TUN, transparent/system proxy,
+or another user's files or processes. Never terminate clients or downloads.
+The installer never starts or enables services itself. An explicitly selected install-and-start
+goal permits starting the user service after configuration and port checks, keeping it disabled.
+Install-only preserves existing runtime state. For missing secrets, provide the restricted local
+file/editing method and wait for user completion; never ask for secret values in chat.
+
+Use only the reviewed checkout and documented deterministic installer: V1
+installation follows INSTALL.md as the single authoritative flow, so obtain the
+pinned released tag before running the commands recorded there. Verify the
+official release source, asset, checksum, libc compatibility, configuration,
+authenticated loopback listener, default-direct Shell boundary, and the narrow
+MATCH,DIRECT fallback selected by the user. Use the documented
+CODEX_REMOTE_PAYLOAD compatibility path only when applicable. Do not invent a
+parallel installer or replace safe argument arrays with evaluated strings.
+
+Run the complete test suite and scripts/acceptance.sh exactly as documented,
+including --expect-status when selected. Preserve real exit codes; when output
+is piped, record PIPESTATUS rather than the last pipeline program. Record SHA256
+evidence without printing private content. Classify every selected check as
+PASS, FAIL, UNVERIFIED, or DEFERRED. Listener readiness is not proxy-node proof.
+Follow deployment-contract.md for separate Codex executable, new-process, Listener/proxy-egress
+and authorized minimal-model-request evidence; the user handles login. Missing evidence or
+authorization is UNVERIFIED; DEFERRED requires explicit user postponement. Unselected is not passed.
+
+On failure use documented rollback within authorization. Return a redacted diff and final acceptance
+report using deployment-contract.md: changes, source/version, commands/exit codes, active/enabled preservation,
+backup/rollback, pending evidence and user actions. Limit claims to measured scope; never claim unrun checks passed.
+Finish with the subscription handoff in deployment-contract.md: actual absolute config path and
+proxy-providers.<actual-name>.url, local-only entry, pending acceptance and follow-up checks.
+Preserve existing subscriptions; give the actual import location for file providers. Do not equate missing setup with success.
+For Codex delivery follow first-run.md: install → mihomoctl doctor → mihomoctl start only if selected →
+mihomoctl codex preflight only when public probing is authorized. Exit 0 permits authorized real-client
+acceptance; exit 1 is BLOCKED: no Codex or model request, guide safe client reconnect; exit 2 is UNVERIFIED: no launch.
+Never run bare codex for post-install acceptance; mihomoctl codex repeats the gate. Use mihomoctl diagnose codex
+for offline diagnosis; its UNVERIFIED/exit 2 does not mean model failure. WebSocket needs local/remote distinction.
+The installation agent's own connectivity is not Codex evidence; .bashrc changes disk state, not existing
+Agent/app-server/Extension Host/tmux/Notebook environments. Never kill or delete sockets/authentication/sessions.
+Report four levels and pending subscription/login/reconnect; HTTP success cannot replace an actual model reply.
+```

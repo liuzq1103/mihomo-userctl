@@ -12,9 +12,9 @@ temp_base=$(cd -- "${TMPDIR:-/tmp}" && pwd -P)
 scratch=$(mktemp -d "$temp_base/mihomo-userctl-audit.XXXXXX")
 [[ $scratch == "$temp_base"/mihomo-userctl-audit.* && -d $scratch && ! -L $scratch ]] || exit 2
 trap 'rm -rf -- "$scratch"' EXIT
-mkdir -p "$scratch/bin" "$scratch/fixture/tests" "$scratch/fixture/scripts"
+mkdir -p "$scratch/bin" "$scratch/fixture/tests" "$scratch/fixture/scripts/ci"
 cp "$root/tests/secret-scan.sh" "$scratch/fixture/tests/secret-scan.sh"
-cp "$root/scripts/secret_scan.py" "$scratch/fixture/scripts/secret_scan.py"
+cp "$root/scripts/ci/secret_scan.py" "$scratch/fixture/scripts/ci/secret_scan.py"
 passed=0
 
 check_failure() {

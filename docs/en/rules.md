@@ -1,31 +1,36 @@
-# Private custom rules
+# Custom rules
 
-[中文](../zh-CN/rules.md) · [Documentation](README.md) · [Setup](setup.md)
+Import a [subscription](subscriptions.md) first. Read `core.config` in your private manager.yaml and back up that active configuration before editing it. The current checker requires a group named exactly `Proxy`: ensure it exists and selects your intended remote node (not DIRECT). Names are case-sensitive. Provider policy imports may later replace groups/rules; review again after importing.
 
-`mihomo-userctl` keeps routing policy private and separate from the public project. The controller can inspect the documented layout, but it never creates rule files, edits `config.yaml`, restarts Mihomo, or uploads policy data.
+Create these three files, keeping existing user rules when adapting this example. Do not run the file-creation snippet over existing files without merging their contents. Directory permission must be 700 and file permissions 600. Paths are relative to the managed Mihomo HomeDir, not the repository or working directory.
 
-## Layout and permissions
-
-Place three files below the Mihomo HomeDir used by `mihomo -d`:
-
-```text
-<Mihomo HomeDir>/rules/custom-direct.yaml
-<Mihomo HomeDir>/rules/custom-proxy.yaml
-<Mihomo HomeDir>/rules/custom-reject.yaml
-```
-
-The `rules` directory must be owned by the current user with mode `700`; each file must be a regular, current-user-owned, non-symlink file with mode `600`. Start from the fictional files in `examples/rules/`; do not put real private rules in this repository.
-
-Each file uses Mihomo's classical provider format:
-
-```yaml
+Add/merge the YAML provider and rule sections below into the active core configuration. Preserve all existing listeners, authentication, controller settings, groups and unrelated providers. Put every custom RULE-SET before the final fallback. First-match ordering applies: reject, direct, proxy is the example order, not a universal policy. The domain example is illustrative and not a complete Codex endpoint list.
+```bash
+rules_dir="${XDG_DATA_HOME:-$HOME/.local/share}/mihomoctl/core-home/rules"
+install -d -m 700 "$rules_dir"
+umask 077
+cat > "$rules_dir/custom-direct.yaml" <<'YAML'
 payload:
-  - DOMAIN-SUFFIX,example.com
+  - DOMAIN,localhost
+YAML
+cat > "$rules_dir/custom-proxy.yaml" <<'YAML'
+payload:
+  - DOMAIN,api.openai.com
+YAML
+cat > "$rules_dir/custom-reject.yaml" <<'YAML'
+payload:
+  - DOMAIN,ads.example.com
+YAML
+chmod 600 "$rules_dir"/custom-*.yaml
 ```
 
-Reference them from `config.yaml` with these exact provider contracts:
+If Proxy does not exist after a nodes-only import, add the following group to the active core config. Replace YOUR_IMPORTED_NODE with an exact imported node name (inspect your private subscription or `mihomoctl nodes` after restart). If Proxy exists, edit its member list instead of duplicating it.
 
 ```yaml
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies: [YOUR_IMPORTED_NODE]
 rule-providers:
   custom-direct:
     type: file
@@ -42,43 +47,18 @@ rule-providers:
     behavior: classical
     format: yaml
     path: ./rules/custom-reject.yaml
-```
-
-The matching rules must appear before the final fallback:
-
-```yaml
 rules:
+  - RULE-SET,custom-reject,REJECT
   - RULE-SET,custom-direct,DIRECT
   - RULE-SET,custom-proxy,Proxy
-  - RULE-SET,custom-reject,REJECT
   - MATCH,DIRECT
 ```
 
-`Proxy` must be an existing proxy group. `DIRECT` and `REJECT` are Mihomo built-ins. Rules are evaluated from top to bottom, so a preceding `MATCH` would make later custom rules unreachable.
-
-## Read-only commands
-
 ```bash
-mihomoctl rules status
 mihomoctl rules status --json
-mihomoctl rules check
+mihomoctl rules check --json
+mihomoctl config validate
+mihomoctl restart
 ```
 
-Defaults are `${XDG_DATA_HOME:-$HOME/.local/share}/mihomo` and `${XDG_CONFIG_HOME:-$HOME/.config}/mihomo/config.yaml`. If the service uses different paths, state both explicitly rather than guessing:
-
-```bash
-mihomoctl rules check --home-dir /absolute/mihomo-home --config /absolute/config.yaml
-```
-
-`status` reports only filenames, counts, SHA-256 digests, modification times and permission status. It never prints rule entries. `check` also validates provider references, target groups, ordering, and runs the installed Mihomo binary with `-t`; all Mihomo output is suppressed because arbitrary configuration errors can contain private values.
-
-The exact semantic validation command is `mihomo -t -d <HomeDir> -f
-<config.yaml>`. This remains Mihomo's responsibility. `rules check` verifies
-only this project's narrow layout contract; it does not prove actual routing,
-provider downloads, policy selection, or node use.
-
-The structural check intentionally supports the documented block-style sections. Anchors, merges, flow mappings or other forms that it cannot classify safely produce exit `2`; rewrite only the relevant custom-provider sections into the documented form and run the check again. A missing final `MATCH` is a warning because the desired fallback remains the user's decision.
-
-Exit `0` means every required check passed, possibly with the documented fallback warning. Exit `1` means an observed file, provider, target, ordering or Mihomo configuration failure. Exit `2` means invalid arguments, unsafe paths, missing dependencies or an unsupported structure that could not be verified.
-
-Before changing private rules, make a private backup of the three files and `config.yaml`. After editing, run `mihomoctl rules check`. Whether to restart Mihomo remains a separate, explicit user action. Restore the backup and run the same check if validation fails.
+The checker uses the binary declared in manager.yaml, not another `mihomo` found on PATH. It only inspects files and invokes core validation, never rewrites configuration or restarts the runtime. JSON works for both status and check. A passing contract does not establish remote egress; perform [client verification](first-run.md).

@@ -317,6 +317,9 @@ def compose_core_config(port, username, password, controller_port, secret,
     """The initial managed core configuration: an authenticated loopback
     named mixed listener (per-listener ``users``; top-level authentication
     only covers legacy ports) plus an authenticated loopback controller.
+    ``profile.store-selected`` is emitted explicitly so Selector choices
+    survive a restart; relying on the core default leaves the first member —
+    often an airport ``Expire:`` information node — selected again.
     Routing policy (rules/proxies) is intentionally minimal and is the
     only area policy input may manage."""
     text = [
@@ -331,6 +334,8 @@ def compose_core_config(port, username, password, controller_port, secret,
         "        password: %s" % _quote(password),
         "external-controller: 127.0.0.1:%d" % controller_port,
         "secret: %s" % _quote(secret),
+        "profile:",
+        "  store-selected: true",
         "rules:",
         "  - MATCH,DIRECT",
     ]

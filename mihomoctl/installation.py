@@ -377,8 +377,7 @@ def cross_check_pyproject(source_root, manifest):
     values = parse_pyproject(Path(source_root) / "pyproject.toml")
     if values.get(("project", "version")) != manifest["version"]:
         raise InstallationError("source-version-markers-disagree", "pyproject.toml")
-    for name, marker in (("install.sh", "VERSION"), ("src/common.bash", "MIHOMO_USERCTL_VERSION"),
-                         ("mihomoctl/__init__.py", "__version__")):
+    for name, marker in (("mihomoctl/__init__.py", "__version__"),):
         try:
             text = (Path(source_root) / name).read_text(encoding="utf-8")
         except OSError:
@@ -1704,7 +1703,7 @@ def _write_recovery(backup):
     for name in ("__init__.py", "installation.py", "scope.py", "trust.py", "errors.py", "locks.py"):
         shutil.copyfile(Path(__file__).parent / name, package / name)
         os.chmod(package / name, 0o600)
-    bootstrap = Path(__file__).parents[1] / "scripts" / "bootstrap.py"
+    bootstrap = Path(__file__).with_name("bootstrap.py")
     if not bootstrap.is_file():
         raise InstallationError("recovery-bootstrap-missing", "install from a complete reviewed release")
     shutil.copyfile(bootstrap, backup / "bootstrap.py")

@@ -6,6 +6,7 @@ import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import signal
@@ -33,6 +34,30 @@ def unused_port():
 
 @unittest.skipUnless(CORE and sys.platform == "linux", "real Mihomo core required")
 class ProcessAcceptance(unittest.TestCase):
+    def test_documented_private_rules_with_manager_core_and_json(self):
+        root = Path(__file__).resolve().parents[1]
+        tutorial = (root / 'docs/en/rules.md').read_text()
+        shell = re.findall(r'```bash\n(.*?)```', tutorial, re.S)[0]
+        subprocess.run(['bash', '-c', shell], env=self.env, check=True, capture_output=True)
+        config = yaml.safe_load(self.core_path.read_text())
+        rules = yaml.safe_load(re.findall(r'```yaml\n(.*?)```', tutorial, re.S)[0])
+        rules['proxy-groups'][0]['proxies'] = ['fixture-node']
+        config['proxies'] = [{'name': 'fixture-node', 'type': 'direct'}]
+        config.update(rules)
+        self.core_path.write_text(yaml.safe_dump(config, sort_keys=False))
+        fake_bin = self.home / 'fake-bin'
+        fake_bin.mkdir(mode=0o700)
+        impostor = fake_bin / 'mihomo'
+        impostor.write_text('#!/bin/sh\nexit 99\n')
+        impostor.chmod(0o700)
+        self.env['PATH'] = str(fake_bin) + ':' + self.env['PATH']
+        home = self.home / 'data/mihomoctl/core-home'
+        before = {p.relative_to(home).as_posix(): p.read_bytes() for p in home.rglob('*') if p.is_file()}
+        result = self.cli('rules', 'check')
+        self.assertEqual(result['overall'], 'PASS')
+        self.assertEqual(result['data']['rules']['overall'], 'PASS')
+        self.assertEqual(before, {p.relative_to(home).as_posix(): p.read_bytes() for p in home.rglob('*') if p.is_file()})
+
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory(prefix="mihomoctl-real-user-")
         self.home = Path(self.folder.name)

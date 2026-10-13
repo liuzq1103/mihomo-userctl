@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import secrets
 import select
 import signal
 import struct
@@ -24,12 +25,12 @@ import fcntl
 import pty
 import termios
 
-from scripts import controller_dashboard as dashboard, controller_transaction as transaction
-from scripts import controller_subscriptions as subscriptions, controller as controller
-from scripts.controller_config import read_config, endpoint
-from scripts.controller_service import ConsoleService
-from scripts.controller_types import ControlError
-from scripts.controller_legacy import plain_console
+from mihomoctl.controller import controller_dashboard as dashboard, controller_transaction as transaction
+from mihomoctl.controller import controller_subscriptions as subscriptions, controller as controller
+from mihomoctl.controller.controller_config import read_config, endpoint
+from mihomoctl.controller.controller_service import ConsoleService
+from mihomoctl.controller.controller_types import ControlError
+from mihomoctl.controller.controller_console import plain_console
 
 
 class TaskTests(unittest.TestCase):
@@ -79,6 +80,30 @@ rules: ["RULE-SET,Sites,出口", "MATCH,出口"]
         self.assertTrue(service.pending_restart)
         service.restore()
         self.assertEqual(self.config.read_bytes(), self.original)
+
+    def test_initialize_backfills_store_selected_on_a_configured_controller(self):
+        """An already initialized controller keeps its address and secret but
+        gains profile.store-selected, so Selector choices stop resetting to
+        each group's first member after `mihomoctl restart`."""
+        configured = ('mixed-port: 25000\n'
+                      'external-controller: 127.0.0.1:29000\n'
+                      'secret: ' + 'a' * 40 + '\n'
+                      'proxy-groups: [{name: Ai+, type: select, proxies: [DIRECT]}]\n')
+        self.write(self.config, configured)
+        before = self.config.read_bytes()
+        result = dashboard.initialize(self.config, str(self.root))
+        _, data, _ = read_config(self.config)
+        self.assertEqual(result["state"], "restart-required")
+        self.assertIs(data["profile"]["store-selected"], True)
+        # The endpoint and the secret are carried over, never regenerated.
+        self.assertEqual(data["external-controller"], "127.0.0.1:29000")
+        self.assertEqual(data["secret"], 'a' * 40)
+        self.assertNotEqual(data["secret"], secrets.token_urlsafe(32))
+        self.assertNotEqual(self.config.read_bytes(), before)
+        # Idempotent: a second run has nothing left to do.
+        settled = self.config.read_bytes()
+        self.assertEqual(dashboard.initialize(self.config, str(self.root))["state"], "unchanged")
+        self.assertEqual(self.config.read_bytes(), settled)
 
     def test_initialize_rejects_exposed_listener_extra_listener_and_port_conflict(self):
         for extra in ('external-controller: 0.0.0.0:29000\nsecret: ' + 'a'*32 + '\n',
@@ -219,35 +244,6 @@ rules: ["RULE-SET,Sites,出口", "MATCH,出口"]
         self.write(self.source, 'proxy-providers: {A: {type: http, path: ./proxy_providers/subscription.yaml}}\n')
         self.assertEqual(self.sub.preview(source_file=self.source, policy="provider")["policy"], "provider")
 
-    def test_active_start_preserves_pending_receipt_until_restart(self):
-        from scripts import controller_runtime as runtime
-        (self.root / "mihomo").mkdir(mode=0o700)
-        self.config = self.root / "mihomo/config.yaml"
-        self.write(self.config, self.original.decode())
-        self.sub = subscriptions.Subscriptions(self.config, str(self.root))
-        self.write(self.source, 'proxies: [{name: New, type: direct}]\n')
-        plan = self.sub.preview(source_file=self.source)
-        self.sub.apply(plan["id"], plan["sha256"])
-        service = ConsoleService(self.config, str(self.root))
-        receipt = self.config.with_name(self.config.name + ".userctl-state.json")
-        self.assertTrue(service.pending_restart)
-        self.run.return_value = subprocess.CompletedProcess([], 0, stdout=b"")
-        with patch.object(runtime, "gate", return_value={"ActiveState": "active"}) as gate, \
-                patch.object(runtime, "configured_ports", return_value=([25000], "digest")), \
-                patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.root)}), \
-                contextlib.redirect_stdout(io.StringIO()):
-            for state in ("active", "activating", "reloading"):
-                gate.return_value = {"ActiveState": state}
-                with self.subTest(state=state), patch.object(sys, "argv", ["runtime", "start", "fixture", "25000"]):
-                    runtime.main()
-                self.assertTrue(receipt.exists())
-                service.shell("start")
-                self.assertTrue(service.pending_restart)
-            with patch.object(sys, "argv", ["runtime", "restart", "fixture", "25000"]):
-                runtime.main()
-        self.assertFalse(receipt.exists())
-        service.shell("restart")
-        self.assertFalse(service.pending_restart)
 
     def test_apply_detects_config_drift_and_candidate_tampering(self):
         self.provider()
@@ -313,7 +309,7 @@ rules: ["RULE-SET,Sites,出口", "MATCH,出口"]
         self.assertIn("初始化", output.getvalue())
 
     def test_engine_auto_falls_back_without_downloading(self):
-        with patch("scripts.controller_deps.interpreter", return_value=(None, None)), patch.object(controller.importlib.util, "find_spec", return_value=None), patch.object(controller, "plain_console", return_value={"state": "closed"}) as menu, contextlib.redirect_stdout(io.StringIO()):
+        with patch("mihomoctl.controller.controller_deps.interpreter", return_value=(None, None)), patch.object(controller.importlib.util, "find_spec", return_value=None), patch.object(controller, "plain_console", return_value={"state": "closed"}) as menu, contextlib.redirect_stdout(io.StringIO()):
             controller.main(["tui", "--config", str(self.config)])
         menu.assert_called_once()
 

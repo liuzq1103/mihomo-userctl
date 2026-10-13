@@ -33,9 +33,9 @@ if str(ROOT) not in sys.path:
 # checks below still run anywhere; the service-level suites skip when the module
 # cannot be imported so a non-Linux host reports skips instead of false failures.
 try:
-    from scripts import controller_service as service_module
-    from scripts.controller_service import ConsoleService
-    from scripts.controller_types import ControlError
+    from mihomoctl.controller import controller_service as service_module
+    from mihomoctl.controller.controller_service import ConsoleService
+    from mihomoctl.controller.controller_types import ControlError
     SERVICE_IMPORT_ERROR = None
 except (ImportError, OSError, ValueError) as error:  # pragma: no cover - platform gate
     service_module = None
@@ -47,6 +47,9 @@ requires_service = unittest.skipIf(
     ConsoleService is None, "runtime modules require Linux: " + str(SERVICE_IMPORT_ERROR))
 
 RUNTIME_FIELDS = ("core", "controller", "listeners", "config", "proxy_mode", "tun", "error")
+
+# Pure argv construction: importable on every platform, no runtime probe.
+from mihomoctl.bridge import bridge_forward
 
 
 class FakeContext(dict):
@@ -232,7 +235,7 @@ class ApplicationBridgeTests(unittest.TestCase):
 
     def test_worker_context_is_restored_after_domain_failure(self):
         from concurrent.futures import ThreadPoolExecutor
-        from scripts.controller_transaction import runtime_application
+        from mihomoctl.controller.controller_transaction import runtime_application
         app = FakeApplication()
         console = self.service(app)
         def preview(*args, **kwargs):
@@ -243,7 +246,7 @@ class ApplicationBridgeTests(unittest.TestCase):
             with self.assertRaises(ControlError):
                 console.policy()
             self.assertIsNone(runtime_application.get())
-        with mock.patch("scripts.controller_policy.policy_candidate", side_effect=preview):
+        with mock.patch("mihomoctl.controller.controller_policy.policy_candidate", side_effect=preview):
             with ThreadPoolExecutor(max_workers=1) as executor:
                 executor.submit(worker).result()
 
@@ -342,7 +345,7 @@ class RealApplicationBridgeTests(unittest.TestCase):
             overview = self.console.read("overview")
             self.assertEqual(overview["controller"], "connected", overview.get("error"))
             self.assertIs(self.console.client().app, self.app)
-            from mihomoctl.legacy import run_bridge
+            from mihomoctl.bridge import run_bridge
             environment = dict(os.environ)
             value, error = run_bridge(self.app.scope, ["nodes"], json_mode=True)
             self.assertIsNone(error)
@@ -380,11 +383,11 @@ class RetiredWorkloadTests(unittest.TestCase):
 class NoBashReentryTests(unittest.TestCase):
     """The interface layer must not shell out to the CLI for a decision."""
 
-    FILES = ("controller_service.py", "controller_textual.py", "controller_legacy.py")
+    FILES = ("controller_service.py", "controller_textual.py", "controller_console.py")
 
     def sources(self):
         for name in self.FILES:
-            yield name, (ROOT / "scripts" / name).read_text(encoding="utf-8")
+            yield name, (ROOT / "mihomoctl" / "controller" / name).read_text(encoding="utf-8")
 
     def test_no_module_spawns_the_bash_cli(self):
         for name, text in self.sources():
@@ -424,12 +427,87 @@ class NoBashReentryTests(unittest.TestCase):
                     self.assertNotIn(token, text, "%s still references %s" % (name, token))
 
 
+class BridgeForwardTests(unittest.TestCase):
+    """Synthesized controller options are appended, never spliced before values.
+
+    The child parser takes command values as a ``nargs="*"`` positional and
+    argparse cannot match an optional that precedes such a positional.  When
+    ``run_bridge`` inserted ``--config`` at index 1, ``mihomoctl select GROUP
+    NODE`` arrived as ``select --config PATH GROUP NODE`` and was rejected as
+    ``invalid-options``; only a caller-written trailing ``--config`` worked.
+    """
+
+    CONFIG = "/srv/mihomoctl/mihomo/config.yaml"
+    HOME = "/srv/mihomoctl/core-home"
+
+    def parser(self):
+        from mihomoctl.controller.controller_types import COMMANDS, Parser
+        p = Parser()
+        p.add_argument("command", choices=COMMANDS)
+        p.add_argument("values", nargs="*")
+        p.add_argument("--json", action="store_true")
+        p.add_argument("--config")
+        p.add_argument("--home-dir")
+        return p
+
+    def values(self, **overrides):
+        base = {"config": self.CONFIG, "home": self.HOME}
+        base.update(overrides)
+        return base
+
+    def test_every_bridged_command_parses_with_the_synthesized_config(self):
+        cases = [
+            ("select", ["Ai+", "\U0001F1FA\U0001F1F8 美国-BGP-05"]),
+            ("latency", ["US-BGP-05"]),
+            ("mode", ["rule"]),
+            ("controller", ["status"]),
+            ("subscription", ["apply", "a" * 32, "b" * 64]),
+            ("nodes", []), ("groups", []), ("connections", []),
+            ("traffic", []), ("ui", []), ("dashboard", []),
+        ]
+        for command, expected in cases:
+            with self.subTest(command=command):
+                forward = bridge_forward([command, *expected], self.values())
+                parsed = self.parser().parse_args(forward)
+                self.assertEqual(parsed.command, command)
+                self.assertEqual(parsed.values, expected)
+                self.assertEqual(parsed.config, self.CONFIG)
+
+    def test_config_lands_after_the_values_not_before_them(self):
+        forward = bridge_forward(["select", "Ai+", "NODE"], self.values())
+        self.assertEqual(forward, ["select", "Ai+", "NODE", "--config", self.CONFIG])
+
+    def test_home_dir_is_appended_only_for_the_commands_that_take_it(self):
+        for command, takes_home in (("select", False), ("nodes", False),
+                                    ("tui", True), ("health-check", True)):
+            with self.subTest(command=command):
+                forward = bridge_forward([command, "grp", "NODE"], self.values())
+                self.assertEqual("--home-dir" in forward, takes_home)
+                self.assertEqual(self.parser().parse_args(forward).home_dir,
+                                 self.HOME if takes_home else None)
+
+    def test_caller_supplied_options_are_never_duplicated(self):
+        forward = bridge_forward(["select", "Ai+", "NODE", "--config", "/mine.yaml"],
+                                 self.values())
+        self.assertEqual(forward.count("--config"), 1)
+        self.assertEqual(self.parser().parse_args(forward).config, "/mine.yaml")
+
+    def test_json_is_appended_once_and_never_for_the_tui_passthrough(self):
+        forward = bridge_forward(["nodes"], self.values(), json_mode=True)
+        self.assertEqual(forward.count("--json"), 1)
+        self.assertNotIn("--json", bridge_forward(["tui"], self.values(), json_mode=True))
+
+    def test_a_legacy_fallback_without_a_managed_config_adds_no_config_option(self):
+        forward = bridge_forward(["nodes"], {"config": None, "home": self.HOME})
+        self.assertNotIn("--config", forward)
+
+
 @requires_service
 class PageModelTests(unittest.TestCase):
     """The console page model: subscriptions and ProxyProfile are distinct."""
 
     def load(self):
-        path = ROOT / "scripts" / "controller_textual.py"
+        path = ROOT / "mihomoctl" / "controller" / "controller_textual.py"
         tree = ast.parse(path.read_text(encoding="utf-8"))
         values = {}
         for node in tree.body:
@@ -495,10 +573,10 @@ class RenderingTests(unittest.TestCase):
     """Presentation helpers must not invent a verdict."""
 
     def load_legacy(self):
-        sys.path.insert(0, str(ROOT / "scripts"))
+        sys.path.insert(0, str(ROOT / "mihomoctl" / "controller"))
         try:
-            from scripts import controller_legacy
-            return controller_legacy
+            from mihomoctl.controller import controller_console
+            return controller_console
         finally:
             sys.path.pop(0)
 
@@ -538,7 +616,7 @@ class CompletionTests(unittest.TestCase):
         """service/integration/core subcommand sets are part of the contract."""
         self.assertIn("'install start stop restart status uninstall'", self.text)
         self.assertIn("'list show check export install remove'", self.text)
-        self.assertIn("'install update version", self.text)
+        self.assertIn("'install update adopt list'", self.text)
         self.assertIn("'show export'", self.text)
 
     def test_retired_or_invented_surface_is_absent(self):
@@ -547,7 +625,7 @@ class CompletionTests(unittest.TestCase):
                      "'preview apply --json"):
             self.assertNotIn(word, self.text, word)
         # migrate is flag-driven, not subcommand-driven.
-        self.assertIn("'--dry-run --apply --json", self.text)
+        self.assertIn("'--dry-run --apply --remove-loader", self.text)
 
     def test_env_export_offers_binding_output_and_reveal(self):
         self.assertIn("--profile --binding --output --reveal", self.text)

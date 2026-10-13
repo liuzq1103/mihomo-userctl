@@ -7,7 +7,7 @@ import unittest
 if sys.platform != "linux" or importlib.util.find_spec("textual") is None:
     raise unittest.SkipTest("optional Textual test environment")
 
-from scripts.controller_textual import clearing_warnings, preview_summary, report_lines, Console
+from mihomoctl.controller.controller_textual import clearing_warnings, preview_summary, report_lines, Console
 from textual.widgets import DataTable, Input, Select, RichLog
 
 
@@ -204,6 +204,11 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertEqual(app.source_policy, "nodes")
             self.assertIsNone(app.preview)
+            # Textual suppresses clicks while the previous press animation is
+            # active, even after the worker result has been published. Wait for
+            # the actual button to accept input before requesting another review.
+            await self.wait_for(pilot, lambda: not app.query_one("#subscription-preview").has_class("-active"),
+                                "preview button ready after policy change")
             await pilot.click("#subscription-preview")
             await self.wait_for(pilot, lambda: app.preview is not None, "nodes preview published")
             self.assertEqual(len(service.calls), 2)
@@ -212,6 +217,8 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
             app.query_one("#source-kind", Select).value = "url"
             await pilot.pause()
             self.assertIsNone(app.preview)
+            await self.wait_for(pilot, lambda: not app.query_one("#subscription-preview").has_class("-active"),
+                                "preview button ready after source change")
             await pilot.click("#subscription-preview")
             await self.wait_for(pilot, lambda: app.preview is not None, "url preview published")
             self.assertEqual(len(service.calls), 3)

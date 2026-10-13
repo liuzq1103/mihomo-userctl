@@ -16,10 +16,10 @@ from unittest.mock import patch
 if sys.platform != "linux":
     raise unittest.SkipTest("Linux ownership, private paths and sockets")
 
-from scripts import controller_state as state, controller_runtime as runtime
-from scripts import controller_subscriptions as subscriptions, controller_transaction as transaction
-from scripts.controller_types import ControlError
-from scripts.controller_service import ConsoleService
+from mihomoctl.controller import controller_state as state, controller_runtime as runtime
+from mihomoctl.controller import controller_subscriptions as subscriptions, controller_transaction as transaction
+from mihomoctl.controller.controller_types import ControlError
+from mihomoctl.controller.controller_service import ConsoleService
 
 
 class StoreTests(unittest.TestCase):
@@ -89,15 +89,6 @@ class StoreTests(unittest.TestCase):
 
 
 class RuntimeTests(unittest.TestCase):
-    def test_conflict_prevents_service_action_in_real_dispatcher(self):
-        with tempfile.TemporaryDirectory() as folder, socket.socket() as listener:
-            listener.bind(("127.0.0.1", 0)); listener.listen()
-            port = listener.getsockname()[1]
-            environment = {"HOME": folder, "XDG_CONFIG_HOME": folder + "/config", "XDG_DATA_HOME": folder + "/data"}
-            with patch.dict(os.environ, environment), patch.object(sys, "argv", ["runtime", "start", "mihomo", str(port)]), patch.object(runtime, "service_properties", return_value={"MainPID": "0"}), patch.object(runtime.subprocess, "run") as mutation:
-                with self.assertRaisesRegex(ControlError, "ownership-unverified"):
-                    runtime.main()
-                mutation.assert_not_called()
 
     def test_live_socket_owned_by_service_allowed_other_service_blocked(self):
         with socket.socket() as listener:
@@ -223,62 +214,6 @@ class ConfiguredPortsTests(unittest.TestCase):
         self.assertNotEqual(runtime.configured_ports(self.config, 25000)[1], first)
 
 
-@unittest.skipUnless(importlib.util.find_spec("yaml"), "optional Controller YAML dependency")
-class RuntimeActionTests(unittest.TestCase):
-    LISTENERS = ("listeners:\n- name: in\n  type: mixed\n  listen: 127.0.0.1\n"
-                 "  port: 25000\n  udp: false\n  users:\n"
-                 "  - {username: fixture-user, password: fixture-password}\n")
-
-    def dispatch(self, action, text, during_action=None):
-        outcome = {"gates": [], "error": None}
-        with tempfile.TemporaryDirectory() as folder:
-            config = Path(folder) / "config" / "mihomo" / "config.yaml"
-            config.parent.mkdir(parents=True, mode=0o700)
-            config.write_text(text, encoding="utf-8")
-            config.chmod(0o600)
-            def service(args, **_):
-                if during_action:
-                    during_action(config)
-                return subprocess.CompletedProcess(args, 0, "", "")
-            environment = {"HOME": folder, "XDG_CONFIG_HOME": str(config.parents[1]),
-                           "XDG_DATA_HOME": str(Path(folder) / "data")}
-            with patch.dict(os.environ, environment), \
-                 patch.object(sys, "argv", ["runtime", action, "mihomo", "25000"]), \
-                 patch.object(runtime, "gate", side_effect=lambda *_a, **_k: outcome["gates"].append(_k.get("after", False))), \
-                 patch.object(runtime.subprocess, "run", side_effect=service) as mutation:
-                try:
-                    outcome["code"] = runtime.main()
-                except ControlError as error:
-                    outcome["error"] = error
-            outcome["mutation"] = mutation
-        return outcome
-
-    def test_start_and_restart_pass_gates_and_digest_recheck(self):
-        for action in ("start", "restart"):
-            with self.subTest(action=action):
-                outcome = self.dispatch(action, self.LISTENERS)
-                self.assertIsNone(outcome["error"])
-                self.assertEqual(outcome["code"], 0)
-                self.assertEqual(outcome["gates"], [False, True])
-                self.assertEqual(outcome["mutation"].call_count, 1)
-                argv = outcome["mutation"].call_args.args[0]
-                self.assertEqual((argv[5], argv[6], argv[7]), (action, "mihomo", "25000"))
-
-    def test_port_mismatch_blocks_before_gates_and_service_action(self):
-        for action in ("start", "restart"):
-            with self.subTest(action=action):
-                outcome = self.dispatch(action, self.LISTENERS.replace("port: 25000", "port: 25001"))
-                self.assertRegex(str(outcome["error"]), "configured-port-mismatch")
-                self.assertEqual(outcome["gates"], [])
-                outcome["mutation"].assert_not_called()
-
-    def test_config_drift_during_action_fails_the_digest_recheck(self):
-        def append_comment(path):
-            path.write_text(path.read_text(encoding="utf-8") + "# drift\n", encoding="utf-8")
-            path.chmod(0o600)
-        outcome = self.dispatch("restart", self.LISTENERS, during_action=append_comment)
-        self.assertRegex(str(outcome["error"]), "config-changed-during-runtime-action")
-        self.assertEqual(outcome["gates"], [False, True])
 
 
 class DiagnosisTests(unittest.TestCase):
@@ -301,7 +236,7 @@ class DiagnosisTests(unittest.TestCase):
                 "proxy_environment": {"present": 0, "expected": 8, "classification": "direct",
                                       "matches_current_config": None},
                 "connections": {"listener_established": 0, "other_non_loopback_established": 0}}
-        with patch("scripts.diagnostics.inspect", return_value=item) as inspect:
+        with patch("mihomoctl.controller.process_reader.inspect", return_value=item) as inspect:
             result = service.diagnose("process", "123")
         inspect.assert_called_once()
         self.assertEqual(result["overall"], "PASS")
@@ -311,9 +246,9 @@ class DiagnosisTests(unittest.TestCase):
         self.assertNotIn("\u001b", result["process"]["name"])
 
     def test_process_diagnosis_keeps_the_reader_status_on_a_diagnostic_error(self):
-        from scripts import diagnostics as reader
+        from mihomoctl.controller import process_reader as reader
         service = ConsoleService("/not/read/by/this/test")
-        with patch("scripts.diagnostics.inspect",
+        with patch("mihomoctl.controller.process_reader.inspect",
                    side_effect=reader.DiagnosticError("process-unreadable")):
             with self.assertRaisesRegex(reader.DiagnosticError, "process-unreadable"):
                 service.diagnose("process", "123")

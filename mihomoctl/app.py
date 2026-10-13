@@ -347,6 +347,13 @@ class Application:
             if "external-controller" not in cfg:
                 cfg["external-controller"] = "127.0.0.1:%d" % controller_port
                 cfg["secret"] = secret
+            # An imported config without store-selected silently drops every
+            # Selector choice on the next restart. Preserve the rest of the
+            # imported profile block and enforce just that key.
+            imported_profile = cfg.get("profile", {})
+            if not isinstance(imported_profile, dict):
+                raise ConfigError("config-invalid", "profile must be a mapping")
+            cfg["profile"] = dict(imported_profile, **{"store-selected": True})
             import yaml
             config_text = yaml.safe_dump(cfg, sort_keys=True, allow_unicode=False)
         else:
@@ -414,8 +421,7 @@ class Application:
                 "listener": listener, "backend": "systemd" if scope.system else "process",
                 "manager": str(scope.manager_path), "config": str(config_path),
                 "credentials": str(creds_path),
-                "core": {"binary": str(core), "adopted": True},
-                "username": username}
+                "core": {"binary": str(core), "adopted": True}}
 
 
 def _expected_uid(scope):
