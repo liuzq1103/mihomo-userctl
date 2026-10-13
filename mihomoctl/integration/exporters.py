@@ -49,8 +49,8 @@ def docker(proxy_env, binding):
         lines.append("%s=%s" % (key, variables[key]))
     snippet = "\n".join(lines) + "\n"
     compose = ("# docker-compose.yaml fragment (not deployed)\n"
-               "services:\n  %s:\n    env_file:\n      - ./mihomoctl-%s.env\n"
-               % (binding.name, binding.name))
+               "services:\n  %s:\n    env_file:\n      - ./docker.env\n"
+               % binding.name)
     return {"docker.env": snippet, "compose-fragment.yaml": compose,
             "connect_host": host}
 

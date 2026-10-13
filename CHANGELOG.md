@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0] - 2026-10-13
+
+- Separate packaged runtime/controller/recovery from release tools, CI checks and archived Bash/Paseo implementation. Legacy code and source tooling are excluded from wheels.
+- Centralize public CLI grammar, configuration-free help, generated completion/reference and drift checks. Remove fictitious core version completion; support rules check JSON and manager-selected core validation.
+- Rewrite bilingual homepages and installation/subscription/rules/Codex/verification/integration tutorials. Archive historical guidance and retain navigation redirects.
+- Make pyproject.toml the release version authority; validate runtime/manifest/docs/wheel copies and exact-commit build identity. Remove installer/Bash version-marker dependence.
+- v1.0.x upgrades require the verified v1.1.0 installer. Private user data and self-contained rollback are preserved; no implicit service actions, privilege escalation or shell hooks.
+
 ## [1.0.4] - 2026-10-13
 
 **Runtime behaviour fix.** `mihomoctl select` and the other bridge commands that take positional

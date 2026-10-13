@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mihomoctl"
-version = "1.0.4"
+version = "1.1.0"
 description = "User-level Mihomo runtime manager: proxy profiles, environment injection, runtime integration, health checks"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,11 +19,14 @@ tui = ["textual>=0.40"]
 mihomoctl = "mihomoctl.cli:main"
 
 [tool.setuptools]
-packages = ["mihomoctl", "mihomoctl.lifecycle", "mihomoctl.integration", "scripts"]
+packages = ["mihomoctl", "mihomoctl.lifecycle", "mihomoctl.integration", "mihomoctl.controller"]
 
 [tool.setuptools.package-data]
 mihomoctl = ["mihomo-digests.json"]
-scripts = ["dashboard.html", "textual-requirements.txt"]
+"mihomoctl.controller" = ["dashboard.html"]
 
 [tool.setuptools.cmdclass]
-build_py = "scripts.ReviewedBuildPy"
+build_py = "scripts.release.build_backend.ReviewedBuildPy"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

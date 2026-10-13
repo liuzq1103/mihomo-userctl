@@ -27,6 +27,8 @@ jobs:
         shell: bash --noprofile --norc -eo pipefail {0}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Use umask 022 for isolated regression
         run: |
           umask 022
@@ -48,6 +50,8 @@ jobs:
           python -m pip install --require-hashes --only-binary=:all: -r scripts/textual-requirements.txt
       - name: Syntax and reviewed-content checks
         run: |
+          python scripts/release/version.py --check
+          python scripts/ci/generate_interfaces.py --check
           rc=0
           python -m compileall -q mihomoctl scripts tests || rc=$?
           printf 'compileall_rc=%s\n' "$rc"
@@ -61,7 +65,7 @@ jobs:
           printf 'shellcheck_rc=%s\n' "$rc"
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
           rc=0
-          python scripts/secret_scan.py || rc=$?
+          python scripts/ci/secret_scan.py || rc=$?
           printf 'secret_scan_rc=%s\n' "$rc"
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
           rc=0
@@ -77,7 +81,7 @@ jobs:
       - name: Unit, controller and TUI regression
         run: |
           rc=0
-          python scripts/v1_ci.py --unit --report "$RUNNER_TEMP/unit.json" || rc=$?
+          python scripts/ci/v1_ci.py --unit --report "$RUNNER_TEMP/unit.json" || rc=$?
           printf 'unit_rc=%s\n' "$rc"
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
       - name: Prepare pinned real Mihomo binary
@@ -90,13 +94,13 @@ jobs:
       - name: Real core regression (mandatory)
         run: |
           rc=0
-          python scripts/v1_ci.py --real-core --core "$RUNNER_TEMP/mihomo" --report "$RUNNER_TEMP/real-core.json" || rc=$?
+          python scripts/ci/v1_ci.py --real-core --core "$RUNNER_TEMP/mihomo" --report "$RUNNER_TEMP/real-core.json" || rc=$?
           printf 'real_core_rc=%s\n' "$rc"
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
       - name: Build exact-commit artifacts and offline wheelhouse
         run: |
           rc=0
-          python scripts/build_release.py --output dist || rc=$?
+          python scripts/release/build_release.py --output dist || rc=$?
           printf 'build_release_rc=%s\n' "$rc"
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
           python -m pip download --only-binary=:all: --require-hashes -r requirements-lock.txt --dest "$RUNNER_TEMP/wheelhouse"
@@ -109,20 +113,22 @@ jobs:
       - name: Build complete target-specific offline kit
         run: |
           rc=0
-          python scripts/build_offline_bundle.py --artifacts dist --wheelhouse "$RUNNER_TEMP/wheelhouse" --target '${{ matrix.offline_target }}' --output dist || rc=$?
+          python scripts/release/build_offline_bundle.py --artifacts dist --wheelhouse "$RUNNER_TEMP/wheelhouse" --target '${{ matrix.offline_target }}' --output dist || rc=$?
           printf 'build_offline_bundle_rc=%s\n' "$rc"
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
       - name: Install, update and recover the delivered kit with networking disabled
         run: |
           kit=$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*-offline-${{ matrix.offline_target }}.tar.gz' -print)
           rc=0
-          sudo unshare --net -- sudo -u "$(id -un)" -- "$(command -v python)" "$GITHUB_WORKSPACE/scripts/verify_offline_bundle.py" --bundle "$kit" --target '${{ matrix.offline_target }}' --python "$(command -v python)" --report "$RUNNER_TEMP/offline-bundle-install.json" || rc=$?
+          sudo unshare --net -- sudo -u "$(id -un)" -- "$(command -v python)" "$GITHUB_WORKSPACE/scripts/release/verify_offline_bundle.py" --bundle "$kit" --target '${{ matrix.offline_target }}' --python "$(command -v python)" --report "$RUNNER_TEMP/offline-bundle-install.json" || rc=$?
           printf 'verify_offline_bundle_rc=%s\n' "$rc"
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
       - name: Offline install, update and self-contained recovery of full artifacts
         run: |
+          mkdir -m 700 "$RUNNER_TEMP/previous-source"
+          git archive 60cd461eec63d762660290d745e67729683420f9 | tar -x -C "$RUNNER_TEMP/previous-source"
           rc=0
-          python scripts/verify_artifact_install.py --artifacts dist --wheelhouse "$RUNNER_TEMP/wheelhouse" --python "$(command -v python)" --report "$RUNNER_TEMP/artifact-install.json" || rc=$?
+          python scripts/release/verify_artifact_install.py --artifacts dist --wheelhouse "$RUNNER_TEMP/wheelhouse" --python "$(command -v python)" --previous-source "$RUNNER_TEMP/previous-source" --report "$RUNNER_TEMP/artifact-install.json" || rc=$?
           printf 'verify_artifact_install_rc=%s\n' "$rc"
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
       - name: Real users, systemd and isolated TUN (mandatory)
@@ -131,13 +137,13 @@ jobs:
           sudo mkdir -p /dev/net
           if [ ! -e /dev/net/tun ]; then sudo mknod /dev/net/tun c 10 200; sudo chmod 666 /dev/net/tun; fi
           rc=0
-          sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin MIHOMO_V1_DISPOSABLE_VM=1 /usr/bin/python3 scripts/v1_ci.py --privileged --core "$RUNNER_TEMP/mihomo" --wheelhouse "$RUNNER_TEMP/wheelhouse" --report "$RUNNER_TEMP/privileged.json" || rc=$?
+          sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin MIHOMO_V1_DISPOSABLE_VM=1 /usr/bin/python3 scripts/ci/v1_ci.py --privileged --core "$RUNNER_TEMP/mihomo" --wheelhouse "$RUNNER_TEMP/wheelhouse" --report "$RUNNER_TEMP/privileged.json" || rc=$?
           printf 'privileged_rc=%s\n' "$rc"
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
       - name: Documentation links
         run: |
           rc=0
-          python scripts/check_docs_v1.py || rc=$?
+          python scripts/ci/check_docs_v1.py || rc=$?
           printf 'docs_rc=%s\n' "$rc"
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
       - name: Upload validation evidence
@@ -181,7 +187,7 @@ jobs:
         run: |
           umask 022
           rc=0
-          python3 scripts/verify_release.py --artifacts candidates/release-candidate-ubuntu-22.04 --offline-artifacts offline --evidence evidence --commit "$GITHUB_SHA" > release-gate.json || rc=$?
+          python3 scripts/release/verify_release.py --artifacts candidates/release-candidate-ubuntu-22.04 --offline-artifacts offline --evidence evidence --commit "$GITHUB_SHA" > release-gate.json || rc=$?
           printf 'verify_release_rc=%s\n' "$rc"
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
       - uses: actions/upload-artifact@v4

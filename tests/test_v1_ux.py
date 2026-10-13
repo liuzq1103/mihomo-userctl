@@ -33,9 +33,9 @@ if str(ROOT) not in sys.path:
 # checks below still run anywhere; the service-level suites skip when the module
 # cannot be imported so a non-Linux host reports skips instead of false failures.
 try:
-    from scripts import controller_service as service_module
-    from scripts.controller_service import ConsoleService
-    from scripts.controller_types import ControlError
+    from mihomoctl.controller import controller_service as service_module
+    from mihomoctl.controller.controller_service import ConsoleService
+    from mihomoctl.controller.controller_types import ControlError
     SERVICE_IMPORT_ERROR = None
 except (ImportError, OSError, ValueError) as error:  # pragma: no cover - platform gate
     service_module = None
@@ -49,7 +49,7 @@ requires_service = unittest.skipIf(
 RUNTIME_FIELDS = ("core", "controller", "listeners", "config", "proxy_mode", "tun", "error")
 
 # Pure argv construction: importable on every platform, no runtime probe.
-from mihomoctl.legacy import bridge_forward
+from mihomoctl.bridge import bridge_forward
 
 
 class FakeContext(dict):
@@ -235,7 +235,7 @@ class ApplicationBridgeTests(unittest.TestCase):
 
     def test_worker_context_is_restored_after_domain_failure(self):
         from concurrent.futures import ThreadPoolExecutor
-        from scripts.controller_transaction import runtime_application
+        from mihomoctl.controller.controller_transaction import runtime_application
         app = FakeApplication()
         console = self.service(app)
         def preview(*args, **kwargs):
@@ -246,7 +246,7 @@ class ApplicationBridgeTests(unittest.TestCase):
             with self.assertRaises(ControlError):
                 console.policy()
             self.assertIsNone(runtime_application.get())
-        with mock.patch("scripts.controller_policy.policy_candidate", side_effect=preview):
+        with mock.patch("mihomoctl.controller.controller_policy.policy_candidate", side_effect=preview):
             with ThreadPoolExecutor(max_workers=1) as executor:
                 executor.submit(worker).result()
 
@@ -345,7 +345,7 @@ class RealApplicationBridgeTests(unittest.TestCase):
             overview = self.console.read("overview")
             self.assertEqual(overview["controller"], "connected", overview.get("error"))
             self.assertIs(self.console.client().app, self.app)
-            from mihomoctl.legacy import run_bridge
+            from mihomoctl.bridge import run_bridge
             environment = dict(os.environ)
             value, error = run_bridge(self.app.scope, ["nodes"], json_mode=True)
             self.assertIsNone(error)
@@ -383,11 +383,11 @@ class RetiredWorkloadTests(unittest.TestCase):
 class NoBashReentryTests(unittest.TestCase):
     """The interface layer must not shell out to the CLI for a decision."""
 
-    FILES = ("controller_service.py", "controller_textual.py", "controller_legacy.py")
+    FILES = ("controller_service.py", "controller_textual.py", "controller_console.py")
 
     def sources(self):
         for name in self.FILES:
-            yield name, (ROOT / "scripts" / name).read_text(encoding="utf-8")
+            yield name, (ROOT / "mihomoctl" / "controller" / name).read_text(encoding="utf-8")
 
     def test_no_module_spawns_the_bash_cli(self):
         for name, text in self.sources():
@@ -441,7 +441,7 @@ class BridgeForwardTests(unittest.TestCase):
     HOME = "/srv/mihomoctl/core-home"
 
     def parser(self):
-        from scripts.controller_types import COMMANDS, Parser
+        from mihomoctl.controller.controller_types import COMMANDS, Parser
         p = Parser()
         p.add_argument("command", choices=COMMANDS)
         p.add_argument("values", nargs="*")
@@ -507,7 +507,7 @@ class PageModelTests(unittest.TestCase):
     """The console page model: subscriptions and ProxyProfile are distinct."""
 
     def load(self):
-        path = ROOT / "scripts" / "controller_textual.py"
+        path = ROOT / "mihomoctl" / "controller" / "controller_textual.py"
         tree = ast.parse(path.read_text(encoding="utf-8"))
         values = {}
         for node in tree.body:
@@ -573,10 +573,10 @@ class RenderingTests(unittest.TestCase):
     """Presentation helpers must not invent a verdict."""
 
     def load_legacy(self):
-        sys.path.insert(0, str(ROOT / "scripts"))
+        sys.path.insert(0, str(ROOT / "mihomoctl" / "controller"))
         try:
-            from scripts import controller_legacy
-            return controller_legacy
+            from mihomoctl.controller import controller_console
+            return controller_console
         finally:
             sys.path.pop(0)
 
@@ -616,7 +616,7 @@ class CompletionTests(unittest.TestCase):
         """service/integration/core subcommand sets are part of the contract."""
         self.assertIn("'install start stop restart status uninstall'", self.text)
         self.assertIn("'list show check export install remove'", self.text)
-        self.assertIn("'install update version", self.text)
+        self.assertIn("'install update adopt list'", self.text)
         self.assertIn("'show export'", self.text)
 
     def test_retired_or_invented_surface_is_absent(self):
@@ -625,7 +625,7 @@ class CompletionTests(unittest.TestCase):
                      "'preview apply --json"):
             self.assertNotIn(word, self.text, word)
         # migrate is flag-driven, not subcommand-driven.
-        self.assertIn("'--dry-run --apply --json", self.text)
+        self.assertIn("'--dry-run --apply --remove-loader", self.text)
 
     def test_env_export_offers_binding_output_and_reveal(self):
         self.assertIn("--profile --binding --output --reveal", self.text)

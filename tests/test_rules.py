@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from scripts import rules as r
+from mihomoctl.controller import rules as r
 
 
 GOOD_CONFIG = """mixed-port: 28443
@@ -154,9 +154,10 @@ class RuleTests(unittest.TestCase):
     def test_mihomo_failure_is_generic_and_redacted(self):
         secret = "private-value-that-must-not-print"
         failed = subprocess.CompletedProcess([], 1, secret, secret)
-        with patch.object(r.subprocess, "run", return_value=failed), \
+        with tempfile.TemporaryDirectory() as folder, \
+                patch('mihomoctl.lifecycle.runner.run_core', return_value=failed), \
                 self.assertRaises(r.RuleError) as caught:
-            r.config_test("mihomo", Path("/home"), Path("/config"))
+            r.config_test("mihomo", Path(folder), self.config())
         self.assertEqual(caught.exception.code, "mihomo-config-test-failed")
         self.assertNotIn(secret, str(caught.exception))
 
@@ -164,9 +165,10 @@ class RuleTests(unittest.TestCase):
         for failure in (FileNotFoundError("private path"),
                         subprocess.TimeoutExpired(["mihomo"], 60, output="private")):
             with self.subTest(failure=type(failure).__name__), \
-                    patch.object(r.subprocess, "run", side_effect=failure), \
+                    tempfile.TemporaryDirectory() as folder, \
+                    patch('mihomoctl.lifecycle.runner.run_core', side_effect=failure), \
                     self.assertRaises(r.RuleError) as caught:
-                r.config_test("mihomo", Path("/home"), Path("/config"))
+                r.config_test("mihomo", Path(folder), self.config())
             self.assertEqual(caught.exception.code, "mihomo-config-test-unverified")
 
     @unittest.skipUnless(os.name == "posix", "POSIX permission integration")
@@ -201,7 +203,7 @@ class RuleTests(unittest.TestCase):
             config.write_text(GOOD_CONFIG)
             config.chmod(0o600)
             mihomo = root / "mihomo"
-            mihomo.write_text("#!/bin/sh\nexit 0\n")
+            mihomo.write_text('#!/bin/sh\nwhile [ "$#" -gt 0 ]; do if [ "$1" = -d ]; then shift; echo cache-write > "$1/cache.db"; fi; shift; done\nexit 0\n')
             mihomo.chmod(0o700)
             before = {path: path.read_bytes() for path in list(rules.iterdir()) + [config]}
             output = io.StringIO()
@@ -210,6 +212,7 @@ class RuleTests(unittest.TestCase):
                 self.assertEqual(r.main(["check", "--home-dir", str(home),
                                          "--config", str(config)]), 0)
             self.assertNotIn(private, output.getvalue())
+            self.assertFalse((home / 'cache.db').exists(), 'validation must never write to live HomeDir')
             self.assertEqual(before, {path: path.read_bytes() for path in list(rules.iterdir()) + [config]})
 
 

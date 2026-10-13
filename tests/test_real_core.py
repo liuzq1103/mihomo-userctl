@@ -19,9 +19,9 @@ CORE = os.environ.get("MIHOMO_TEST_CORE")
 if sys.platform != "linux" or not CORE:
     raise unittest.SkipTest("set MIHOMO_TEST_CORE to an explicitly prepared test binary")
 
-from scripts.controller_service import ConsoleService
-from scripts.controller_subscriptions import Subscriptions
-from scripts import controller_runtime as runtime
+from mihomoctl.controller.controller_service import ConsoleService
+from mihomoctl.controller.controller_subscriptions import Subscriptions
+from mihomoctl.controller import controller_runtime as runtime
 
 
 class RealCoreTests(unittest.TestCase):
@@ -136,8 +136,8 @@ rules: ["MATCH,Entry"]
                 server.server_close()
 
     def test_initialize_and_provider_policy_validate_with_real_core(self):
-        from scripts.controller_dashboard import initialize
-        from scripts.controller_config import read_config, endpoint
+        from mihomoctl.controller.controller_dashboard import initialize
+        from mihomoctl.controller.controller_config import read_config, endpoint
         with tempfile.TemporaryDirectory(prefix="muc-real-policy-") as folder:
             root = Path(folder)
             config, source = root / "config.yaml", root / "provider.yaml"

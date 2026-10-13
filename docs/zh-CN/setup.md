@@ -1,385 +1,59 @@
-# 安装与首次启动
+# 安装并初始化 Mihomo
 
-> 以下保留 0.9.x 历史安装步骤，其中旧安装器和 hook 命令已经退役，不能用于 V1。
-> V1 源码/wheel 安装请遵循 [INSTALL.md](../../INSTALL.md)，再按[首次使用](first-run.md)初始化。
-
-> **v1.0.1 变更：**安装器不再写入任何 Shell 启动文件。
-> `--bashrc`、受管 loader 和 `CODEX_REMOTE_PAYLOAD` hook 已移除；
-> 命令面以 [V1 命令与配置契约](v1.md) 为准。
-> 本页保留完整手工步骤作为执行详细，
-> 命令名以 `v1.md` 为准。
-
-首次使用、WebSocket 报错或旧进程问题，先看[安装后第一次使用](first-run.md)。
-
-默认安装个人 Mihomo 和控制层，复用已有适用软件；其他工具按选择安装。
-仅明确选择管理员共享 Node/npm/Codex 时遵循[共享运行时规范](shared-runtime.md)，
-该模式下公共程序缺失/不兼容由管理员处理。公共存包目录不代表共享运行时。
-
-本页默认从官方在线来源获取软件。课题组已提前备包时，请先阅读
-[共享目录本地安装与下载清单](offline-install.md)，用该流程替代下文的下载/克隆步骤。
-
-这是一份“新 Linux 用户从零开始”的教程。顺序是：安装 Mihomo 核心 → 创建
-认证 Listener 和个人策略 → 创建用户服务 → 创建客户端凭据 → 安装
-`mihomo-userctl`。控制层本身不会替你下载或升级 Mihomo。
-
-不要把订阅 URL、Listener 用户名、密码或完整 `client.env` 提交到 Git、粘贴到
-issue，或直接写在命令参数中。项目没有默认端口；同一服务器上的每个用户必须
-选择不同端口。
-
-## 1. 只读预检
+先完成 [控制层安装与发布包核验](../../INSTALL.md)。要求 Linux 与 Python 3.10+；安装器不下载核心、不改 Shell 启动文件。当前终端临时加入 PATH：
 
 ```bash
-uname -s
-uname -m
-getconf LONG_BIT
-ldd --version 2>&1 | head -n 1
-bash --version | head -n 1
-systemctl --user show-environment >/dev/null && echo 'systemd user manager: ready'
-command -v curl gzip sha256sum ss journalctl openssl
-proxy_var_count=0
-for name in http_proxy https_proxy all_proxy no_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY; do
-  [[ -n ${!name:-} ]] && proxy_var_count=$((proxy_var_count + 1))
-done
-printf 'proxy_vars_present=%s/8\n' "$proxy_var_count"
+export PATH="$HOME/.local/bin:$PATH"
+mihomoctl version
 ```
 
-期望 Linux、64 位、Bash 5+，并且候选端口没有未知监听。若 systemd 用户管理器
-不可用、端口归属不明或某一步需要 sudo，先停止；本教程不授权使用管理员账户。
+## 复用已有核心
 
-## 2. 从官方 Release 安装 Mihomo
-
-只从 [MetaCubeX/mihomo 官方 Releases](https://github.com/MetaCubeX/mihomo/releases)
-选择固定版本和与 CPU/指令集匹配的资产。不要把教程示例理解为“永远最新版”。
-
-核心不限定精确版本，可复用已有 Mihomo，以配置校验和 API 能力判断兼容性。
-下面是经过固定的 amd64 compatible 示例：Mihomo `v1.19.30`，资产
-`mihomo-linux-amd64-compatible-v1.19.30.gz`，SHA256
-`db214c7a2517e63c150d123178d16d102e03a241ccdae4e5e07ffbe9cf56c6f9`。
-其他版本或架构必须从对应官方 Release 重新取得摘要，不能复用这个值。
+核心须为绝对路径、可执行、由本人或 root 拥有，且不能被组或其他用户写入。初始化会验证副本，保留原始配置和核心：
 
 ```bash
-umask 077
-install -d -m 700 "$HOME/.local/bin"
-install -d -m 700 "$HOME/.local/share/mihomo/downloads"
-
-MIHOMO_VERSION='v1.19.30'
-MIHOMO_ASSET='mihomo-linux-amd64-compatible-v1.19.30.gz'
-MIHOMO_SHA256='db214c7a2517e63c150d123178d16d102e03a241ccdae4e5e07ffbe9cf56c6f9'
-MIHOMO_DOWNLOAD_DIR=$(mktemp -d "$HOME/.local/share/mihomo/downloads/install.XXXXXX")
-
-curl --fail --location --proto '=https' --tlsv1.2 \
-  "https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VERSION}/${MIHOMO_ASSET}" \
-  --output "$MIHOMO_DOWNLOAD_DIR/$MIHOMO_ASSET"
-
-printf '%s  %s\n' "$MIHOMO_SHA256" "$MIHOMO_DOWNLOAD_DIR/$MIHOMO_ASSET" \
-  | sha256sum --check --strict
-
-gzip --decompress --stdout "$MIHOMO_DOWNLOAD_DIR/$MIHOMO_ASSET" \
-  > "$MIHOMO_DOWNLOAD_DIR/mihomo.candidate"
-chmod 755 "$MIHOMO_DOWNLOAD_DIR/mihomo.candidate"
-"$MIHOMO_DOWNLOAD_DIR/mihomo.candidate" -v
+mihomoctl init --core /absolute/path/to/mihomo
 ```
 
-只有摘要显示 `OK` 且候选版本正确时才安装。已有正式二进制时先备份，再用同一
-文件系统中的候选原子替换；不要边下载边覆盖活动文件。
+如果需要导入已有配置，改为只执行下面一次初始化：
 
 ```bash
-if [[ -e "$HOME/.local/bin/mihomo" ]]; then
-  cp -p "$HOME/.local/bin/mihomo" \
-    "$HOME/.local/bin/mihomo.backup.$(date +%Y%m%d-%H%M%S)"
-fi
-mv "$MIHOMO_DOWNLOAD_DIR/mihomo.candidate" "$HOME/.local/bin/mihomo"
-chmod 755 "$HOME/.local/bin/mihomo"
-"$HOME/.local/bin/mihomo" -v
+mihomoctl init --core /absolute/path/to/mihomo --config /absolute/path/to/config.yaml
 ```
 
-## 3. 获取控制层源码并选择用户专属端口
+不要在已有 manager 上重复 init。导入会保留路由策略；初始化后检查私有活动配置和 listener 认证。
 
-调用本项目的任何脚本前，先在当前用户拥有的目录中获取并审阅固定版本。
-例如：
+## 显式安装固定版本核心
+
+支持的 Linux 架构可使用仓库内维护的固定摘要；只有显式执行才下载：
 
 ```bash
-MIHOMO_USERCTL_REF='REPLACE_WITH_APPROVED_TAG_OR_FULL_COMMIT'
-git clone --no-checkout \
-  https://github.com/liuzq1103/mihomo-userctl.git "$HOME/mihomo-userctl"
-cd "$HOME/mihomo-userctl"
-git remote -v
-git checkout --detach "$MIHOMO_USERCTL_REF"
-git rev-parse HEAD
+mihomoctl core install --version v1.19.32
+mihomoctl core list
+mihomoctl init --core "${XDG_DATA_HOME:-$HOME/.local/share}/mihomoctl/cores/v1.19.32/mihomo"
 ```
 
-先把引用占位符替换为已审核、包含验收脚本的固定已发布标签，并核对其 commit；
-如需使用尚未发布的改进，必须明确批准固定的完整 commit 并记录来源偏差。
-旧标签可能不含本教程的新验收脚本，不得沿用旧标签后声称新检查已通过。
+没有 manager 时 `core install` 仅保存核验后的核心，需要按示例明确 init；已有 manager 时会通过受保护事务激活新核心。其他版本须用 `--sha256` 提供独立核验过的压缩包摘要；未知版本没有摘要会拒绝。摘要匹配不代表上游签名验证或可复现构建。
 
-如果目标目录已存在，应先检查并复用，不要直接覆盖。不使用 `curl | bash`。
-本文后续命令均假定当前目录是这份已验证的代码检出。
-
-在 `mihomo-userctl` 仓库根目录运行只读建议器：
+## 启动与实际路径
 
 ```bash
-PROXY_PORT=$(./install.sh --suggest-port)
-printf '候选端口=%s\n' "$PROXY_PORT"
-ss -lnt "sport = :$PROXY_PORT"
-```
-
-建议器从 `20000–29999` 中、以当前 UID 推导的位置为起点寻找当时未监听的
-候选值，但不会绑定或预留它。必须由用户确认，与同服务器其他用户协调，并在
-启动 Mihomo 前再次运行 `ss`。不同用户不能同时绑定相同的回环地址和端口；
-认证只能减少误用，不能解决端口绑定冲突。
-
-也可以把 `PROXY_PORT` 改为用户选择的其他 `1024–65535` 端口。应避开现有代理
-软件的惯用端口和 `ss` 已显示的任何端口。
-
-## 4. 创建私有目录和 Listener 凭据
-
-```bash
-install -d -m 700 "$HOME/.config/mihomo"
-install -d -m 700 "$HOME/.local/share/mihomo"
-install -d -m 700 "$HOME/.local/share/mihomo/proxy_providers"
-install -d -m 700 "$HOME/.local/share/mihomo/backups"
-install -d -m 700 "$HOME/.config/systemd/user"
-```
-
-在服务器本地生成随机用户名和至少 32 字节随机密码。推荐只使用十六进制，避免
-URL 百分号编码错误：
-
-```bash
-openssl rand -hex 8
-openssl rand -hex 32
-```
-
-把输出直接填入本地权限 `600` 的文件，不要贴回聊天或公开日志。用户名和密码
-要同时填入 Mihomo `config.yaml` 与后面的 `client.env`。
-
-## 5. 创建 `config.yaml`
-
-用本地编辑器创建 `~/.config/mihomo/config.yaml`，然后立即 `chmod 600`。完整
-最小结构如下；把三个 `replace-...` 占位符替换为本地敏感信息：
-
-```yaml
-allow-lan: false
-mode: rule
-log-level: info
-ipv6: false
-
-listeners:
-  - name: authenticated-loopback
-    type: mixed
-    listen: 127.0.0.1
-    port: PORT_SELECTED_BY_USER
-    udp: false
-    users:
-      - username: replace-with-local-username
-        password: replace-with-local-password
-
-proxy-providers:
-  subscription:
-    type: http
-    url: "replace-with-private-subscription-url"
-    path: ./proxy_providers/subscription.yaml
-    interval: 86400
-    proxy: DIRECT
-    size-limit: 5242880
-    health-check:
-      enable: true
-      url: https://www.gstatic.com/generate_204
-      interval: 600
-
-proxy-groups:
-  - name: Proxy
-    type: url-test
-    use: [subscription]
-    url: https://www.gstatic.com/generate_204
-    interval: 600
-
-rules:
-  - DOMAIN-SUFFIX,github.com,Proxy
-  - DOMAIN-SUFFIX,chatgpt.com,Proxy
-  - DOMAIN-SUFFIX,api.openai.com,Proxy
-  - DOMAIN-SUFFIX,openai.com,Proxy
-  - DOMAIN-SUFFIX,google.com,Proxy
-  - MATCH,DIRECT
-```
-
-关键约束：没有全局 `mixed-port`、TUN 或系统路由修改；安装器可补齐仅绑定本机且有随机密钥的
-`external-controller`，Dashboard 为可选项。代理 Listener 只绑定 `127.0.0.1` 且必须认证；provider 缓存位于 Mihomo
-HomeDir；最后固定 `MATCH,DIRECT`。上面的域名和 `Proxy` 组只是通用示例，不是
-项目内置策略。数据集、科研站点、订阅节点和其他自定义路由必须由每位用户在
-自己的 Mihomo 配置中维护，不能写成公共项目的专属要求。
-需要长期维护较多个人规则时，采用[三文件私有规则契约](rules.md)及其只读检查，
-不要继续把个人数据加入公共示例。
-
-```bash
-chmod 600 "$HOME/.config/mihomo/config.yaml"
-"$HOME/.local/bin/mihomo" -t \
-  -d "$HOME/.local/share/mihomo" \
-  -f "$HOME/.config/mihomo/config.yaml"
-```
-
-配置测试失败时不要创建或启动服务。错误输出如含 provider 信息，分享前脱敏。
-
-运行配置测试前，把 `PORT_SELECTED_BY_USER` 替换为刚确认的纯数字端口。
-
-`mihomoctl start`/`restart` 会在动作前复核该端口：`type: mixed` listener 的
-`port` 必须是与 `mihomo-shell.conf` 中 `MIHOMO_PORT` 完全一致的纯整数，不一致
-即阻断动作。若存在旧式顶层 `mixed-port` 键，则以它为准，不再查看 listeners；
-只保留单一端口来源，不要两种写法混用。
-
-## 6. 创建用户级 systemd service
-
-创建 `~/.config/systemd/user/mihomo.service`：
-
-```ini
-[Unit]
-Description=User-level Mihomo proxy
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=%h/.local/bin/mihomo -d %h/.local/share/mihomo -f %h/.config/mihomo/config.yaml
-Restart=on-failure
-RestartSec=5s
-NoNewPrivileges=true
-PrivateTmp=true
-UMask=0077
-
-[Install]
-WantedBy=default.target
-```
-
-以下启动步骤仅适用于用户明确选择“安装并启动验收”的情况。默认只安装并保留已有运行
-状态；不启动、不停止已有服务。启动前配置测试必须通过，且重新确认端口。已有 enabled
-状态先报告并澄清，不擅自禁用；完整授权和验收边界见[交付约定](deployment-contract.md)。
-
-```bash
-chmod 644 "$HOME/.config/systemd/user/mihomo.service"
-systemctl --user daemon-reload
-systemctl --user start mihomo
-systemctl --user is-active mihomo
-systemctl --user is-enabled mihomo
-ss -lntp "sport = :$PROXY_PORT"
-```
-
-期望 `active`、`disabled`，且只看到 `127.0.0.1:$PROXY_PORT`。绝不执行 `enable`、
-`loginctl enable-linger`、`sudo systemctl`，也不创建系统级 unit。重启或停电后
-服务不自动运行是设计目标，不是故障。
-
-## 7. 创建 `client.env`
-
-创建 `~/.config/mihomo/client.env`，使用与 Listener 完全相同的用户名、密码和
-端口：
-
-```ini
-MIHOMO_HTTP_PROXY='http://username:password@127.0.0.1:PORT_SELECTED_BY_USER'
-MIHOMO_HTTPS_PROXY='http://username:password@127.0.0.1:PORT_SELECTED_BY_USER'
-MIHOMO_ALL_PROXY='socks5h://username:password@127.0.0.1:PORT_SELECTED_BY_USER'
-```
-
-```bash
-chmod 600 "$HOME/.config/mihomo/client.env"
-stat -c '%U %a %n' "$HOME/.config/mihomo/config.yaml" \
-  "$HOME/.config/mihomo/client.env"
-```
-
-如果不是十六进制凭据，URL 用户信息必须正确百分号编码。不要 `source`
-`client.env`；`mihomo-userctl` 会用白名单解析它。
-
-把三处 `PORT_SELECTED_BY_USER` 替换为同一个已确认数字端口；它们必须与 Mihomo
-Listener 完全一致。
-
-## 8. 安装 `mihomo-userctl`
-
-在仓库根目录先测试，再 dry-run：
-
-```bash
-bash tests/test.sh
-python3 -m unittest discover -s tests -p 'test_*.py' -v
-bash tests/audit-test.sh
-bash tests/docs-test.sh
-bash tests/secret-scan.sh
-# v1.0.0 安装器不接受 --bashrc，也不写启动文件。
-./install.sh --dry-run --port "$PROXY_PORT"
-./install.sh --port "$PROXY_PORT"
-```
-
-安装器不会启动或 enable 服务，不会覆盖现有 `client.env`，
-**也不会修改 `.bashrc` / `.zshrc` / `profile`**；首次使用不依赖登录态 Shell 的任何配置，
-代理接入始终是显式的 `mihomoctl exec` / `mihomoctl env` / binding。
-
-写入活动文件前，安装器会在 `~/.local/share/mihomo-userctl-backups/` 中创建权限 `700`
-的事务备份。如果最后的 `mihomoctl doctor` 失败，安装器会自动恢复原有控制器、模块、
-补全和非敏感配置，并保留备份供排查。
-
-## 9. 验收
-
-按[安装验收与证据要求](acceptance.md)执行，保留真实退出码与观察值：
-
-```bash
-proxy_status
-mihomoctl doctor
-mihomoctl ready
-systemctl --user is-enabled mihomo
-
-acceptance_rc=0
-bash scripts/acceptance.sh \
-  --url https://www.gstatic.com/generate_204 --expect-status 204 \
-  || acceptance_rc=$?
-printf 'acceptance_rc=%s\n' "$acceptance_rc"
-```
-
-脚本需要 Python 3.8+，只执行不会停服的 Listener 基线检查，并输出
-PASS / FAIL / UNVERIFIED / DEFERRED。正常基线通过后仍有端到端待验证项时，
-退出码为 2，不等于安装失败。不要只检查管道末尾命令的退出码。
-
-新普通 Shell 应为 direct，服务 active 且 disabled。脚本核对实际 HTTP 状态、
-本地对端、无认证 HTTP 的 407，以及 SOCKS5 明确拒绝无认证方法；网络失败不算
-认证拒绝。还需独立验证 `mihomoctl exec` 的隔离与 fail-closed 门禁、下载连接和
-可选 VS Code，不能由脚本的 Listener 结果推断它们已经通过。
-v1.0.0 已无 Shell loader/hook，**不应再验证 loader 或 hook**；若目录中仍有旧标记块，
-请用 `mihomoctl migrate --dry-run` 先预览，再显式执行 `mihomoctl migrate --apply`，
-它只移除能确证属于本项目的 loader，其余字节保留并备份。
-
-此示例中的 `gstatic.com` 命中 `MATCH,DIRECT`。它可验证 Listener 请求，
-不能证明 Proxy 节点可用；需另选已获批且命中 Proxy 的目标，关联脱敏路由证据。
-小文件下载成功不能代替 S3 或大文件的实测。
-
-### 可选：VS Code Remote
-
-终端 `mihomoctl exec` 验收成功，并不代表 VS Code
-Extension Host 会继承同一环境。需要在 VS Code Remote 中使用 Codex 扩展时，
-继续读取 [VS Code Remote 推荐配置](vscode-remote.md)；旧版的 Remote hook
-接入已退役，现在只有显式配置路径。该步骤必须单独选择，
-会把认证 URL 写入远程 Machine Settings，并可能影响其他遵循该设置的扩展；
-普通 Shell 和大型下载仍保持直连。
-
-## 10. 停止、重启与回滚
-
-```bash
-mihomoctl stop
+mihomoctl config validate
 mihomoctl start
-mihomoctl restart
-mihomoctl logs --lines 100
+mihomoctl status
+mihomoctl health check
 ```
 
-`stop` 端口未释放时只会报错，不会杀进程。要回滚已成功安装的控制层，
-使用[更新指南](update.md)中本次备份的精确恢复命令，不要混用不同版本模块；回滚
-Mihomo 二进制使用步骤 2 的精确备份；配置或 unit 回滚前
-先停止用户服务，再恢复自己的备份、运行 `mihomo -t` 和 `daemon-reload`。
+默认 user/process，不需要 root 或 systemd；init 不启动进程。修改配置后先验证，再显式 restart。可选 `service install` 切换到受管 systemd 后端，但不会 enable 或启动。system 作用域必须前置明确的 `--system` 并由管理员执行，工具不会调用 sudo。
 
-回滚不能引入新的外部隧道，也不能清理无关 Listener。当前用户明确范围之外的
-对象一律保持不变。
+| 用途 | 用户路径（XDG 默认值） |
+| --- | --- |
+| Manager | `$XDG_CONFIG_HOME/mihomoctl/manager.yaml`，默认 `~/.config/mihomoctl/manager.yaml` |
+| 活动核心配置 | 默认 `~/.config/mihomoctl/mihomo/config.yaml`，以 manager 的 `core.config` 为准 |
+| 凭据 | `~/.config/mihomoctl/profiles/` |
+| 核心 HomeDir | `$XDG_DATA_HOME/mihomoctl/core-home`，默认 `~/.local/share/mihomoctl/core-home` |
+| 日志与备份 | `$XDG_STATE_HOME/mihomoctl/`，默认 `~/.local/state/mihomoctl/` |
+| 缓存 | `$XDG_CACHE_HOME/mihomoctl/`，默认 `~/.cache/mihomoctl/` |
+| 运行态 | `$XDG_RUNTIME_DIR/mihomoctl/`；未设置时回退私有 state/runtime |
 
-安装前备份与 after-test 快照不是一回事；全新文件须记录原先不存在。先停服，
-再恢复二进制/配置并验证；彻底撤销全新安装时最后才移除二进制。控制层卸载
-会保留核心、unit 和配置，详见[回滚顺序](acceptance.md#5-回滚顺序)。
-
-后续仅更新控制层请使用[更新指南](update.md)或[更新 Prompt](agent-update-prompt.md)。
-安装与更新需要 Python 3.10+。命令面、配置文件与安全边界见
-[V1 命令与配置契约](v1.md)。
-
-## v0.7 Control Plane
-
-需要查看或切换节点时，按[节点管理与面板](control-plane.md)启用独立认证 loopback controller。
-快速安装入口见[固定链接安装](quick-install.md)。这些功能不绕过 Codex preflight，也不改变普通 Shell 默认直连。
+默认新配置为 `MATCH,DIRECT`。接下来依次阅读 [订阅](subscriptions.md)、[规则](rules.md)、[实际验证](first-run.md)。

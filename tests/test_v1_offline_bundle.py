@@ -13,8 +13,8 @@ import tempfile
 import unittest
 import zipfile
 
-from scripts import build_release, build_offline_bundle, verify_offline_bundle
-from scripts import verify_artifact_install
+from scripts.release import build_release, build_offline_bundle, verify_offline_bundle
+from scripts.release import verify_artifact_install
 
 if sys.platform == "linux":
     from mihomoctl import installation
@@ -162,8 +162,7 @@ class OfflineBundleTests(unittest.TestCase):
 if sys.platform == "linux":
     class PreflightTests(InstallationTestBase):
         def test_all_source_markers_missing_duplicate_or_wrong_fail_before_writes(self):
-            for name, marker in (("install.sh", "VERSION"), ("src/common.bash", "MIHOMO_USERCTL_VERSION"),
-                                 ("mihomoctl/__init__.py", "__version__"), ("pyproject.toml", "version")):
+            for name, marker in (("mihomoctl/__init__.py", "__version__"), ("pyproject.toml", "version")):
                 path = self.source / name
                 original = path.read_text()
                 assignment = next(line for line in original.splitlines() if re.match(r"^" + marker + r"\s*=", line))

@@ -4,7 +4,7 @@ from pathlib import Path
 import stat
 import sys
 
-__version__ = '1.0.4'
+__version__ = '1.1.0'
 SCHEMA = 'mihomoctl/v1'
 
 
@@ -21,9 +21,6 @@ def _validate_runtime():
     root = Path(__file__).absolute().parent
     owners = {0} if uid == 0 else {0, uid}
     paths = list(root.rglob('*.py')) + [root]
-    scripts = root.parent / 'scripts'
-    if scripts.is_dir():
-        paths += list(scripts.glob('*.py')) + [scripts]
     checked = set()
     for path in paths:
         for item in (path, *path.parents):

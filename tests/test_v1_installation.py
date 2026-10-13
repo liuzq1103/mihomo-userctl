@@ -10,7 +10,7 @@ Covers the installation product contract:
 - default user scope; system scope requires explicit opt-in and root;
 - existing Mihomo cores are never adopted or replaced.
 
-Filesystem tests require Linux and run under scripts/v1_ci.py --unit from
+Filesystem tests require Linux and run under scripts/ci/v1_ci.py --unit from
 the private source copy.  The module imports mihomoctl.locks (fcntl), so
 everything is Linux-gated.
 """
@@ -108,9 +108,7 @@ def write_source(root, version="1.0.0", *, entry=installation.ENTRY_POINT,
     (root / "mihomoctl").mkdir(parents=True)
     (root / "mihomoctl" / "__init__.py").write_text(
         '__version__ = "%s"\n' % (init_version or version), encoding="utf-8")
-    (root / "src").mkdir()
-    (root / "src" / "common.bash").write_text('MIHOMO_USERCTL_VERSION="%s"\n' % version, encoding="utf-8")
-    (root / "install.sh").write_text('VERSION="%s"\n' % version, encoding="utf-8")
+    (root / "install.sh").write_text('# fixture installer entry\n', encoding="utf-8")
     (root / "mihomoctl" / "cli.py").write_text(FIXTURE_CLI, encoding="utf-8")
     (root / "mihomoctl" / "lifecycle").mkdir()
     (root / "mihomoctl" / "lifecycle" / "__init__.py").write_text(
@@ -894,21 +892,10 @@ class InstallerSecurityRegressionTests(InstallationTestBase):
         finally:
             os.umask(original)
 
-    def test_archived_installation_entries_refuse_before_any_change(self):
-        before = self.snapshot_home()
-        entries = (
-            ("bootstrap.py", ["--version", "v0.9.3", "--port", "7890"]),
-            ("scripts/offline_install.py", ["install", "--bundle-dir", str(self.base)]),
-            ("scripts/update.py", ["--version", "v0.9.3"]),
-            ("scripts/migrate.py", ["--version", "v0.9.3", "--bashrc", str(self.home / ".bashrc")]),
-        )
-        for relative, args in entries:
-            result = subprocess.run([sys.executable, "-I", str(ROOT / relative), *args],
-                                    env=dict(os.environ), capture_output=True, text=True, timeout=15)
-            self.assertEqual(result.returncode, 2, relative + ": " + result.stderr)
-            self.assertIn("legacy-installation-entry-retired", result.stderr)
-            self.assertEqual(self.snapshot_home(), before)
-            self.assertFalse(self.paths.install_root.exists())
+    def test_archived_code_is_not_a_runtime_payload(self):
+        manifest = installation.load_manifest(ROOT)
+        self.assertTrue(all(not name.startswith(('legacy/', 'src/', 'scripts/'))
+                            for name in manifest['inventory']['runtime_files']))
 
     def test_untrusted_interpreter_is_rejected_before_execution(self):
         marker = self.base / "executed"
@@ -993,7 +980,7 @@ class RealProjectPackagingTests(InstallationTestBase):
         project.mkdir(mode=0o700)
         manifest = installation.load_manifest(ROOT)
         selected = set(manifest["inventory"]["runtime_files"]) | {
-            "pyproject.toml", "README.md", "LICENSE", "release-manifest.json", "install.sh", "src/common.bash"}
+            "pyproject.toml", "README.md", "LICENSE", "release-manifest.json", "install.sh", "scripts/__init__.py", "scripts/release/__init__.py", "scripts/release/build_backend.py"}
         for relative in sorted(selected - {"release-manifest.json"}):
             target = project / relative
             target.parent.mkdir(parents=True, exist_ok=True)

@@ -12,12 +12,12 @@ from unittest.mock import MagicMock, patch
 
 if sys.platform == "win32":
     with patch.dict(sys.modules, {"fcntl": MagicMock()}):
-        from scripts import controller_health as health, controller_transaction as tx
-        from scripts.controller_service import ConsoleService, proxies, select
-        from scripts import controller
+        from mihomoctl.controller import controller_health as health, controller_transaction as tx
+        from mihomoctl.controller.controller_service import ConsoleService, proxies, select
+        from mihomoctl.controller import controller
 else:
-    from scripts import controller_health as health, controller_transaction as tx, controller
-    from scripts.controller_service import ConsoleService, proxies, select
+    from mihomoctl.controller import controller_health as health, controller_transaction as tx, controller
+    from mihomoctl.controller.controller_service import ConsoleService, proxies, select
 ControlError = health.ControlError
 import yaml
 
@@ -225,10 +225,10 @@ rules: ["MATCH,Entry"]
             self.assertEqual(Path(saved["backup"]).read_bytes(), self.original.encode())
             with self.assertRaisesRegex(ControlError, "preview-required"):
                 service.health_check(apply=True)
-            with patch("scripts.controller_service.subprocess.run", return_value=subprocess.CompletedProcess([], 0, stdout=b"")) as run:
+            with patch("mihomoctl.controller.controller_service.subprocess.run", return_value=subprocess.CompletedProcess([], 0, stdout=b"")) as run:
                 value = service.journal(since="2026-10-10 21:09", until="2026-10-10 21:14")
             self.assertEqual(value["state"], "no-records-in-window")
             self.assertIn("2026-10-10 21:09", run.call_args[0][0])
-            with patch("scripts.controller_service.subprocess.run", return_value=subprocess.CompletedProcess([], 1, stdout=b"")):
+            with patch("mihomoctl.controller.controller_service.subprocess.run", return_value=subprocess.CompletedProcess([], 1, stdout=b"")):
                 with self.assertRaisesRegex(ControlError, "journal-unavailable"):
                     service.journal()

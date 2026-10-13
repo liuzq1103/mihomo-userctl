@@ -17,7 +17,8 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from scripts import build_release, secret_scan, verify_release
+from scripts.release import build_release, verify_release
+from scripts.ci import secret_scan
 
 
 class PublishGateTests(unittest.TestCase):
@@ -43,7 +44,9 @@ class PublishGateTests(unittest.TestCase):
         for ubuntu in ("22.04", "24.04"):
             self.save(self.report_path(ubuntu, "artifact-install"), {
                 "commit": self.commit, "publishable_acceptance": True, "success": True,
-                "tests": 3, "skipped": 0, "artifact_sha256": hashes})
+                "tests": 4, "skipped": 0, "artifact_sha256": hashes,
+                "previous_upgrade": {"result": "PASS", "previous_version": "1.0.3", "version": "1.0.0",
+                                     "self_contained_rollback": True, "protected_files_unchanged": True}})
             target = "ubuntu" + ubuntu + "-x86_64-py" + ("310" if ubuntu == "22.04" else "312")
             payload = {"release/" + name: (self.artifacts / name).read_bytes()
                        for name in (*hashes, "SHA256SUMS", "build-receipt.json")}
@@ -126,7 +129,7 @@ class PublishGateTests(unittest.TestCase):
         path = self.report_path("22.04", "artifact-install")
         original = json.loads(path.read_text())
         for changes in ({"commit": "b" * 40}, {"publishable_acceptance": False},
-                        {"tests": 2}, {"success": False}):
+                        {"tests": 2}, {"success": False}, {"previous_upgrade": {}}):
             self.save(path, dict(original, **changes))
             with self.subTest(changes=changes), self.assertRaises(verify_release.GateError):
                 self.verify()
@@ -183,17 +186,11 @@ class ReleaseInventoryTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "linux", "Linux installation inventory")
     def test_legacy_payload_references_and_reviewed_source_inventory_cover_each_other(self):
         from mihomoctl import installation
-        from scripts import install_support
         root = Path(__file__).resolve().parents[1]
         manifest = installation.load_manifest(root)
-        files = set(manifest["inventory"]["files"])
-        runtime = set(install_support.RUNTIME)
-        # Docs, tests and V1 modules also belong to files: equality of the
-        # entire source inventory and the legacy payload would be incorrect.
-        declared_payload = {name for name in files if name in runtime and (root / name).is_file()}
-        self.assertSetEqual(runtime, declared_payload)
         installation.verify_inventory(root, manifest)
-        self.assertNotIn("scripts/paseo.py", manifest["inventory"]["runtime_files"])
+        self.assertTrue((root / "legacy/v0.9/scripts/paseo.py").is_file())
+        self.assertTrue(all(name.startswith('mihomoctl/') for name in manifest['inventory']['runtime_files']))
 
     @unittest.skipUnless(sys.platform == "linux", "Linux package trust permissions")
     def test_real_builder_normalizes_git_archive_modes_under_group_writable_umask(self):
@@ -227,7 +224,7 @@ class ReleaseInventoryTests(unittest.TestCase):
                 command = [sys.executable, "-c",
                            "import os,runpy,sys; os.umask(0o002); "
                            "path=sys.argv.pop(1); runpy.run_path(path,run_name='__main__')",
-                           str(repository / "scripts" / "build_release.py"), "--output", str(output)]
+                           str(repository / "scripts" / "release" / "build_release.py"), "--output", str(output)]
                 if mode == "worktree":
                     command.append("--worktree")
                 completed = subprocess.run(command, text=True, capture_output=True, timeout=180,
@@ -246,18 +243,17 @@ class ReleaseInventoryTests(unittest.TestCase):
                     self.assertEqual((repository / name).stat().st_mode & 0o777, identity[0])
                     self.assertEqual(hashlib.sha256((repository / name).read_bytes()).hexdigest(), identity[1])
             # Exercise the real builder's version gate, before wheel creation.
-            for name, marker in (("install.sh", "VERSION"), ("src/common.bash", "MIHOMO_USERCTL_VERSION"),
-                                 ("mihomoctl/__init__.py", "__version__")):
+            for name, marker in (("mihomoctl/__init__.py", "__version__"),):
                 path = repository / name
                 previous = path.read_bytes()
                 invalid = re.sub(r"(?m)^" + marker + r"\s*=.*$", marker + '="0.9.3"', previous.decode())
                 path.write_text(invalid, encoding="utf-8")
                 output = Path(folder) / ("bad-" + name.replace("/", "-"))
-                completed = subprocess.run([sys.executable, repository / "scripts/build_release.py",
+                completed = subprocess.run([sys.executable, repository / "scripts/release/build_release.py",
                                             "--worktree", "--output", output],
                                            text=True, capture_output=True, timeout=60)
                 self.assertNotEqual(completed.returncode, 0)
-                self.assertIn("source-version-markers-disagree", completed.stderr)
+                self.assertIn("release-version-mismatch", completed.stderr)
                 self.assertFalse(list(output.glob("*.whl")))
                 path.write_bytes(previous)
 

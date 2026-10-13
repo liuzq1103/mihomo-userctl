@@ -1,201 +1,97 @@
 # mihomoctl
 
-**A Mihomo lifecycle and proxy configuration CLI for personal users and server
-administrators, with explicit proxy integration and verification.**
+mihomoctl manages a user-level Mihomo runtime on Linux, injects authenticated proxy environments, and connects applications through declarative bindings.
 
-[中文](README.md) · [Installation](INSTALL.md) · [V1 command and configuration contract](docs/en/v1.md) ·
-[English docs](docs/en/README.md)
+[简体中文](README.md)
 
-The V1 domain model has four layers: **Proxy Profile + Environment Injection +
-Runtime Integration + Health Check**. The core carries no application-specific code.
+## When to use it
 
-## Three things to know first
+Use it on servers, development machines and CI to explicitly route selected commands or applications through a configured Mihomo proxy. The user process backend works without systemd; systemd management is optional.
 
-1. **The installer writes no shell startup file.** No `.bashrc`, `.zshrc` or
-   `profile` edit, no aliases, no functions. First use does not depend on a login shell.
-2. **Environment variables are inherited at process creation; they are not a
-   continuous policy.** A running process does not change because configuration
-   changed, and this tool never restarts a third-party process for you.
-3. **This tool does not manage third-party application lifecycles.** systemd
-   drop-ins, env files, container and CI configuration are only exported or
-   written; it never enables, starts, stops or restarts someone else's unit.
+It supplies no subscription service and cannot force clients to honor proxy variables. It does not manage Codex/Paseo application lifecycles. Machine-wide transparent routing requires an administrator's explicit system scope and TUN configuration.
 
-## Why it exists
+## Requirements and stable version
 
-- A program on a remote server cannot connect: it needs its own explicit proxy access.
-- A shared server: each Linux account manages its own config, credentials and ports,
-  without touching global proxy settings.
-- Only some commands should use the proxy: `mihomoctl exec` sets the variables for
-  that one process.
-- A background service should use the proxy: `mihomoctl integration install`
-  writes the configuration and you schedule the restart.
-- The proxy is up but something still fails: separate core, controller, listener,
-  config, mode and TUN instead of one vague verdict.
+<!-- stable-version: 1.1.0 -->
+Current stable version: **1.1.0**. Requires Linux, Python 3.10+, PyYAML 6.0.1+, and Bash for the installer. Supply Mihomo separately or install it explicitly. Textual is optional; a plain terminal menu is available by default. On Windows, run inside Linux/WSL.
 
-## Non-goals
+## Quick Start
 
-- **No third-party daemon lifecycle management**; the old application-specific
-  commands are retired — see the [retirement mapping](docs/en/v1.md#13-retired-commands).
-- **No desktop GUI**; the browser panel is an optional local entry point.
-- **No general YAML editor.**
-- **No rootless strong UID network isolation**; authentication is a credential
-  boundary, not a cross-UID firewall.
-- **Environment variables are not a network enforcement policy.**
-- **Readiness passing is not model end-to-end success.**
-- **No takeover of your crontab**, no overwrite-style automatic updates.
-- **No killing processes of unconfirmed ownership**, including to free a port.
-
-## Quick start
+Follow [INSTALL.md](INSTALL.md) to verify the release and install the controller with its dependencies. With an existing trusted Mihomo binary:
 
 ```bash
-# 1. Install the control layer (see INSTALL.md)
-mihomoctl version
-
-# 2. First run: default user scope, default process backend, no root needed
+export PATH="$HOME/.local/bin:$PATH"
 mihomoctl init --core /absolute/path/to/mihomo
-
-# 3. Start the runtime (default process backend)
 mihomoctl start
+mihomoctl health check
+mihomoctl exec -- curl --fail --head https://example.com
+```
 
-# 4. Status: always seven facts
+The initial routing rule is `MATCH,DIRECT`: this checks the local proxy path, not remote-node routing. Continue with subscriptions and rules.
+
+## Initialize and start Mihomo
+
+`init` creates private configuration and an authenticated loopback listener. It neither downloads a core nor starts a service. Import existing configuration with `init --config`, then explicitly `start`; explicitly `restart` after changes. See [setup](docs/en/setup.md) for fixed-version core installation and XDG paths.
+
+## Configure subscriptions
+
+Save subscription content in a private file, preview the candidate, review its ID and SHA256, apply it, then explicitly restart. Pass a subscription URL through a private file; never put its credentials in arguments.
+
+```bash
+mihomoctl subscription preview --source-file "$HOME/private/subscription.yaml" --policy nodes
+```
+
+The [subscription tutorial](docs/en/subscriptions.md) explains auto/nodes/provider modes and digest validation.
+
+## Configure custom rules
+
+Import subscriptions first. Create three private rule files, reference their providers in the active configuration, and put their rules before the fallback. The current checker requires a group named `Proxy`.
+
+```bash
+mihomoctl rules check --json
+```
+
+The [rule tutorial](docs/en/rules.md) includes paths, permissions and complete snippets. The checker is read-only; saving configuration and restarting remain explicit.
+
+## Launch Codex through the proxy
+
+Install Codex separately and ensure `codex` is on PATH. These commands inject an environment into the new child process:
+
+```bash
+mihomoctl exec -- codex
+mihomoctl exec -- codex --help
+mihomoctl exec -- codex "检查当前项目"
+mihomoctl direct -- codex
+```
+
+`exec` refuses to launch when local health checks fail. `direct` clears eight proxy variables. Remote-node routing still depends on client behavior, NO_PROXY and destination rules. See [first run and verification](docs/en/first-run.md).
+
+## Connect systemd, containers and CI
+
+Declare bindings in manager.yaml, then use `integration check/export/install`. systemd consumes a private environment file; containers need an explicitly reachable address; CI integration only exports configuration. Follow the complete [integration tutorial](docs/en/operations/integrations.md). Operators restart third-party services themselves.
+
+## Status and troubleshooting
+
+```bash
 mihomoctl status
-
-# 5. Proxy profiles (redacted)
-mihomoctl profile list
-
-# 6. Run one command through the proxy
-mihomoctl exec -- curl --head https://example.com/
+mihomoctl health check
+mihomoctl doctor
+mihomoctl logs --lines 50
 ```
 
-Full procedure: [INSTALL.md](INSTALL.md) and the [setup guide](docs/en/setup.md).
+A reachable listener, selected node or successful external probe alone cannot prove that Codex used a remote node. Check runtime state, authenticated proxy access, destination routing and the actual client request in sequence; see [verification](docs/en/first-run.md).
 
-## Scope
+## Safety boundaries
 
-| | User (default) | System |
-| --- | --- | --- |
-| Selected by | omitted | explicit `--system` |
-| Backend | `process` by default | `systemd` required |
-| Root | not needed | UID 0 required |
-| TUN | **unavailable** | `sudo mihomoctl --system tun enable` only |
-
-`--user` and `--system` are mutually exclusive. UID 0 is **not** promoted
-automatically: root without `--system` may inspect user paths; mutations
-are refused. The tool **never self-escalates and never uses sudo**.
-
-## Command surface
-
-```text
-mihomoctl init --core PATH [--config FILE] [--port PORT] [--allow-non-loopback ADDRESS]
-mihomoctl [--user|--system] start | stop | restart
-mihomoctl [--user|--system] status [--json]
-mihomoctl logs [--lines N] [--follow]
-mihomoctl doctor [--json]
-mihomoctl config validate [--file FILE] [--profile NAME] | check
-
-mihomoctl service install | start | stop | restart | status
-mihomoctl service uninstall [--dry-run]
-mihomoctl profile list | show NAME | validate NAME | set-default NAME
-mihomoctl exec [--profile NAME | --binding NAME] -- COMMAND [ARGS...]
-mihomoctl direct -- COMMAND [ARGS...]
-mihomoctl env show [--profile NAME | --binding NAME] [--reveal] [--json]
-mihomoctl env export [--profile NAME | --binding NAME] (--output PATH | --reveal)
-
-mihomoctl integration list | show NAME | check NAME
-mihomoctl integration export NAME | install NAME | remove NAME
-mihomoctl health check [--profile NAME | --binding NAME] [--egress-url URL] [--json]
-mihomoctl tun status | enable | disable        # enable/disable require --system
-
-mihomoctl core install --version VERSION [--sha256 DIGEST]
-mihomoctl core update --version VERSION [--sha256 DIGEST] [--dry-run]
-mihomoctl version
-mihomoctl migrate [--dry-run] [--apply] [--core PATH] [--remove-loader] [--no-import]
-mihomoctl rollback BACKUP
-mihomoctl update
-
-# retained control plane
-mihomoctl controller status | tui | nodes | groups | select GROUP NODE
-mihomoctl connections | traffic | latency NODE | subscription preview | apply
-mihomoctl rules status | check
-```
-
-Full parameters: [docs/en/v1.md](docs/en/v1.md).
-
-## What `status` always reports
-
-Core, controller, **every** listener, the active config, the proxy layer, the Mihomo
-routing mode, TUN, and errors. Any missing fact renders as `unknown` / `UNVERIFIED`;
-incomplete data is **never** rendered as healthy.
-
-## Health and evidence
-
-`mihomoctl health` applies to the runtime only, never to a workload. Checks use
-`PASS` / `FAIL` / `UNVERIFIED` / `SKIPPED` and carry an evidence level of
-`confirmed` / `inferred` / `unavailable`.
-
-Every output carries fixed boundary statements, including:
-
-- readiness passing **is not** model end-to-end success;
-- observing a listener **does not** prove its ownership;
-- an authenticated probe **does not** prove the traffic used a remote node;
-- node selection **does not** prove one specific request;
-- an unobserved socket **does not** mean a direct connection.
-
-External checks require an explicit `health check --egress-url URL`. Their result concerns that target probe only; it does not prove application traffic, and never gates local startup.
-
-## Background services and containers
-
-First define these names in `manager.yaml` under `bindings`, with their
-`adapter` and `profile`. Container bindings also need a reachable `connect_host`;
-a binding name is not an adapter type.
-
-```bash
-# writes configuration only, never restarts
-mihomoctl integration install worker
-mihomoctl integration show worker
-
-# export only, never deployed automatically
-# the reachable address is declared as connect_host in manager.yaml, not on the command line
-mihomoctl integration export container-worker --output-dir "$HOME/.config/mihomoctl/export-container"
-mihomoctl integration export cluster-worker --output-dir "$HOME/.config/mihomoctl/export-cluster"
-```
-
-**`127.0.0.1` inside a container is the container's own loopback, not the host's.**
-Exports require an explicit reachable address, and a wildcard address is never
-emitted as a client address.
-
-## Terminal console
-
-```bash
-mihomoctl tui
-mihomoctl tui --plain          # numbered menu when Textual is unavailable
-```
-
-Pages: overview, nodes, subscriptions, access (profile), and more (connections /
-rules / logs / providers / diagnostics / service). **Access** shows the proxy
-profiles, the binding declarations and the fixed environment-injection boundaries;
-**service** shows the seven runtime facts above. The console only renders
-already-computed state and never builds its own readiness verdict. See
-[console](docs/en/console.md).
+Default user/process scope; no self-elevation, sudo, shell startup file edits (.bashrc, .zshrc, profile) or automatic third-party service actions. Credentials stay in private files and default output is redacted. Do not publish `--reveal` output or exported environment files. TUN requires explicit `--system` operations. Updates and uninstall preserve user configuration, credentials, subscriptions, caches and the Mihomo core. See [security](docs/en/security.md).
 
 ## Documentation
 
-- [Installation](INSTALL.md)
-- [V1 command and configuration contract](docs/en/v1.md) · [中文](docs/zh-CN/v1.md)
-- [V1 architecture and implementation contract](docs/architecture-v1.md)
-- [ADR 0002: V1 generic runtime and retired third-party lifecycle](docs/adr/0002-v1-generic-runtime.md)
-- [Design reference and derived boundaries](docs/design-reference.md)
-- [Code audit](docs/code-audit.md)
-- [Security model](docs/en/security.md)
-- [Setup guide](docs/en/setup.md)
-- [First use](docs/en/first-run.md)
-- [Acceptance and evidence](docs/en/acceptance.md)
-- [Troubleshooting](docs/en/troubleshooting.md)
-- [Nodes and dashboards](docs/en/control-plane.md)
-- [Private custom rules](docs/en/rules.md)
-- [Updates and rollback](docs/en/update.md)
-- [Archived: Paseo background injection](docs/en/paseo.md)
+- [Installation and upgrades](INSTALL.md) · [Tutorials](docs/en/README.md)
+- [CLI reference](docs/en/reference/cli.md) · [Configuration contract](docs/en/reference/configuration.md)
+- [Operations](docs/en/operations/integrations.md) · [Release acceptance](docs/en/operations/release.md)
+- [Repository layout](docs/architecture-v1.md) · [Changelog](CHANGELOG.md) · [Archive](docs/archive/README.md)
 
-## License
+## License and affiliation
 
-[MIT](LICENSE). This is an independent, unofficial project with no affiliation
-with MetaCubeX, Mihomo or Mihoro.
+[MIT License](LICENSE). This independent, unofficial manager is not affiliated with Mihomo, OpenAI/Codex or Paseo.

@@ -7,7 +7,7 @@ import unittest
 if sys.platform != "linux" or importlib.util.find_spec("textual") is None:
     raise unittest.SkipTest("optional Textual test environment")
 
-from scripts.controller_textual import clearing_warnings, preview_summary, report_lines, Console
+from mihomoctl.controller.controller_textual import clearing_warnings, preview_summary, report_lines, Console
 from textual.widgets import DataTable, Input, Select, RichLog
 
 

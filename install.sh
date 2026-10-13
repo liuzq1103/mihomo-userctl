@@ -7,9 +7,6 @@
 # never requires a proxy, and never touches an existing Mihomo core.
 # Old 0.9.x updater flags are rejected before any write.
 set -euo pipefail
-# Release identity, checked statically alongside the manifest before installation.
-# shellcheck disable=SC2034
-VERSION="1.0.4"
 
 die() { printf 'install.sh: %s\n' "$*" >&2; exit 2; }
 

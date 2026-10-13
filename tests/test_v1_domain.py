@@ -205,12 +205,13 @@ class DomainFiles(unittest.TestCase):
 
     def test_rules_is_dispatched_with_managed_paths_and_never_guessed(self):
         from mihomoctl.cli import main
-        from scripts import rules as checker
+        from mihomoctl.controller import rules as checker
         config_path = self._write_manager()
         seen = {}
 
-        def record(argv):
+        def record(argv, core_binary=None, core_uid=None):
             seen['argv'] = list(argv)
+            seen['core_binary'] = core_binary
             return 0
 
         with patch.object(checker, 'main', record), \
@@ -220,6 +221,7 @@ class DomainFiles(unittest.TestCase):
         self.assertEqual(document['command'], 'rules-status')
         self.assertEqual(document['overall'], 'PASS')
         self.assertEqual(document['data']['check'], 'status')
+        self.assertEqual(seen['core_binary'], '/bin/true')
         self.assertEqual(seen['argv'][0], 'status')
         self.assertEqual(seen['argv'][-1], '--json')
         self.assertIn(str(self.scope.core_home), seen['argv'])
@@ -249,10 +251,10 @@ class DomainFiles(unittest.TestCase):
 
     def test_rules_exit_code_is_preserved_through_the_envelope(self):
         from mihomoctl.cli import main
-        from scripts import rules as checker
+        from mihomoctl.controller import rules as checker
         self._write_manager()
         for code, overall in ((0, 'PASS'), (1, 'FAIL'), (2, 'UNVERIFIED')):
-            with self.subTest(code=code), patch.object(checker, 'main', lambda argv: code), \
+            with self.subTest(code=code), patch.object(checker, 'main', lambda argv, **kwargs: code), \
                     contextlib.redirect_stdout(io.StringIO()) as out:
                 self.assertEqual(main(['rules', 'check', '--json']), code)
             document = json.loads(out.getvalue())

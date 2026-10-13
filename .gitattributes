@@ -4,6 +4,10 @@
 *.yml text eol=lf
 *.yaml text eol=lf
 *.md text eol=lf
+*.py text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
 LICENSE text eol=lf
 mihomoctl text eol=lf
 .shellcheckrc text eol=lf

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # V1 documentation gate. Kept as a thin wrapper so the historical entry point
-# still works; the assertions themselves live in scripts/check_docs_v1.py, which
+# still works; the assertions themselves live in scripts/ci/check_docs_v1.py, which
 # is what .github/workflows/test.yml actually runs.
 #
 # The pre-V1 shell assertions that used to live below this exec line were removed
@@ -16,7 +16,7 @@
 #     which V1 removed on purpose.
 #
 # Every assertion that still describes the V1 product was migrated into
-# scripts/check_docs_v1.py, which additionally rejects any `install.sh --<flag>`
+# scripts/ci/check_docs_v1.py, which additionally rejects any `install.sh --<flag>`
 # in docs/**/*.md that scripts/bootstrap.py does not accept.
 _v1_test_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
-exec python3 "$_v1_test_root/scripts/check_docs_v1.py" "$@"
+exec python3 "$_v1_test_root/scripts/ci/check_docs_v1.py" "$@"

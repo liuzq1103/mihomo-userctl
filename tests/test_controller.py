@@ -25,8 +25,8 @@ import pty
 import fcntl
 import struct
 import termios
-from scripts import controller as c
-from scripts.controller_service import ConsoleService
+from mihomoctl.controller import controller as c
+from mihomoctl.controller.controller_service import ConsoleService
 
 TOKEN = "fixture-" + "a" * 40
 ROWS = {"Proxy / 中文": {"type": "Selector", "now": "Node A", "all": ["Node A", "Node B"]},
@@ -214,12 +214,12 @@ class ControllerTests(unittest.TestCase):
     def test_source_launcher_refuses_unmanaged_controller_with_safe_json(self):
         # V1 refuses a mock/foreign listener as a managed runtime. Positive
         # controller dispatch is exercised against the real core acceptance.
-        source = Path(c.__file__).resolve().parents[1]
+        source = Path(c.__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory() as folder:
             config = Path(folder) / "config.yaml"
             config.write_text('external-controller: 127.0.0.1:'+str(self.server.server_port)+'\nsecret: '+TOKEN+'\n')
             config.chmod(0o600)
-            result = subprocess.run([sys.executable, str(source / "src/mihomoctl"), "groups", "--json", "--config", str(config)],
+            result = subprocess.run([sys.executable, "-m", "mihomoctl", "groups", "--json", "--config", str(config)],
                 env=dict(os.environ, HOME=folder, XDG_CONFIG_HOME=str(Path(folder) / 'config')), capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
             self.assertEqual(json.loads(result.stdout)["schema"], "mihomoctl/v1")

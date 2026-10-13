@@ -9,6 +9,8 @@ starts, the child's exit/signal result is never remapped.
 """
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -164,19 +166,25 @@ def _kv_text(data, indent=0):
 def dispatch(app, command, args, child_argv, json_mode):
     scope = app.scope
     name = scope.name
-    if args and args[-1] in ('--help', '-h') and command in ('profile', 'service', 'integration', 'core', 'tun', 'env', 'config', 'migrate'):
-        surface = {'profile': 'list|show NAME|validate NAME|set-default NAME',
-                   'service': 'install|start|stop|restart|status|uninstall [--dry-run]',
-                   'integration': 'list|show|check|export|install|remove NAME',
-                   'core': 'install|update --version VERSION [--sha256 SHA256]',
-                   'tun': 'status|enable|disable', 'env': 'show|export [--profile NAME|--binding NAME] [--output FILE|--reveal]',
-                   'config': 'validate [--file FILE]|check', 'migrate': '--dry-run|--apply [--core PATH] [--remove-loader]'}
-        return _finish('help', name, env.PASS, {'usage': surface[command]}, json_mode=json_mode,
-                       text='Usage: mihomoctl ' + command + ' ' + surface[command])
+    from . import command_spec
     if command in ('help', '--help', '-h'):
-        commands = 'init start stop restart status logs config profile env exec direct integration service tun core health doctor migrate rollback update controller nodes groups select latency connections traffic subscription rules tui version'
-        return _finish('help', name, env.PASS, {'commands': commands.split()}, json_mode=json_mode,
-                       text='Usage: mihomoctl [--user|--system] COMMAND [OPTIONS] [--json]\nCommands: ' + commands)
+        if args:
+            return dispatch(app, args[0], [*args[1:], '--help'], child_argv, json_mode)
+        commands = command_spec.public_commands()
+        return _finish('help', name, env.PASS, {'commands': commands}, json_mode=json_mode,
+                       text='Usage: mihomoctl [--user|--system] COMMAND [OPTIONS] [--json]\nCommands: ' + ' '.join(commands))
+    if command not in command_spec.RETIRED:
+        if '--help' in args or '-h' in args:
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                try:
+                    command_spec.validate(command, args)
+                except SystemExit as error:
+                    if error.code != 0:
+                        raise
+            text = output.getvalue().rstrip()
+            return _finish('help', name, env.PASS, {'help': text}, json_mode=json_mode, text=text)
+        command_spec.validate(command, args)
     if command == "init":
         return cmd_init(app, args, json_mode)
     if command == "status":
@@ -219,7 +227,7 @@ def dispatch(app, command, args, child_argv, json_mode):
     if command == "logs":
         return cmd_logs(app, args, json_mode)
     if command == "rules":
-        from .legacy import run_rules
+        from .bridge import run_rules
         data, overall = run_rules(scope, args, json_mode)
         return _finish("rules-" + data["check"], name, overall, data,
                        json_mode=json_mode, text=data["output"])
@@ -241,7 +249,7 @@ def dispatch(app, command, args, child_argv, json_mode):
             data["core"] = None
         return _finish("version", name, env.PASS, data, json_mode=json_mode,
                        text="mihomoctl %s\ncore %s" % (data["mihomoctl"], data.get("core")))
-    from .legacy import BRIDGE_COMMANDS, GUIDANCE_COMMANDS, guidance, run_bridge
+    from .bridge import BRIDGE_COMMANDS, GUIDANCE_COMMANDS, guidance, run_bridge
     if command in BRIDGE_COMMANDS:
         data, exc = run_bridge(scope, [command, *args], json_mode)
         if exc is not None:
@@ -261,10 +269,6 @@ def dispatch(app, command, args, child_argv, json_mode):
 
 def cmd_init(app, args, json_mode):
     parser = _parser("init")
-    parser.add_argument("--core", required=True)
-    parser.add_argument("--port", type=int)
-    parser.add_argument("--config")
-    parser.add_argument("--allow-non-loopback", action="append", default=[])
     values = parser.parse_args(args)
     if app.scope.system and hasattr(os, "geteuid") and os.geteuid() != 0:
         raise PermissionScopeError("system-requires-root", "--system mutations require UID 0")
@@ -276,9 +280,6 @@ def cmd_init(app, args, json_mode):
 
 def cmd_health(app, args, json_mode):
     parser = _parser("health")
-    parser.add_argument("--profile")
-    parser.add_argument("--binding")
-    parser.add_argument("--egress-url")
     values = parser.parse_args(args)
     profile = _profile_of(app, values.profile, values.binding)
     checks = app.health(profile=profile, egress_url=values.egress_url)
@@ -301,8 +302,6 @@ def _profile_of(app, profile, binding_name):
 
 def cmd_exec(app, args, child_argv, json_mode):
     parser = _parser("exec")
-    parser.add_argument("--profile")
-    parser.add_argument("--binding")
     head = [a for a in args if a not in ("--",)]
     values = parser.parse_args(head)
     child = child_argv or []
@@ -339,14 +338,6 @@ def cmd_env(app, args, json_mode):
         raise UsageError("usage-error", "env requires show|export")
     action = args[0]
     parser = _parser("env-" + action)
-    parser.add_argument("--profile")
-    parser.add_argument("--binding")
-    if action == "show":
-        parser.add_argument("--reveal", action="store_true")
-    if action == "export":
-        choice = parser.add_mutually_exclusive_group(required=True)
-        choice.add_argument('--output')
-        choice.add_argument('--reveal', action='store_true')
     values = parser.parse_args(args[1:])
     profile = _profile_of(app, values.profile, values.binding)
     proxy_env = app.proxy_environment(profile)
@@ -419,8 +410,6 @@ def cmd_config(app, args, json_mode):
     if not args or args[0] != "validate":
         raise UsageError("usage-error", "config requires: config validate [--file FILE]")
     parser = _parser("config-validate")
-    parser.add_argument("--file")
-    parser.add_argument("--profile")
     values = parser.parse_args(args[1:])
     from .endpoints import parse_endpoints
     from .lifecycle import runner
@@ -476,8 +465,6 @@ def _manager_exists(app):
 
 def cmd_logs(app, args, json_mode):
     parser = _parser("logs")
-    parser.add_argument("--lines", type=int, default=50)
-    parser.add_argument("--follow", action="store_true")
     values = parser.parse_args(args)
     if not 1 <= values.lines <= 10000:
         raise UsageError('logs-lines-invalid', '--lines must be 1-10000')
@@ -628,7 +615,6 @@ def cmd_service(app, args, json_mode):
                        text=_kv_text(result))
     if action == "uninstall":
         parser = _parser('service-uninstall')
-        parser.add_argument('--dry-run', action='store_true')
         values = parser.parse_args(args[1:])
         scope.require_mutation()
         # Preconditions are evaluated in both modes: a preview that could never
@@ -672,9 +658,6 @@ def cmd_core(app, args, json_mode):
     if action in ("install", 'update'):
         app.scope.require_mutation()
         parser = _parser("core-install")
-        parser.add_argument("--version", required=True)
-        parser.add_argument("--sha256")
-        parser.add_argument("--dry-run", action="store_true")
         values = parser.parse_args(args[1:])
         from .coreinstall import install as core_install
         data = core_install(app.scope, values.version, sha256=values.sha256,
@@ -683,7 +666,6 @@ def cmd_core(app, args, json_mode):
                        text=_kv_text(data))
     if action == "adopt":
         parser = _parser("core-adopt")
-        parser.add_argument("--path", required=True)
         values = parser.parse_args(args[1:])
         from .coreinstall import adopt
         data = adopt(app.scope, values.path)
@@ -765,9 +747,6 @@ def cmd_integration(app, args, json_mode):
 
 def cmd_export(app, args, json_mode):
     parser = _parser("export")
-    parser.add_argument("--binding", required=True)
-    parser.add_argument("--output-dir")
-    parser.add_argument('--reveal', action='store_true')
     values = parser.parse_args(args)
     manager = app.load_manager()
     binding = manager.bindings.get(values.binding)
@@ -813,12 +792,6 @@ def cmd_migrate(app, args, json_mode):
     if flags and flags[0] in ("preview", "apply"):
         raise UsageError('usage-error', 'use migrate --dry-run or migrate --apply')
     parser = _parser("migrate")
-    choice = parser.add_mutually_exclusive_group(required=True)
-    choice.add_argument("--dry-run", action="store_true")
-    choice.add_argument("--apply", action="store_true")
-    parser.add_argument("--remove-loader", action="store_true")
-    parser.add_argument("--no-import", action="store_true")
-    parser.add_argument('--core')
     values = parser.parse_args(flags)
     if action is None:
         if values.apply:
@@ -845,12 +818,6 @@ def cmd_installation(command, app, args, json_mode):
                              "the installation module is not present in this build") from None
     if command == "update":
         parser = _parser("update")
-        parser.add_argument("source", nargs="?")
-        parser.add_argument("--dry-run", action="store_true")
-        parser.add_argument("--allow-same-version", action="store_true")
-        parser.add_argument("--allow-downgrade", action="store_true")
-        parser.add_argument('--wheelhouse')
-        parser.add_argument('--python')
         values = parser.parse_args(args)
         data = installation.update(app.scope,
                                    source=Path(values.source) if values.source else None,
@@ -861,7 +828,6 @@ def cmd_installation(command, app, args, json_mode):
         return _finish("update", app.scope.name, env.PASS, data, json_mode=json_mode,
                        text=_kv_text(data))
     parser = _parser("rollback")
-    parser.add_argument("backup")
     values = parser.parse_args(args)
     backup = Path(values.backup)
     if (backup / 'journal.json').is_file():
@@ -881,7 +847,8 @@ class _Parser(argparse.ArgumentParser):
 
 
 def _parser(name):
-    return _Parser(prog="mihomoctl " + name)
+    from .command_spec import leaf_parser
+    return leaf_parser(name)
 
 
 if __name__ == "__main__":

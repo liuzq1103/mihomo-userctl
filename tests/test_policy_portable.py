@@ -12,9 +12,9 @@ from unittest.mock import patch, MagicMock
 if sys.platform == 'win32':
     # Windows verifies pure policy/Node behavior; Linux exercises real flock/UID/PTy.
     with patch.dict(sys.modules, {'fcntl': MagicMock()}):
-        from scripts import controller as c
+        from mihomoctl.controller import controller as c
 else:
-    from scripts import controller as c
+    from mihomoctl.controller import controller as c
 import yaml
 
 

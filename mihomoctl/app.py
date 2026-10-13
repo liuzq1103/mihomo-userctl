@@ -421,8 +421,7 @@ class Application:
                 "listener": listener, "backend": "systemd" if scope.system else "process",
                 "manager": str(scope.manager_path), "config": str(config_path),
                 "credentials": str(creds_path),
-                "core": {"binary": str(core), "adopted": True},
-                "username": username}
+                "core": {"binary": str(core), "adopted": True}}
 
 
 def _expected_uid(scope):
