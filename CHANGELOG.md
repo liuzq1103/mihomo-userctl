@@ -43,6 +43,14 @@ dependency, configuration key or exit code changes.
   `mihomo -t`, and additionally asserts the core is never invoked. Both tests fail
   against the 1.1.0 detection logic and pass against this release.
 
+### Changed: the release-identity gate no longer repeats a version literal
+
+- `test_all_release_stamps_are_checked_against_pyproject` asserted a hard-coded
+  `'1.1.0'` while every other stamp is checked against `pyproject.toml`. The bump to
+  1.1.1 failed that gate exactly as it would have failed any future bump. It now
+  derives the stamp through `version_from_pyproject()`, so the seven drift-detection
+  subtests keep their original property without needing an edit per release.
+
 上一版证据不适用于本版。Publication still requires the tagged 1.1.1 commit's own
 two-platform CI, offline kits, acceptance reports and `verified: true` release gate.
 
