@@ -38,10 +38,13 @@ dependency or configuration key changes; the exit-code definitions are unchanged
   release the core is resolvable and `mihomo -t` succeeds, so the assertion no longer
   held. Reproduced directly against both environments before the fix.
 - The regression dates from v0.9.0, when `preview` refused everything that was not
-  exactly a node list. Provider-policy import arrived in v0.9.2 but kept `nodes` as the
-  default policy, so that release stayed fail-closed. The key-set comparison and the
-  `auto` default were introduced together in the v1.0.0 runtime rebuild, which is where
-  the fail-open begins; v0.9.x was never affected.
+  exactly a node list. Provider-policy import arrived in v0.9.2, but its two entry
+  points disagreed: `Subscriptions.preview` still defaulted to `nodes` and so kept
+  refusing extra keys, while `ConsoleService.subscription_preview` defaulted to
+  `provider`, which left the console and TUI path fail-open from that release. The
+  v1.0.0 runtime rebuild (`bcfa5b3`) unified both on `policy="auto"` with the key-set
+  comparison, which extended the fail-open to every entry point and also made this
+  regression a false pass. v0.9.0 and v0.9.1 were unaffected on every path.
 - Each case now asserts its own error code. A new
   `test_auto_refuses_a_source_without_routing_policy` in `tests/test_tasks.py` runs in
   the environment where the defect is visible, with a resolvable core path and
