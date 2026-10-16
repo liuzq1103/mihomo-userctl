@@ -152,6 +152,28 @@ rules: ["RULE-SET,Sites,出口", "MATCH,出口"]
             self.sub.preview(source_file=self.source)
         self.assertEqual(self.config.read_bytes(), self.original)
 
+    def test_auto_refuses_a_source_without_routing_policy(self):
+        """`auto` detects provider mode from routing policy, not from an exact
+        key-set match. A node list carrying host runtime keys is still a node
+        list, so it is refused instead of being reinterpreted as a provider
+        overlay that would clear the routing fields it did not supply."""
+        for content in ('proxies: []\nsecret: bad\n',
+                        'proxies: []\nsecret: bad\nmixed-port: 25000\n',
+                        'proxies: [{name: New, type: direct}]\nsecret: bad\ndns: {enable: true}\n',
+                        'proxies: []\nlisteners: []\nexternal-controller: 127.0.0.1:9090\n'):
+            with self.subTest(content=content):
+                self.write(self.source, content)
+                with self.assertRaisesRegex(ControlError, "subscription-only-node-list-supported"):
+                    self.sub.preview(source_file=self.source)
+                # The core is never consulted: the refusal precedes validation.
+                self.run.assert_not_called()
+        self.assertEqual(self.config.read_bytes(), self.original)
+        # An explicit policy is an operator decision and still wins.
+        self.write(self.source, 'proxies: []\nsecret: bad\n')
+        plan = self.sub.preview(source_file=self.source, policy="provider")
+        self.assertEqual(plan["policy"], "provider")
+        self.assertEqual(plan["ignored_fields"], ["secret"])
+
     def test_provider_import_previews_overwritten_probe_settings(self):
         self.provider()
         current = self.config.read_text() + 'proxy-providers: {Airport: {type: file, path: ./providers/nodes.yaml, health-check: {enable: true, interval: 120}}}\n'

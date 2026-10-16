@@ -1,5 +1,51 @@
 # Changelog
 
+## [1.1.1] - 2026-10-16
+
+**Fail-closed fix in subscription policy detection.** `mihomoctl subscription preview`
+refused to reinterpret a source that carries no routing policy. No command surface,
+dependency, configuration key or exit code changes.
+
+### Fixed: `auto` treated any extra top-level key as routing policy
+
+- `Subscriptions.preview()` detected provider mode with an exact key-set comparison,
+  `set(incoming) == {"proxies"}`. Any additional top-level key therefore flipped the
+  whole document to `provider`, where `provider_policy()` defaults every
+  `POLICY_FIELDS` key the source did not supply. A paste such as `proxies:` plus
+  `secret:` was accepted as a provider-policy overlay that replaced all five routing
+  fields, clearing `proxy-groups`, `rules`, `proxy-providers` and `rule-providers`
+  instead of raising an actionable error.
+- `auto` now selects provider mode from the presence of routing policy
+  (`ROUTING_FIELDS`, every `POLICY_FIELDS` key except `proxies`) rather than from an
+  exact key-set match, which is what `docs/{en,zh-CN}/subscriptions.md` has always
+  documented. A node list alongside host runtime keys is refused with the existing
+  `subscription-only-node-list-supported` vocabulary, and the refusal precedes core
+  validation, so the managed configuration is never touched.
+- Detection is unchanged for every documented input: a source with real routing
+  policy still selects `provider`, a bare node list still selects `nodes`, an explicit
+  `--policy provider` is still an honoured operator decision, and host runtime
+  settings in an accepted provider source are still excluded and reported in
+  `ignored_fields`.
+
+### Fixed: the shipped regression passed in CI for the wrong reason
+
+- `tests/test_console.py::SubscriptionTests::test_full_config_alias_duplicate_and_nonprivate_rejected`
+  asserted a bare `ControlError`. In the unit job the core binary does not exist yet,
+  so `preview()` reached `validate_candidate()` and raised `mihomo-executable-missing`,
+  which satisfied the assertion without exercising the refusal at all. On an installed
+  release the core exists, `mihomo -t` succeeds and the test failed. This is how the
+  defect shipped: the regression dates from v0.9.0, when `preview` refused everything
+  that was not exactly a node list, and provider-policy import added in v0.9.2 changed
+  the detection without updating it.
+- Each case now asserts its own error code. A new
+  `test_auto_refuses_a_source_without_routing_policy` in `tests/test_tasks.py` runs in
+  the environment where the defect is visible, with a resolvable core and a successful
+  `mihomo -t`, and additionally asserts the core is never invoked. Both tests fail
+  against the 1.1.0 detection logic and pass against this release.
+
+上一版证据不适用于本版。Publication still requires the tagged 1.1.1 commit's own
+two-platform CI, offline kits, acceptance reports and `verified: true` release gate.
+
 ## [1.1.0] - 2026-10-13
 
 - Separate packaged runtime/controller/recovery from release tools, CI checks and archived Bash/Paseo implementation. Legacy code and source tooling are excluded from wheels.

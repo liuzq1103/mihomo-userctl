@@ -33,6 +33,13 @@ def digest(content):
 POLICY_FIELDS = {"proxies": list, "proxy-providers": dict, "proxy-groups": list,
                  "rules": list, "rule-providers": dict}
 
+# `proxies` is the node-list field; everything else is routing policy. `auto`
+# detects provider mode from the presence of routing policy, never from an
+# exact key-set match, so host runtime keys cannot flip a node list (or a full
+# configuration document that carries no routing policy) into a provider
+# overlay that would then default the missing policy fields to empty.
+ROUTING_FIELDS = frozenset(key for key in POLICY_FIELDS if key != "proxies")
+
 
 def provider_policy(incoming):
     """Keep provider routing intact while excluding host runtime settings."""
@@ -211,7 +218,7 @@ class Subscriptions:
                 for key in incoming:
                     label(key)
                 if policy == "auto":
-                    policy = "nodes" if set(incoming) == {"proxies"} else "provider"
+                    policy = "provider" if set(incoming) & ROUTING_FIELDS else "nodes"
                 if policy == "nodes" and set(incoming) != {"proxies"}:
                     raise ControlError("subscription-only-node-list-supported", 1)
                 nodes = incoming.get("proxies", [])

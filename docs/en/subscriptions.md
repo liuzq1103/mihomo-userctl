@@ -8,7 +8,7 @@ chmod 600 "$HOME/private/subscription.yaml"
 mihomoctl subscription preview --source-file "$HOME/private/subscription.yaml" --policy nodes --json
 ```
 
-Alternatives: `--url-file "$HOME/private/subscription-url"`, or pipe content into `subscription preview --stdin`. Choose exactly one source. `auto` selects provider mode when routing policy is present, otherwise nodes. `nodes` imports nodes while retaining local groups and routing rules; it does not create a selection group. `provider` can replace allowed provider/group/routing fields; review the changed keys. It cannot overwrite authentication, listeners or controller credentials.
+Alternatives: `--url-file "$HOME/private/subscription-url"`, or pipe content into `subscription preview --stdin`. Choose exactly one source. `auto` selects provider mode when routing policy is present, otherwise nodes; a document that carries only a node list alongside other keys is refused rather than reinterpreted as provider policy. `nodes` imports nodes while retaining local groups and routing rules; it does not create a selection group. `provider` can replace allowed provider/group/routing fields; review the changed keys. It cannot overwrite authentication, listeners or controller credentials.
 
 Preview is private and does not activate configuration or restart the runtime. Read the reported candidate policy, changed fields, validation and candidate SHA256. The public JSON envelope wraps controller output under `data.legacy`; the preview fields are `data.legacy.id` and `data.legacy.sha256`. Copy the reviewed ID and digest:
 
