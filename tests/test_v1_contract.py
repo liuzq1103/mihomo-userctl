@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from mihomoctl import command_spec as spec
 from mihomoctl.cli import main
-from mihomoctl.release_identity import check
+from mihomoctl.release_identity import check, version_from_pyproject
 from scripts.ci import check_docs_v1 as docs
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -96,6 +96,9 @@ class DriftGateTests(unittest.TestCase):
                 self.assertIn('broken-anchor', errors[0])
 
     def test_all_release_stamps_are_checked_against_pyproject(self):
+        # pyproject.toml is the release version authority, so derive the stamp
+        # from it instead of repeating a literal that every bump must edit.
+        version = version_from_pyproject(ROOT)
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             names = ('pyproject.toml', 'mihomoctl/__init__.py', 'release-manifest.json',
@@ -104,11 +107,11 @@ class DriftGateTests(unittest.TestCase):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(ROOT / name, path)
-            self.assertEqual(check(root), '1.1.0')
+            self.assertEqual(check(root), version)
             for name in names:
                 path = root / name
                 original = path.read_text()
-                path.write_text(original.replace('1.1.0', '1.0.2'))
+                path.write_text(original.replace(version, '1.0.2'))
                 with self.subTest(name=name), self.assertRaises(ValueError):
                     check(root)
                 path.write_text(original)

@@ -288,12 +288,17 @@ class SubscriptionTests(unittest.TestCase):
         self.assertEqual(before, after)
 
     def test_full_config_alias_duplicate_and_nonprivate_rejected(self):
-        for content in ('proxies: []\nsecret: bad\n', 'proxies: &n []\n', 'proxies: []\nproxies: []\n'):
+        # Each case asserts its own error code. A bare ControlError would also
+        # be satisfied by an unrelated failure such as a missing core binary,
+        # which silently disarmed the first case until 1.1.1.
+        for content, code in (('proxies: []\nsecret: bad\n', "subscription-only-node-list-supported"),
+                              ('proxies: &n []\n', "config-anchors-or-document-end-not-supported"),
+                              ('proxies: []\nproxies: []\n', "config-duplicate-or-complex-key")):
             self.write(self.source, content)
-            with self.assertRaises(ControlError):
+            with self.assertRaisesRegex(ControlError, code):
                 self.service.preview(source_file=self.source)
         self.source.chmod(0o644)
-        with self.assertRaises(ControlError):
+        with self.assertRaisesRegex(ControlError, "controller-path-must-be-private-owned-regular"):
             self.service.preview(source_file=self.source)
         self.assertEqual(self.config.read_text(), self.original)
 

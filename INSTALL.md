@@ -1,19 +1,19 @@
-# Install mihomoctl 1.1.0
+# Install mihomoctl 1.1.1
 
-<!-- stable-version: 1.1.0 -->
+<!-- stable-version: 1.1.1 -->
 Linux, Bash and Python 3.10+ are required. The controller needs PyYAML 6.0.1+. Mihomo itself is separate. Default scope is user; no sudo, shell startup file writes (.bashrc, .zshrc, profile) or service actions are performed. [中文初始化教程](docs/zh-CN/setup.md) · [English setup](docs/en/setup.md).
 
 ## Verify and install the release
 
-Obtain mihomoctl-1.1.0.tar.gz (or .zip), SHA256SUMS and build-receipt.json from [v1.1.0](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.1.0). Check that the receipt identifies the tagged commit and the release gate is verified: true. Compare the downloaded digest against a checksum obtained through a trusted independent channel; a colocated checksum alone is not publisher authentication.
+Obtain mihomoctl-1.1.1.tar.gz (or .zip), SHA256SUMS and build-receipt.json from [v1.1.1](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.1.1). Check that the receipt identifies the tagged commit and the release gate is verified: true. Compare the downloaded digest against a checksum obtained through a trusted independent channel; a colocated checksum alone is not publisher authentication.
 
 In a private working directory containing the downloaded archive and SHA256SUMS:
 
 ```bash
 umask 077
 sha256sum --ignore-missing --check --strict SHA256SUMS
-tar -xzf mihomoctl-1.1.0.tar.gz
-cd mihomoctl-1.1.0
+tar -xzf mihomoctl-1.1.1.tar.gz
+cd mihomoctl-1.1.1
 python3 -m venv "$HOME/.local/share/mihomoctl-python"
 "$HOME/.local/share/mihomoctl-python/bin/python" -m pip install --require-hashes --only-binary=:all: -r requirements-lock.txt
 bash install.sh --user --source "$PWD" --python "$HOME/.local/share/mihomoctl-python/bin/python"
@@ -28,7 +28,7 @@ All extracted code and parent directories must be owned by you/root and not grou
 
 ## Upgrade existing v1.0.x installations
 
-Use the verified **v1.1.0 installer above**, not the old installed updater: the old version expects retired Bash version markers. The new installer preserves configuration, credentials, subscriptions, caches and cores, reports a private backup path and does not restart anything. Verify version and installation after upgrading. Keep the backup for self-contained rollback:
+Use the verified **v1.1.1 installer above**, not the old installed updater: the old version expects retired Bash version markers. The new installer preserves configuration, credentials, subscriptions, caches and cores, reports a private backup path and does not restart anything. Verify version and installation after upgrading. Keep the backup for self-contained rollback:
 
 ```bash
 python3 /absolute/backup/bootstrap.py rollback /absolute/backup
