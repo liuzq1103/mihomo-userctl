@@ -23,6 +23,22 @@ class VerificationError(ValueError):
     pass
 
 
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise VerificationError('duplicate-release-json-key')
+        result[key] = value
+    return result
+
+
+def safe_member(name):
+    parts = name.rstrip('/').split('/')
+    if (not name or any(part in ('', '.', '..') for part in parts)
+            or '\\' in name or ':' in name or any(ord(c) < 32 or ord(c) == 127 for c in name)):
+        raise VerificationError('unsafe-release-archive-member')
+
+
 def digest(path):
     result = hashlib.sha256()
     with path.open("rb") as stream:
@@ -39,7 +55,7 @@ def regular_file(path):
 
 def load_artifacts(folder, worktree):
     receipt_path = regular_file(folder / "build-receipt.json")
-    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
     if not isinstance(receipt, dict):
         raise VerificationError("invalid-build-receipt")
     commit = receipt.get("commit")
@@ -94,6 +110,10 @@ def verify_wheel_inventory(wheel, manifest):
     prefix = "mihomoctl-" + manifest['version'] + ".dist-info/"
     with zipfile.ZipFile(wheel) as package:
         entries = package.infolist()
+        for entry in entries:
+            safe_member(entry.filename)
+            if entry.flag_bits & 1:
+                raise VerificationError('encrypted-release-archive-member')
         if len(entries) > MAX_MEMBERS or sum(entry.file_size for entry in entries) > MAX_BYTES:
             raise ValueError('wheel-size-limit')
         if any(stat.S_IFMT(entry.external_attr >> 16) not in (0, stat.S_IFREG, stat.S_IFDIR) for entry in entries):
@@ -127,6 +147,10 @@ def verify_source_inventory(archive, manifest):
     if archive.suffix == ".zip":
         with zipfile.ZipFile(archive) as package:
             entries = package.infolist()
+            for entry in entries:
+                safe_member(entry.filename)
+                if entry.flag_bits & 1:
+                    raise VerificationError('encrypted-release-archive-member')
             if len(entries) > MAX_MEMBERS or sum(entry.file_size for entry in entries) > MAX_BYTES:
                 raise ValueError('source-archive-size-limit')
             if any(stat.S_IFMT(entry.external_attr >> 16) not in (0, stat.S_IFREG, stat.S_IFDIR) for entry in entries):
@@ -138,6 +162,7 @@ def verify_source_inventory(archive, manifest):
             entries = []
             used = 0
             for entry in package:
+                safe_member(entry.name)
                 used += max(entry.size, 0)
                 if len(entries) >= MAX_MEMBERS or used > MAX_BYTES:
                     raise ValueError('source-archive-size-limit')
@@ -190,7 +215,7 @@ def checked_payload(artifacts, wheelhouse, target, worktree=False):
     version = receipt["version"]
     source_name = "mihomoctl-" + version
     with zipfile.ZipFile(artifacts / (source_name + ".zip")) as archive:
-        manifest = json.loads(archive.read(source_name + "/release-manifest.json"))
+        manifest = json.loads(archive.read(source_name + "/release-manifest.json"), object_pairs_hook=unique_object)
         lock = locked_dependencies(archive.read(source_name + "/requirements-lock.txt").decode("utf-8"))
     if manifest["version"] != version:
         raise ValueError("bundle-source-version-mismatch")
@@ -216,7 +241,7 @@ def checked_payload(artifacts, wheelhouse, target, worktree=False):
     return receipt, dependencies
 
 
-def load_bundle(path, target, worktree=False):
+def load_bundle(path, target, worktree=False, *, max_bytes=MAX_BYTES):
     """Read bounded regular files and verify every byte before extracting code."""
     path = Path(path)
     if target not in TARGETS or path.is_symlink() or not path.is_file():
@@ -242,14 +267,14 @@ def load_bundle(path, target, worktree=False):
             if parts[0] != root or name in payload:
                 raise VerificationError("duplicate-or-ambiguous-offline-bundle-member")
             used += member.size
-            if member.size < 0 or used > MAX_BYTES:
+            if member.size < 0 or used > max_bytes:
                 raise VerificationError("offline-bundle-size-limit")
             body = archive.extractfile(member).read(member.size + 1)
             if len(body) != member.size:
                 raise VerificationError("truncated-offline-bundle")
             payload[name] = body
     try:
-        manifest = json.loads(payload["bundle-manifest.json"])
+        manifest = json.loads(payload["bundle-manifest.json"], object_pairs_hook=unique_object)
         version, commit = manifest["version"], manifest["commit"]
         if (manifest["format"] != 1 or manifest["target"] != target
                 or not re.fullmatch(r"\d+\.\d+\.\d+", version)
@@ -269,7 +294,7 @@ def load_bundle(path, target, worktree=False):
                        for name, body in sorted(payload.items()) if name != "SHA256SUMS").encode()
         if payload["SHA256SUMS"] != sums:
             raise ValueError()
-        receipt = json.loads(payload["release/build-receipt.json"])
+        receipt = json.loads(payload["release/build-receipt.json"], object_pairs_hook=unique_object)
         if any(receipt[key] != manifest[key] for key in ("version", "commit", "source", "publishable")):
             raise ValueError()
         if any(hashlib.sha256(payload["release/" + name]).hexdigest() != value

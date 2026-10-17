@@ -18,6 +18,8 @@ WEB = 'https://github.com/' + REPOSITORY
 HOSTS = {'api.github.com', 'github.com', 'objects.githubusercontent.com',
          'release-assets.githubusercontent.com'}
 MAX_METADATA = 2 * 1024 * 1024
+MAX_RELEASE_BYTES = 64 * 1024 * 1024
+MAX_KIT_EXPANDED_BYTES = 128 * 1024 * 1024
 
 
 class ReleaseError(MihomoctlError):
@@ -152,13 +154,14 @@ def _asset(data, assets, name, directory, deadline, limit):
             or type(row.get('size')) is not int or not 0 < row['size'] <= limit):
         raise ReleaseError('release-asset-missing-or-invalid', name)
     path = directory / name
-    transfer(expected_url, path, limit, deadline - time.monotonic())
+    transfer(expected_url, path, limit, min(60, deadline - time.monotonic()))
     if path.stat().st_size != row['size']:
         raise ReleaseError('release-asset-size-mismatch', name)
     from .release_artifacts import digest
     expected = row.get('digest')
     if expected is not None and expected != 'sha256:' + digest(path):
         raise ReleaseError('release-asset-digest-mismatch', name)
+    row['_digest_verified'] = expected is not None
     return path
 
 
@@ -178,15 +181,22 @@ def _validate_release(directory, version):
             raise ReleaseError('release-version-mismatch')
         for suffix in ('.tar.gz', '.zip'):
             verify_source_inventory(directory / ('mihomoctl-' + version + suffix), manifest)
+        from zipfile import ZipFile
+        with ZipFile(directory / ('mihomoctl-' + version + '.zip')) as package:
+            for relative in manifest['inventory']['files']:
+                if package.read('mihomoctl-' + version + '/' + relative) != (root / relative).read_bytes():
+                    raise ReleaseError('release-source-formats-disagree')
         wheel = directory / ('mihomoctl-' + version + '-py3-none-any.whl')
         verify_wheel_inventory(wheel, manifest)
         # Complete wheel metadata/RECORD checks without executing any payload.
-        from zipfile import ZipFile
         info = installation.parse_wheel_filename(wheel)
         with ZipFile(wheel) as package:
             installation._wheel_limits(package)
             installation._read_wheel_metadata(package, info)
             installation._verify_record(package, info)
+            for relative in manifest['inventory']['runtime_files']:
+                if package.read(relative) != (root / relative).read_bytes():
+                    raise ReleaseError('release-wheel-source-disagree')
     return receipt
 
 
@@ -198,6 +208,8 @@ def _publish(stage, destination):
     rename = getattr(libc, 'renameat2', None)
     if rename is None:
         raise ReleaseError('release-atomic-publication-unavailable')
+    rename.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+    rename.restype = ctypes.c_int
     if rename(-100, os.fsencode(stage), -100, os.fsencode(destination), 1):
         error = ctypes.get_errno()
         code = 'release-output-exists' if error in (errno.EEXIST, errno.ENOTEMPTY) else 'release-publication-failed'
@@ -209,19 +221,25 @@ def fetch(scope, output_dir, version=None, target=None, *, selected=None, timeou
     import zipfile
     try:
         return _fetch(scope, output_dir, version, target, selected=selected, timeout=timeout)
-    except (ValueError, OSError, tarfile.TarError, zipfile.BadZipFile, EOFError, KeyError, TypeError):
-        raise ReleaseError('release-artifact-invalid') from None
+    except (ValueError, OSError, tarfile.TarError, zipfile.BadZipFile, EOFError, KeyError, TypeError) as error:
+        detail = str(error).split(':', 1)[0]
+        detail = detail if re.fullmatch(r'[a-z][a-z0-9-]{1,79}', detail) else None
+        raise ReleaseError('release-artifact-invalid', detail) from None
 
 
 def _fetch(scope, output_dir, version=None, target=None, *, selected=None, timeout=300):
     """Acquire a complete verified release in a new private directory."""
-    from .release_artifacts import TARGETS, MAX_BYTES, load_bundle, checked_payload
-    from .trust import require_private_dir
+    from .release_artifacts import TARGETS, load_bundle, checked_payload
+    from .trust import require_private_dir, require_trusted_dir, _check_ancestors
     scope.require_mutation()
     if target is not None and target not in TARGETS:
         raise ReleaseError('release-target-unsupported')
     destination = Path(output_dir).expanduser().absolute()
-    require_private_dir(destination.parent, create=True)
+    if not destination.parent.exists() and not destination.parent.is_symlink():
+        require_private_dir(destination.parent, create=True)
+    else:
+        _check_ancestors(destination.parent, 'release-output-untrusted', {0, os.geteuid()})
+        require_trusted_dir(destination.parent)
     if destination.exists() or destination.is_symlink():
         raise ReleaseError('release-output-exists')
     deadline = time.monotonic() + timeout
@@ -237,9 +255,9 @@ def _fetch(scope, output_dir, version=None, target=None, *, selected=None, timeo
         gate_path = _asset(data, assets, 'release-gate.json', stage, deadline, MAX_METADATA)
         if target:
             name = 'mihomoctl-' + selected_version + '-offline-' + target + '.tar.gz'
-            bundle = _asset(data, assets, name, stage, deadline, MAX_BYTES)
+            bundle = _asset(data, assets, name, stage, deadline, MAX_RELEASE_BYTES)
             _asset(data, assets, name + '.sha256', stage, deadline, 1024)
-            manifest, payload = load_bundle(bundle, target)
+            manifest, payload = load_bundle(bundle, target, max_bytes=MAX_KIT_EXPANDED_BYTES)
             if manifest['commit'] != commit or manifest['version'] != selected_version:
                 raise ReleaseError('release-bundle-identity-mismatch')
             kit = stage / 'kit'
@@ -261,7 +279,7 @@ def _fetch(scope, output_dir, version=None, target=None, *, selected=None, timeo
                      ('.tar.gz', '.zip', '-py3-none-any.whl')]
             for name in names + ['SHA256SUMS', 'build-receipt.json']:
                 _asset(data, assets, name, folder, deadline,
-                       MAX_METADATA if name in ('SHA256SUMS', 'build-receipt.json') else MAX_BYTES)
+                       MAX_METADATA if name in ('SHA256SUMS', 'build-receipt.json') else MAX_RELEASE_BYTES)
             wheelhouse = None
         receipt = _validate_release(folder, selected_version)
         gate = read_json(gate_path)
@@ -277,7 +295,9 @@ def _fetch(scope, output_dir, version=None, target=None, *, selected=None, timeo
             raise ReleaseError('release-gate-mismatch')
         source = (folder / ('mihomoctl-' + selected_version + '.tar.gz')).relative_to(stage).as_posix()
         record = {'version': selected_version, 'commit': commit, 'source': source,
-                  'wheelhouse': wheelhouse, 'target': target, 'release_url': WEB + '/releases/tag/' + tag}
+                  'wheelhouse': wheelhouse, 'target': target, 'release_url': WEB + '/releases/tag/' + tag,
+                  'github_digest_checks': {name: row['_digest_verified'] for name, row in assets.items()
+                                           if '_digest_verified' in row}}
         record_path = stage / 'acquisition.json'
         record_path.write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8')
         record_path.chmod(0o600)

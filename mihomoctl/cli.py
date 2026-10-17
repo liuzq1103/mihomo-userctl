@@ -190,7 +190,10 @@ def dispatch(app, command, args, child_argv, json_mode):
         from .notifications import prepare
         notice = prepare(scope)
         if notice:
-            print(notice, file=sys.stderr)
+            try:
+                print(notice, file=sys.stderr)
+            except (OSError, ValueError):
+                pass
     if command == 'release':
         from .release import check, check_text, fetch
         if args[0] == 'check':

@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 
 from mihomoctl import release
@@ -77,6 +78,19 @@ class FetchTests(unittest.TestCase):
         with self.assertRaisesRegex(release.ReleaseError, 'release-output-exists'):
             self.fetch()
 
+    def test_readable_nonwritable_parent_is_safe_and_not_changed(self):
+        self.base.chmod(0o755)
+        result = self.fetch()
+        self.assertEqual(self.base.stat().st_mode & 0o777, 0o755)
+        self.assertEqual(Path(result['output_dir']).stat().st_mode & 0o777, 0o700)
+
+    def test_group_writable_parent_is_refused_without_download(self):
+        self.base.chmod(0o770)
+        with patch.object(release, 'metadata', side_effect=AssertionError('untrusted parent')):
+            with self.assertRaises(Exception):
+                self.fetch()
+        self.assertFalse((self.base / 'output').exists())
+
     def test_both_offline_targets_include_dependencies(self):
         for index, target in enumerate(('ubuntu22.04-x86_64-py310', 'ubuntu24.04-x86_64-py312')):
             result = release.fetch(Scope(), self.base / ('output' + str(index)), target=target)
@@ -97,6 +111,37 @@ class FetchTests(unittest.TestCase):
         (self.assets / 'build-receipt.json').write_text(json.dumps(receipt))
         self.refresh_metadata()
         with self.assertRaises(release.ReleaseError):
+            self.fetch()
+
+    def rehash_release(self):
+        receipt = json.loads((self.assets / 'build-receipt.json').read_text())
+        receipt['sha256'] = {name: hashlib.sha256((self.assets / name).read_bytes()).hexdigest()
+                             for name in receipt['sha256']}
+        (self.assets / 'build-receipt.json').write_text(json.dumps(receipt))
+        (self.assets / 'SHA256SUMS').write_text(''.join(receipt['sha256'][name] + '  ' + name + '\n'
+                                                      for name in sorted(receipt['sha256'])))
+        self.refresh_metadata()
+
+    def test_rehashed_zip_cannot_disagree_with_source_tar(self):
+        archive = self.assets / 'mihomoctl-1.0.0.zip'
+        with zipfile.ZipFile(archive) as package:
+            payload = {name: package.read(name) for name in package.namelist()}
+        payload['mihomoctl-1.0.0/docs/guide.md'] = b'different release content\n'
+        with zipfile.ZipFile(archive, 'w') as package:
+            for name, body in payload.items():
+                package.writestr(name, body)
+        self.rehash_release()
+        with self.assertRaisesRegex(release.ReleaseError, 'release-source-formats-disagree'):
+            self.fetch()
+
+    def test_rehashed_wheel_cannot_disagree_with_source_runtime(self):
+        from test_v1_installation import build_wheel
+        runtime = {name: (self.fixture.source / name).read_bytes()
+                   for name in self.fixture.manifest['inventory']['runtime_files']}
+        runtime['mihomoctl/cli.py'] += b'\n# different wheel code\n'
+        build_wheel(self.assets, files=runtime)
+        self.rehash_release()
+        with self.assertRaisesRegex(release.ReleaseError, 'release-wheel-source-disagree'):
             self.fetch()
 
     def test_download_interruption_and_digest_mismatch_leave_no_result(self):
