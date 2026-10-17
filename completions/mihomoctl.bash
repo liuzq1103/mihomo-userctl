@@ -11,14 +11,14 @@ _mihomoctl_complete() {
     ((command_index++))
   done
   if ((COMP_CWORD == command_index)); then
-    mapfile -t COMPREPLY < <(compgen -W 'init start stop restart status logs config profile env exec direct integration service tun core health doctor migrate rollback update rules version controller nodes groups select latency connections traffic subscription tui providers provider dns mode health-check manual override ui --user --system --json --help' -- "$current")
+    mapfile -t COMPREPLY < <(compgen -W 'init start stop restart status logs config profile env exec direct integration service tun core health doctor migrate rollback release update rules version controller nodes groups select latency connections traffic subscription tui providers provider dns mode health-check manual override ui --user --system --json --help' -- "$current")
     return
   fi
   command=${COMP_WORDS[command_index]}
   action=${COMP_WORDS[command_index+1]}
   case "$previous" in
     --archive|--config|--core|--file|--home-dir|--output|--output-dir|--path|--python|--script|--source-file|--url-file|--wheelhouse) mapfile -t COMPREPLY < <(compgen -f -- "$current"); return ;;
-    --allow-non-loopback|--binding|--egress-url|--engine|--expected-status|--interval|--lazy|--lines|--policy|--port|--preset|--profile|--sha256|--theme|--timeout|--tolerance|--url|--version) return ;;
+    --allow-non-loopback|--binding|--egress-url|--engine|--expected-status|--interval|--lazy|--lines|--policy|--port|--preset|--profile|--sha256|--target|--theme|--timeout|--tolerance|--url|--version) return ;;
   esac
   case "$command" in
     init) words='--core --port --config --allow-non-loopback --json --help' ;;
@@ -102,6 +102,14 @@ _mihomoctl_complete() {
     doctor) words='--json --help' ;;
     migrate) words='--dry-run --apply --remove-loader --no-import --core --json --help' ;;
     rollback) words='--json --help' ;;
+    release)
+      if ((COMP_CWORD == command_index+1)); then words='check fetch'
+      else
+        case "$action" in
+          check) words='--json --help' ;;
+          fetch) words='--output-dir --version --target --json --help' ;;
+        esac
+      fi ;;
     update) words='--dry-run --allow-same-version --allow-downgrade --wheelhouse --python --json --help' ;;
     rules)
       if ((COMP_CWORD == command_index+1)); then words='status check'

@@ -192,10 +192,15 @@ def dispatch(app, command, args, child_argv, json_mode):
         if notice:
             print(notice, file=sys.stderr)
     if command == 'release':
-        from .release import check, check_text
-        data = check()
-        return _finish('release-check', name, env.PASS, data,
-                       json_mode=json_mode, text=check_text(data))
+        from .release import check, check_text, fetch
+        if args[0] == 'check':
+            data = check()
+            return _finish('release-check', name, env.PASS, data,
+                           json_mode=json_mode, text=check_text(data))
+        values = command_spec.validate(command, args)
+        data = fetch(scope, values.output_dir, values.version, values.target)
+        return _finish('release-fetch', name, env.PASS, data,
+                       json_mode=json_mode, text=_kv_text(data))
     if command == "init":
         return cmd_init(app, args, json_mode)
     if command == "status":

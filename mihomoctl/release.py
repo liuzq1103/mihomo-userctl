@@ -1,5 +1,6 @@
 """Official release discovery. Acquisition never changes the active installation."""
 import json
+import os
 import re
 import subprocess
 import sys
@@ -110,3 +111,177 @@ def check_text(data):
     message = ('Newer release observed: ' + data['observed_version'] if data['newer_available']
                else 'No higher version observed in this check')
     return message + '\n' + data['release_url'] + '\nchecked_at=' + str(data['checked_at'])
+
+
+def _api_json(endpoint, deadline):
+    with tempfile.TemporaryDirectory(prefix='mihomoctl-release-api-') as directory:
+        path = Path(directory) / 'body'
+        transfer(API + endpoint, path, MAX_METADATA, min(30, deadline - time.monotonic()))
+        return read_json(path)
+
+
+def tag_commit(tag, deadline):
+    data = _api_json('/git/ref/tags/' + tag, deadline)
+    for _ in range(6):
+        obj = data.get('object') if isinstance(data, dict) else None
+        if not isinstance(obj, dict) or not re.fullmatch(r'[a-f0-9]{40}', str(obj.get('sha'))):
+            raise ReleaseError('release-tag-invalid')
+        if obj.get('type') == 'commit':
+            return obj['sha']
+        if obj.get('type') != 'tag':
+            break
+        data = _api_json('/git/tags/' + obj['sha'], deadline)
+    raise ReleaseError('release-tag-invalid')
+
+
+def _assets(data):
+    result = {}
+    if not isinstance(data.get('assets'), list):
+        raise ReleaseError('release-assets-invalid')
+    for row in data['assets']:
+        if not isinstance(row, dict) or not isinstance(row.get('name'), str) or row['name'] in result:
+            raise ReleaseError('release-assets-invalid')
+        result[row['name']] = row
+    return result
+
+
+def _asset(data, assets, name, directory, deadline, limit):
+    row = assets.get(name)
+    expected_url = WEB + '/releases/download/' + data['tag_name'] + '/' + name
+    if (not row or row.get('browser_download_url') != expected_url or row.get('state') != 'uploaded'
+            or type(row.get('size')) is not int or not 0 < row['size'] <= limit):
+        raise ReleaseError('release-asset-missing-or-invalid', name)
+    path = directory / name
+    transfer(expected_url, path, limit, deadline - time.monotonic())
+    if path.stat().st_size != row['size']:
+        raise ReleaseError('release-asset-size-mismatch', name)
+    from .release_artifacts import digest
+    expected = row.get('digest')
+    if expected is not None and expected != 'sha256:' + digest(path):
+        raise ReleaseError('release-asset-digest-mismatch', name)
+    return path
+
+
+def _validate_release(directory, version):
+    from . import installation
+    from .release_artifacts import load_artifacts, verify_source_inventory, verify_wheel_inventory
+    receipt, _ = load_artifacts(directory, False)
+    if receipt['version'] != version:
+        raise ReleaseError('release-version-mismatch')
+    source = directory / ('mihomoctl-' + version + '.tar.gz')
+    with tempfile.TemporaryDirectory(prefix='mihomoctl-release-validate-') as temporary:
+        root = installation.extract_archive(source, Path(temporary))
+        manifest = installation.load_manifest(root)
+        installation.verify_inventory(root, manifest)
+        installation.cross_check_pyproject(root, manifest)
+        if manifest['version'] != version:
+            raise ReleaseError('release-version-mismatch')
+        for suffix in ('.tar.gz', '.zip'):
+            verify_source_inventory(directory / ('mihomoctl-' + version + suffix), manifest)
+        wheel = directory / ('mihomoctl-' + version + '-py3-none-any.whl')
+        verify_wheel_inventory(wheel, manifest)
+        # Complete wheel metadata/RECORD checks without executing any payload.
+        from zipfile import ZipFile
+        info = installation.parse_wheel_filename(wheel)
+        with ZipFile(wheel) as package:
+            installation._wheel_limits(package)
+            installation._read_wheel_metadata(package, info)
+            installation._verify_record(package, info)
+    return receipt
+
+
+def _publish(stage, destination):
+    """Atomic directory publication with a kernel-enforced no-overwrite rule."""
+    import ctypes
+    import errno
+    libc = ctypes.CDLL(None, use_errno=True)
+    rename = getattr(libc, 'renameat2', None)
+    if rename is None:
+        raise ReleaseError('release-atomic-publication-unavailable')
+    if rename(-100, os.fsencode(stage), -100, os.fsencode(destination), 1):
+        error = ctypes.get_errno()
+        code = 'release-output-exists' if error in (errno.EEXIST, errno.ENOTEMPTY) else 'release-publication-failed'
+        raise ReleaseError(code)
+
+
+def fetch(scope, output_dir, version=None, target=None, *, selected=None, timeout=300):
+    import tarfile
+    import zipfile
+    try:
+        return _fetch(scope, output_dir, version, target, selected=selected, timeout=timeout)
+    except (ValueError, OSError, tarfile.TarError, zipfile.BadZipFile, EOFError, KeyError, TypeError):
+        raise ReleaseError('release-artifact-invalid') from None
+
+
+def _fetch(scope, output_dir, version=None, target=None, *, selected=None, timeout=300):
+    """Acquire a complete verified release in a new private directory."""
+    from .release_artifacts import TARGETS, MAX_BYTES, load_bundle, checked_payload
+    from .trust import require_private_dir
+    scope.require_mutation()
+    if target is not None and target not in TARGETS:
+        raise ReleaseError('release-target-unsupported')
+    destination = Path(output_dir).expanduser().absolute()
+    require_private_dir(destination.parent, create=True)
+    if destination.exists() or destination.is_symlink():
+        raise ReleaseError('release-output-exists')
+    deadline = time.monotonic() + timeout
+    data = selected if selected is not None else metadata(version, min(30, timeout))
+    tag = data['tag_name']
+    selected_version = tag[1:]
+    version_key(selected_version)
+    commit = tag_commit(tag, deadline)
+    assets = _assets(data)
+    with tempfile.TemporaryDirectory(prefix='.mihomoctl-fetch-', dir=destination.parent) as temporary:
+        stage = Path(temporary) / 'payload'
+        stage.mkdir(mode=0o700)
+        gate_path = _asset(data, assets, 'release-gate.json', stage, deadline, MAX_METADATA)
+        if target:
+            name = 'mihomoctl-' + selected_version + '-offline-' + target + '.tar.gz'
+            bundle = _asset(data, assets, name, stage, deadline, MAX_BYTES)
+            _asset(data, assets, name + '.sha256', stage, deadline, 1024)
+            manifest, payload = load_bundle(bundle, target)
+            if manifest['commit'] != commit or manifest['version'] != selected_version:
+                raise ReleaseError('release-bundle-identity-mismatch')
+            kit = stage / 'kit'
+            kit.mkdir(mode=0o700)
+            for relative, body in payload.items():
+                path = kit / relative
+                path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                path.write_bytes(body)
+                path.chmod(0o600)
+            folder = kit / 'release'
+            receipt, dependencies = checked_payload(folder, kit / 'wheelhouse', target)
+            if dependencies != manifest['dependencies']:
+                raise ReleaseError('release-bundle-dependencies-mismatch')
+            wheelhouse = 'kit/wheelhouse'
+        else:
+            folder = stage / 'release'
+            folder.mkdir(mode=0o700)
+            names = ['mihomoctl-' + selected_version + suffix for suffix in
+                     ('.tar.gz', '.zip', '-py3-none-any.whl')]
+            for name in names + ['SHA256SUMS', 'build-receipt.json']:
+                _asset(data, assets, name, folder, deadline,
+                       MAX_METADATA if name in ('SHA256SUMS', 'build-receipt.json') else MAX_BYTES)
+            wheelhouse = None
+        receipt = _validate_release(folder, selected_version)
+        gate = read_json(gate_path)
+        required = set(receipt['sha256']) | {'SHA256SUMS', 'build-receipt.json'}
+        if target:
+            required |= {name, name + '.sha256'}
+        if (receipt['commit'] != commit or not isinstance(gate, dict) or gate.get('verified') is not True
+                or gate.get('commit') != commit or gate.get('version') != selected_version
+                or not isinstance(gate.get('assets'), list)
+                or any(not isinstance(asset, str) for asset in gate['assets'])
+                or len(gate['assets']) != len(set(gate['assets'])) or not required <= set(gate['assets'])
+                or gate.get('ubuntu') != ['22.04', '24.04']):
+            raise ReleaseError('release-gate-mismatch')
+        source = (folder / ('mihomoctl-' + selected_version + '.tar.gz')).relative_to(stage).as_posix()
+        record = {'version': selected_version, 'commit': commit, 'source': source,
+                  'wheelhouse': wheelhouse, 'target': target, 'release_url': WEB + '/releases/tag/' + tag}
+        record_path = stage / 'acquisition.json'
+        record_path.write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8')
+        record_path.chmod(0o600)
+        # Paths in the transport record stay relative when moved to another machine.
+        _publish(stage, destination)
+    return dict(record, output_dir=str(destination), source=str(destination / source),
+                wheelhouse=str(destination / wheelhouse) if wheelhouse else None)
