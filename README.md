@@ -12,8 +12,8 @@ mihomoctl 为 Linux 上的 Mihomo 提供用户级运行管理、认证代理环�
 
 ## 系统要求和当前稳定版本
 
-<!-- stable-version: 1.1.1 -->
-当前稳定版本：**1.1.1**。要求 Linux、Python 3.10+、PyYAML 6.0.1+；安装入口需要 Bash。Mihomo 核心另行提供或显式安装。Textual 界面是可选依赖；默认可用纯终端菜单。Windows 请在 Linux/WSL 中运行。
+<!-- stable-version: 1.2.0 -->
+当前稳定版本：**1.2.0**。要求 Linux、Python 3.10+、PyYAML 6.0.1+；安装入口需要 Bash。Mihomo 核心另行提供或显式安装。Textual 界面是可选依赖；默认可用纯终端菜单。Windows 请在 Linux/WSL 中运行。
 
 ## 最短 Quick Start
 
@@ -95,3 +95,15 @@ Listener 可达、选中节点、外部探测成功都不能单独证明 Codex �
 ## 许可证和非官方声明
 
 采用 [MIT License](LICENSE)。这是独立、非官方的 Mihomo 管理工具，与 Mihomo、OpenAI/Codex 或 Paseo 项目无隶属关系。
+
+## 发现和获取新版本
+
+```bash
+mihomoctl release check
+mihomoctl release fetch --output-dir "$HOME/releases/mihomoctl-kit" --target ubuntu22.04-x86_64-py310
+mihomoctl update --latest
+```
+
+从 1.2.0 开始，交互式 status、version、doctor 和 TUI 会限频后台查询，后续入口对同一版本只提示一次；失败不影响原命令。JSON、管道和 exec 不触发查询。设置 `MIHOMOCTL_NO_UPDATE_CHECK=1` 可关闭自动检查。通知不会证明当前版本是最新。
+
+v1.0.0–v1.1.1 用户请继续按 [INSTALL.md](INSTALL.md) 使用核验后的新版安装器升级；旧二进制不会自行获得通知功能。获取、跨机器离线安装和回滚见 [升级教程](docs/zh-CN/update.md)。

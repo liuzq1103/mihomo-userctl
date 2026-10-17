@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.2.0] - 2026-10-17
+
+### Added
+
+- `release check` observes the official stable release without claiming that an
+  installed version is the latest. Optional interactive status/version/doctor/TUI
+  notices use a detached five-second worker, a daily attempt limit and persistent
+  once-per-version notification state. JSON, pipes, exec and lifecycle commands
+  do not trigger checks. Set `MIHOMOCTL_NO_UPDATE_CHECK=1` to disable notices.
+- `release fetch --output-dir DIR` obtains reviewed source archives, wheel,
+  checksums, build receipt and release gate from the official project channel.
+  `--target` obtains either existing Ubuntu offline kit for transfer to another
+  machine. Downloads are bounded and verified before atomic publication.
+- `update --latest` acquires one fixed release and delegates to the unchanged
+  offline transactional installer. `update SOURCE` remains local and offline.
+  Explicit network failures return 2 / UNVERIFIED; optional notices never change
+  the original command's exit code. No process restarts or core downloads occur.
+
+### Upgrade from older versions
+
+Existing v1.0.0–v1.1.1 binaries cannot acquire this notification feature by
+themselves. **Use the verified 1.2.0 installer** from the complete release tree
+or offline kit, with a matching wheelhouse and explicit interpreter as needed.
+Do not rely on a notification to discover the upgrade, bypass trust/version
+checks, or add obsolete Bash version markers. The installer preserves user data
+and reports a self-contained private recovery backup.
+
 ## [1.1.1] - 2026-10-16
 
 **Fail-closed fix in subscription policy detection.** `mihomoctl subscription preview`

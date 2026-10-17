@@ -4,12 +4,15 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from mihomoctl import release
+from mihomoctl import installation
+from mihomoctl.cli import main
 from mihomoctl.scope import Scope
 from scripts.release import build_offline_bundle
 import test_v1_offline_bundle as offline_fixture
@@ -126,6 +129,105 @@ class FetchTests(unittest.TestCase):
             with self.assertRaisesRegex(release.ReleaseError, 'release-output-exists'):
                 self.fetch()
         self.assertEqual(list((self.base / 'output').iterdir()), [])
+
+    def installed_fixture(self):
+        from test_v1_installation import write_source
+        old = write_source(self.base / 'old', version='0.9.9')
+        installation.install(Scope(), old, wheelhouse=self.fixture.wheelhouse,
+                             python=sys.executable)
+        protected = {}
+        for root, names in ((Scope().config_root, ('manager.yaml', 'profiles/credentials.yaml', 'subscription.yaml')),
+                            (Scope().cache_root, ('existing-cache',)),
+                            (Scope().data_root, ('cores/mihomo', 'core-home/config.yaml'))):
+            for name in names:
+                path = root / name
+                path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                path.write_bytes(('private fixture ' + name).encode())
+                path.chmod(0o600)
+                protected[path] = path.read_bytes()
+        return protected
+
+    def test_latest_updates_and_self_contained_rollback_preserve_data_and_process(self):
+        protected = self.installed_fixture()
+        process = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(60)'])
+        self.addCleanup(lambda: process.poll() is None and process.terminate())
+        identity = Path('/proc/%s/stat' % process.pid).read_text().split()[21]
+        with patch.object(release, 'matching_target', return_value=self.fixture.target):
+            result = release.update_latest(Scope(), python=sys.executable)
+        self.assertTrue(result['changed'])
+        self.assertEqual(installation.verify_installed(Scope())['version'], '1.0.0')
+        self.assertEqual(list((Scope().cache_root / 'release-acquisition').iterdir()), [])
+        shutil.rmtree(self.assets)
+        installation.rollback(Scope(), Path(result['backup']))
+        self.assertEqual(installation.verify_installed(Scope())['version'], '0.9.9')
+        self.assertIsNone(process.poll())
+        self.assertEqual(Path('/proc/%s/stat' % process.pid).read_text().split()[21], identity)
+        for path, content in protected.items():
+            self.assertEqual(path.read_bytes(), content)
+
+    def test_latest_dry_run_and_post_switch_failure_leave_old_installation(self):
+        protected = self.installed_fixture()
+        old = installation.verify_installed(Scope())
+        with patch.object(release, 'matching_target', return_value=self.fixture.target):
+            result = release.update_latest(Scope(), python=sys.executable, dry_run=True)
+            self.assertFalse(result['changed'])
+            self.assertEqual(installation.verify_installed(Scope())['generation'], old['generation'])
+            original = installation._ensure_launcher
+            failed = False
+            def fail_once(paths):
+                nonlocal failed
+                if not failed:
+                    failed = True
+                    raise OSError('injected activation failure')
+                return original(paths)
+            with patch.object(installation, '_ensure_launcher', side_effect=fail_once):
+                with self.assertRaisesRegex(installation.InstallationError, 'installation-failed-rolled-back'):
+                    release.update_latest(Scope(), python=sys.executable)
+        self.assertEqual(installation.verify_installed(Scope())['generation'], old['generation'])
+        for path, content in protected.items():
+            self.assertEqual(path.read_bytes(), content)
+
+    def test_latest_uses_explicit_wheelhouse_and_no_newer_is_noop(self):
+        self.installed_fixture()
+        with patch.object(release, 'matching_target', side_effect=AssertionError('target selection')):
+            result = release.update_latest(Scope(), wheelhouse=str(self.fixture.wheelhouse), python=sys.executable)
+        self.assertIsNone(result['acquisition']['target'])
+        with patch.object(release, 'fetch', side_effect=AssertionError('unexpected fetch')):
+            result = release.update_latest(Scope())
+            self.assertFalse(result['changed'])
+        self.assertNotIn('latest', json.dumps(result).lower())
+
+    def test_cli_single_command_upgrades_using_existing_transaction(self):
+        import contextlib
+        import io
+        self.installed_fixture()
+        with patch.object(release, 'matching_target', return_value=self.fixture.target), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(main(['update', '--latest', '--python', sys.executable, '--json']), 0)
+        result = json.loads(output.getvalue())
+        self.assertEqual(result['command'], 'update')
+        self.assertEqual(result['overall'], 'PASS')
+        self.assertTrue(result['data']['changed'])
+        self.assertEqual(installation.verify_installed(Scope())['version'], '1.0.0')
+
+    def test_transferred_acquisition_installs_offline_at_new_location(self):
+        result = self.fetch(self.fixture.target)
+        transferred = self.base / 'another-machine'
+        shutil.move(result['output_dir'], transferred)
+        record = json.loads((transferred / 'acquisition.json').read_text())
+        with patch.object(release, 'transfer', side_effect=AssertionError('offline install used network')):
+            installation.install(Scope(), transferred / record['source'],
+                                 wheelhouse=transferred / record['wheelhouse'], python=sys.executable)
+        self.assertEqual(installation.verify_installed(Scope())['version'], '1.0.0')
+
+    def test_cli_latest_and_explicit_source_exclusive_and_missing_source_unchanged(self):
+        import contextlib
+        import io
+        for args, code in ((['update', '--latest', '/source'], 'usage-error'),
+                           (['update'], 'update-source-required')):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main([*args, '--json']), 2)
+            self.assertEqual(json.loads(output.getvalue())['errors'][0]['code'], code)
 
 
 if __name__ == '__main__':

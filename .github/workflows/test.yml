@@ -131,6 +131,9 @@ jobs:
           python scripts/release/verify_artifact_install.py --artifacts dist --wheelhouse "$RUNNER_TEMP/wheelhouse" --python "$(command -v python)" --previous-source "$RUNNER_TEMP/previous-source" --report "$RUNNER_TEMP/artifact-install.json" || rc=$?
           printf 'verify_artifact_install_rc=%s\n' "$rc"
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+      - name: Release acquisition and upgrade contracts with networking disabled
+        run: |
+          sudo unshare --net -- sudo -u "$(id -un)" -- "$(command -v python)" "$GITHUB_WORKSPACE/scripts/ci/v1_ci.py" --unit --pattern test_v1_release.py --pattern test_v1_release_fetch.py --report "$RUNNER_TEMP/release-acquisition.json"
       - name: Real users, systemd and isolated TUN (mandatory)
         run: |
           sudo modprobe tun || true
@@ -157,6 +160,7 @@ jobs:
             ${{ runner.temp }}/privileged.json
             ${{ runner.temp }}/artifact-install.json
             ${{ runner.temp }}/offline-bundle-install.json
+            ${{ runner.temp }}/release-acquisition.json
           if-no-files-found: error
       - name: Upload exact-commit release candidates
         uses: actions/upload-artifact@v4

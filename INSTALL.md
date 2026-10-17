@@ -1,19 +1,19 @@
-# Install mihomoctl 1.1.1
+# Install mihomoctl 1.2.0
 
-<!-- stable-version: 1.1.1 -->
+<!-- stable-version: 1.2.0 -->
 Linux, Bash and Python 3.10+ are required. The controller needs PyYAML 6.0.1+. Mihomo itself is separate. Default scope is user; no sudo, shell startup file writes (.bashrc, .zshrc, profile) or service actions are performed. [中文初始化教程](docs/zh-CN/setup.md) · [English setup](docs/en/setup.md).
 
 ## Verify and install the release
 
-Obtain mihomoctl-1.1.1.tar.gz (or .zip), SHA256SUMS and build-receipt.json from [v1.1.1](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.1.1). Check that the receipt identifies the tagged commit and the release gate is verified: true. Compare the downloaded digest against a checksum obtained through a trusted independent channel; a colocated checksum alone is not publisher authentication.
+Obtain mihomoctl-1.2.0.tar.gz (or .zip), SHA256SUMS and build-receipt.json from [v1.2.0](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.2.0). Check that the receipt identifies the tagged commit and the release gate is verified: true. Compare the downloaded digest against a checksum obtained through a trusted independent channel; a colocated checksum alone is not publisher authentication.
 
 In a private working directory containing the downloaded archive and SHA256SUMS:
 
 ```bash
 umask 077
 sha256sum --ignore-missing --check --strict SHA256SUMS
-tar -xzf mihomoctl-1.1.1.tar.gz
-cd mihomoctl-1.1.1
+tar -xzf mihomoctl-1.2.0.tar.gz
+cd mihomoctl-1.2.0
 python3 -m venv "$HOME/.local/share/mihomoctl-python"
 "$HOME/.local/share/mihomoctl-python/bin/python" -m pip install --require-hashes --only-binary=:all: -r requirements-lock.txt
 bash install.sh --user --source "$PWD" --python "$HOME/.local/share/mihomoctl-python/bin/python"
@@ -28,7 +28,7 @@ All extracted code and parent directories must be owned by you/root and not grou
 
 ## Upgrade existing v1.0.x installations
 
-Use the verified **v1.1.1 installer above**, not the old installed updater: the old version expects retired Bash version markers. The new installer preserves configuration, credentials, subscriptions, caches and cores, reports a private backup path and does not restart anything. Verify version and installation after upgrading. Keep the backup for self-contained rollback:
+Use the verified **v1.2.0 installer above**, not the old installed updater: the old version expects retired Bash version markers. The new installer preserves configuration, credentials, subscriptions, caches and cores, reports a private backup path and does not restart anything. Verify version and installation after upgrading. Keep the backup for self-contained rollback:
 
 ```bash
 python3 /absolute/backup/bootstrap.py rollback /absolute/backup
@@ -52,3 +52,22 @@ System installation requires an administrator's explicit leading --system select
 ## Uninstall code only
 
 From the verified release tree, `bash uninstall.sh --user` removes managed code/launcher with a recovery backup. It does not delete user data or the Mihomo core, and does not stop running processes. Explicitly stop your managed runtime first when appropriate. [安全边界](docs/zh-CN/security.md) · [Safety boundaries](docs/en/security.md).
+
+## Acquisition from an installed 1.2.0 or newer CLI
+
+`mihomoctl release check` explicitly observes the official stable release.
+`mihomoctl update --latest` obtains and verifies a fixed release before invoking
+the same offline installer. It retains private backups, version/trust/dependency
+gates and self-contained rollback; no runtime is restarted. Explicit network
+failures return 2 (UNVERIFIED). Local `mihomoctl update SOURCE` never uses the network.
+
+Use `mihomoctl release fetch --output-dir DIR --target ubuntu22.04-x86_64-py310`
+on a connected Linux/WSL machine to obtain a complete portable kit. The other
+target is `ubuntu24.04-x86_64-py312`. Transfer the whole directory to the target;
+the acquisition record contains relative paths. Follow [offline installation](docs/en/offline-install.md).
+Without `--target`, fetch obtains the normal release and does not fetch dependencies.
+
+The downloader trusts official HTTPS and checks tag/receipt/gate/source consistency;
+colocated hashes and receipts are not independent publisher signatures. Existing
+v1.0.0–v1.1.1 installations still need the verified new installer above. A passive
+notification is an additional discovery channel, never a prerequisite for upgrading.

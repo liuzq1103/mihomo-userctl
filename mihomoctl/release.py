@@ -285,3 +285,47 @@ def _fetch(scope, output_dir, version=None, target=None, *, selected=None, timeo
         _publish(stage, destination)
     return dict(record, output_dir=str(destination), source=str(destination / source),
                 wheelhouse=str(destination / wheelhouse) if wheelhouse else None)
+
+
+def matching_target(python):
+    import platform
+    from .installation import interpreter_target
+    from .release_artifacts import TARGETS
+    environment = interpreter_target(python)
+    try:
+        system = platform.freedesktop_os_release()
+    except OSError:
+        return None
+    for target, (ubuntu, version, _glibc) in TARGETS.items():
+        if (system.get('ID') == 'ubuntu' and system.get('VERSION_ID') == ubuntu
+                and environment['machine'] == 'x86_64' and environment['implementation'] == 'cpython'
+                and tuple(environment['version'][:2]) == version):
+            return target
+    return None
+
+
+def update_latest(scope, **options):
+    """Acquisition followed by the unchanged offline transactional updater."""
+    from . import installation
+    from .trust import require_private_dir
+    scope.require_mutation()
+    record = installation.current_record(scope)
+    current = installation.verify_installed(scope)['version'] if record else __version__
+    selected = metadata()
+    observed = observation(selected, current)
+    if not observed['newer_available']:
+        return dict(observed, changed=False)
+    python = installation.resolve_python(options.get('python'), system=scope.system)
+    target = None if options.get('wheelhouse') else matching_target(python)
+    # Acquisition is temporary; a successful update backup is self-contained.
+    staging = scope.cache_root / 'release-acquisition'
+    require_private_dir(staging, create=True)
+    with tempfile.TemporaryDirectory(prefix='update-', dir=staging) as temporary:
+        acquired = fetch(scope, Path(temporary) / 'release', target=target, selected=selected)
+        arguments = dict(options)
+        arguments['python'] = str(python)
+        arguments['wheelhouse'] = options.get('wheelhouse') or acquired['wheelhouse']
+        result = installation.update(scope, Path(acquired['source']), **arguments)
+    return dict(result, acquisition={'version': acquired['version'], 'commit': acquired['commit'],
+                                    'target': target, 'release_url': acquired['release_url']},
+                changed=not options.get('dry_run', False))

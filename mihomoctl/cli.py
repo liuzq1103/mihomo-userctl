@@ -843,6 +843,16 @@ def cmd_installation(command, app, args, json_mode):
     if command == "update":
         parser = _parser("update")
         values = parser.parse_args(args)
+        if values.latest and values.source:
+            raise UsageError('usage-error', 'SOURCE and --latest are mutually exclusive')
+        if values.latest:
+            from .release import update_latest
+            data = update_latest(app.scope, dry_run=values.dry_run,
+                                 allow_same_version=values.allow_same_version,
+                                 allow_downgrade=values.allow_downgrade,
+                                 wheelhouse=values.wheelhouse, python=values.python)
+            return _finish('update', app.scope.name, env.PASS, data, json_mode=json_mode,
+                           text=_kv_text(data))
         data = installation.update(app.scope,
                                    source=Path(values.source) if values.source else None,
                                    dry_run=values.dry_run,

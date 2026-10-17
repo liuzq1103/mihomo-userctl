@@ -63,6 +63,15 @@ def verify(artifacts, evidence, commit, offline_artifacts=None):
     offline_assets = []
     for ubuntu in ("22.04", "24.04"):
         folder = evidence / ("validation-ubuntu-" + ubuntu)
+        acquisition = document(folder / 'release-acquisition.json')
+        if (acquisition.get('commit') != commit or acquisition.get('source_dirty') is not False
+                or acquisition.get('network_isolated') is not True
+                or acquisition.get('success') is not True or acquisition.get('skipped') != 0
+                or acquisition.get('failures') != 0 or acquisition.get('errors') != 0
+                or type(acquisition.get('tests')) is not int or acquisition['tests'] < 26
+                or any(acquisition.get('suites', {}).get(name, 0) < count for name, count in
+                       (('test_v1_release.py', 14), ('test_v1_release_fetch.py', 12)))):
+            raise GateError('release-acquisition-acceptance-incomplete: ' + ubuntu)
         installation = document(folder / "artifact-install.json")
         if (installation.get("commit") != commit or installation.get("publishable_acceptance") is not True
                 or installation.get("success") is not True or installation.get("tests") != 4

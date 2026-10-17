@@ -49,6 +49,7 @@ def prepare(scope):
         with operation_lock(scope, 'release-notifications'):
             path = _paths(scope)
             data = _read(path)
+            previous = json.dumps(data, sort_keys=True)
             now = time.time()
             observed = data.get('observation')
             notice = None
@@ -56,7 +57,7 @@ def prepare(scope):
                 version = observed['observed_version']
                 expected_url = WEB + '/releases/tag/v' + version
                 if (observed['release_url'] != expected_url or type(observed['checked_at']) is not int
-                        or not 0 <= observed['checked_at'] <= now):
+                        or observed['checked_at'] < 0):
                     raise ValueError('notification observation invalid')
                 if (version_key(version) > version_key(__version__)
                         and version_key(version) > version_key(data.get('notified', '0.0.0'))):
@@ -64,11 +65,13 @@ def prepare(scope):
                     notice = ('mihomoctl: newer release observed: %s (checked_at=%s)\n%s\n'
                               'Upgrade: mihomoctl update --latest' %
                               (version, observed['checked_at'], expected_url))
-            launch = now - data.get('attempted_at', 0) >= INTERVAL
+            launch = (now - data.get('attempted_at', 0) >= INTERVAL
+                      or data.get('attempted_at', 0) > now)
             if launch:
                 data['attempted_at'] = now
             # Claim before printing or spawning, including failed attempts.
-            write_atomic(path, json.dumps(data))
+            if json.dumps(data, sort_keys=True) != previous:
+                write_atomic(path, json.dumps(data))
             if launch:
                 subprocess.Popen([sys.executable, '-I', '-B',
                                   str(Path(__file__).with_name('release_worker.py')),

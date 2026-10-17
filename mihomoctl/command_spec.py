@@ -52,6 +52,7 @@ NATIVE = {
                                       arg('--target', choices=('ubuntu22.04-x86_64-py310',
                                                                'ubuntu24.04-x86_64-py312'))]},
     'update': [arg('source', nargs='?'), arg('--dry-run', action='store_true'),
+               arg('--latest', action='store_true'),
                arg('--allow-same-version', action='store_true'), arg('--allow-downgrade', action='store_true'),
                arg('--wheelhouse'), arg('--python')],
     'rules': {'status': RULES, 'check': RULES}, 'version': [],

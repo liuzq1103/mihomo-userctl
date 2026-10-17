@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import textwrap
 import time
 import unicodedata
 from urllib.parse import quote, urlencode
@@ -163,6 +164,11 @@ def plain_console(service, initial_preview=None):
             print("检查私有配置与核心是否存在；重启失败可选 9 恢复备份。")
 
 
+def release_notice_lines(notice, width):
+    return [line for paragraph in notice.splitlines()
+            for line in textwrap.wrap(paragraph, max(1, width - 2))]
+
+
 def plain_tui(client):
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise ControlError("tui-requires-interactive-terminal")
@@ -210,6 +216,7 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
     def screen(window):
         from mihomoctl.notifications import take_tui_notice
         release_notice = take_tui_notice()
+        notice_until = time.monotonic() + 30
         curses.curs_set(0)
         window.keypad(True)
         window.timeout(1000)
@@ -259,7 +266,7 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
             members = [n for n in group.get("members", []) if query.casefold() in n.casefold()] if group else []
             node_index = min(node_index, max(0, len(members)-1))
             put(0, 1, "MIHOMO · 我的节点 / My nodes", width-2, curses.A_BOLD)
-            put(1, 1, release_notice or "Nodes | / Search | c Connections | o Override | m Manual group", width-2)
+            put(1, 1, "Nodes | / Search | c Connections | o Override | m Manual group", width-2)
             put(2, 1, "Group: " + (group["name"] if group else "none") + " | " +
                 ("MANUAL" if group and group["selectable"] else "AUTO / read-only") +
                 " | Filter: " + (query or "all"), width-2, curses.A_BOLD)
@@ -284,8 +291,16 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
             for index, line in enumerate(detail[:2]):
                 put(height-4+index, 1, line, width-2)
             put(height-2, 1, "↑↓ browse Tab pane Enter select / search m manual o script y apply r refresh t test q quit", width-2)
+            if release_notice and time.monotonic() < notice_until:
+                lines = release_notice_lines(release_notice, width)
+                for row, line in enumerate(lines[-(height-5):]):
+                    y = max(4, height - 2 - len(lines)) + row
+                    put(y, 1, ' ' * (width-2), width-2)
+                    put(y, 1, line, width-1)
             window.refresh()
             key = window.getch()
+            if key != -1:
+                release_notice = None
             if key in (ord('q'), 27): return
             if key == ord('/'):
                 put(height-5, 1, "Search (empty clears): ", width-2); window.refresh()

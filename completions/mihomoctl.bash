@@ -110,7 +110,7 @@ _mihomoctl_complete() {
           fetch) words='--output-dir --version --target --json --help' ;;
         esac
       fi ;;
-    update) words='--dry-run --allow-same-version --allow-downgrade --wheelhouse --python --json --help' ;;
+    update) words='--dry-run --latest --allow-same-version --allow-downgrade --wheelhouse --python --json --help' ;;
     rules)
       if ((COMP_CWORD == command_index+1)); then words='status check'
       else

@@ -42,6 +42,10 @@ class PublishGateTests(unittest.TestCase):
         (self.artifacts / "SHA256SUMS").write_text(
             "".join(hashes[n] + "  " + n + "\n" for n in sorted(hashes)), encoding="utf-8")
         for ubuntu in ("22.04", "24.04"):
+            self.save(self.report_path(ubuntu, 'release-acquisition'), {
+                'commit': self.commit, 'source_dirty': False, 'success': True,
+                'network_isolated': True, 'tests': 26, 'skipped': 0, 'failures': 0, 'errors': 0,
+                'suites': {'test_v1_release.py': 14, 'test_v1_release_fetch.py': 12}})
             self.save(self.report_path(ubuntu, "artifact-install"), {
                 "commit": self.commit, "publishable_acceptance": True, "success": True,
                 "tests": 4, "skipped": 0, "artifact_sha256": hashes,
@@ -100,6 +104,14 @@ class PublishGateTests(unittest.TestCase):
         result = self.verify()
         self.assertTrue(result["verified"])
         self.assertEqual(len([name for name in result["assets"] if "-offline-" in name]), 4)
+
+    def test_acquisition_requires_exact_commit_isolation_and_both_suites(self):
+        path = self.report_path('24.04', 'release-acquisition')
+        original = json.loads(path.read_text())
+        for changes in ({'commit': 'b' * 40}, {'network_isolated': False}, {'skipped': 1}, {'suites': {}}):
+            self.save(path, dict(original, **changes))
+            with self.assertRaisesRegex(verify_release.GateError, 'release-acquisition'):
+                self.verify()
 
     def test_other_commit_or_dirty_source_cannot_satisfy_gate(self):
         for values in ({"commit": "b" * 40}, {"source_dirty": True}):

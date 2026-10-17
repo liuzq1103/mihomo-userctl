@@ -598,7 +598,7 @@ options:
 ## update
 
 ```text
-usage: mihomoctl update [-h] [--dry-run] [--allow-same-version]
+usage: mihomoctl update [-h] [--dry-run] [--latest] [--allow-same-version]
                         [--allow-downgrade] [--wheelhouse WHEELHOUSE]
                         [--python PYTHON] [--json]
                         [source]
@@ -609,6 +609,7 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   --dry-run
+  --latest
   --allow-same-version
   --allow-downgrade
   --wheelhouse WHEELHOUSE

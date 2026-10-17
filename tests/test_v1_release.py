@@ -73,6 +73,42 @@ class DiscoveryTests(unittest.TestCase):
                 release.transfer(release.API + '/releases/latest', Path(directory) / 'body', 8192, .2)
             self.assertLess(time.monotonic() - before, 2)
 
+    def test_tls_http_and_proxy_failures_are_unverified(self):
+        import ssl
+        import urllib.error
+        from mihomoctl import release_network
+        errors = [ssl.SSLError('TLS failure'), OSError('DNS failure')]
+        errors += [urllib.error.HTTPError(release.API, code, 'blocked', {}, None)
+                   for code in (403, 407, 429)]
+        with tempfile.TemporaryDirectory() as directory:
+            for error in errors:
+                with patch.object(release_network.urllib.request, 'build_opener') as opener:
+                    opener.return_value.open.side_effect = error
+                    with self.assertRaises(type(error)):
+                        release_network.download(release.API, Path(directory) / 'body', 1024)
+                with patch.object(release.subprocess, 'run') as run:
+                    run.return_value.returncode = 2
+                    with self.assertRaisesRegex(release.ReleaseError, 'release-network-unavailable'):
+                        release.transfer(release.API, Path(directory) / 'body', 1024, 1)
+
+    def test_redirect_and_truncated_or_oversized_transport_are_refused(self):
+        import urllib.request
+        from mihomoctl import release_network
+        guard = release_network.RedirectGuard()
+        with self.assertRaises(release.ReleaseError):
+            guard.redirect_request(urllib.request.Request(release.API), None, 302, '', {}, 'https://evil.example')
+        for body, headers, limit in ((b'short', {'Content-Length': '10'}, 32),
+                                     (b'0123456789', {}, 4),
+                                     (b'x', {'Content-Length': 'invalid'}, 32)):
+            response = io.BytesIO(body)
+            response.status = 200
+            response.headers = headers
+            with tempfile.TemporaryDirectory() as directory, \
+                    patch.object(release_network.urllib.request, 'build_opener') as opener:
+                opener.return_value.open.return_value = response
+                with self.assertRaises(ValueError):
+                    release_network.download(release.API, Path(directory) / 'body', limit)
+
 
 @unittest.skipUnless(sys.platform == 'linux' and os.geteuid() != 0, 'Linux user scope')
 class NotificationTests(unittest.TestCase):
@@ -122,6 +158,25 @@ class NotificationTests(unittest.TestCase):
             self.assertIsNone(notifications.prepare(self.scope))
         with patch.object(notifications, '__version__', '1.0.0'):
             self.assertIsNone(notifications.prepare(self.scope))
+
+    def test_unchanged_state_is_not_rewritten_and_clock_rollback_recovers(self):
+        self.seed(notified='9.0.0')
+        with patch.object(notifications, 'write_atomic', side_effect=AssertionError('unnecessary write')):
+            self.assertIsNone(notifications.prepare(self.scope))
+        self.seed(attempted_at=time.time() + 7200)
+        with patch.object(notifications.subprocess, 'Popen') as spawn:
+            self.assertIn('9.0.0', notifications.prepare(self.scope))
+            self.assertEqual(spawn.call_count, 1)
+
+    def test_curses_notice_wraps_each_line_without_control_characters(self):
+        from mihomoctl.controller.controller_console import release_notice_lines
+        notice = 'Newer release 9.0.0\n' + release.WEB + '/releases/tag/v9.0.0\nUpgrade: mihomoctl update --latest'
+        for width in (60, 80, 140):
+            lines = release_notice_lines(notice, width)
+            self.assertTrue(all('\n' not in line and len(line) <= width-2 for line in lines))
+            self.assertIn('Upgrade: mihomoctl update --latest', '\n'.join(lines))
+        from mihomoctl.command_spec import validate
+        validate('update', ['--latest'])
 
     def test_bad_state_and_concurrent_lock_are_silent(self):
         path = self.seed()

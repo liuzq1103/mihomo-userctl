@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import platform
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -48,7 +49,9 @@ def source_evidence():
         if "=" in line:
             key, value = line.split("=", 1)
             release[key] = value.strip('"')
-    return {"commit": commit, "source_dirty": dirty, "os": release.get("ID"),
+    return {"commit": commit, "source_dirty": dirty,
+            "network_isolated": {name for _, name in socket.if_nameindex()} == {'lo'},
+            "os": release.get("ID"),
             "ubuntu": release.get("VERSION_ID"), "python": platform.python_version()}
 
 
