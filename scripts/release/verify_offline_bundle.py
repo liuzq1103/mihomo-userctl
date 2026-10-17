@@ -24,83 +24,11 @@ from scripts.release.verify_artifact_install import MAX_BYTES, MAX_MEMBERS, Veri
 
 
 def load_bundle(path, target, worktree=False):
-    """Read bounded regular files and verify every byte before extracting code."""
-    path = Path(path)
-    if target not in TARGETS or path.is_symlink() or not path.is_file():
-        raise VerificationError("offline-bundle-missing-or-invalid-target")
-    expected = digest(path) + "  " + path.name + "\n"
-    sidecar = path.with_name(path.name + ".sha256")
-    if sidecar.is_symlink() or not sidecar.is_file() or sidecar.read_text(encoding="utf-8") != expected:
-        raise VerificationError("offline-bundle-checksum-missing-or-mismatched")
-    payload = {}
-    root = None
-    used = 0
-    with tarfile.open(path, "r:gz") as archive:
-        for index, member in enumerate(archive):
-            parts = member.name.split("/")
-            if (index >= MAX_MEMBERS or not member.isfile() or len(parts) < 2
-                    or any(p in ("", ".", "..") for p in parts)
-                    or "\\" in member.name or ":" in member.name
-                    or any(ord(c) < 32 or ord(c) == 127 for c in member.name)):
-                raise VerificationError("unsafe-offline-bundle-member")
-            if root is None:
-                root = parts[0]
-            name = "/".join(parts[1:])
-            if parts[0] != root or name in payload:
-                raise VerificationError("duplicate-or-ambiguous-offline-bundle-member")
-            used += member.size
-            if member.size < 0 or used > MAX_BYTES:
-                raise VerificationError("offline-bundle-size-limit")
-            body = archive.extractfile(member).read(member.size + 1)
-            if len(body) != member.size:
-                raise VerificationError("truncated-offline-bundle")
-            payload[name] = body
+    from mihomoctl.release_artifacts import load_bundle as shared
     try:
-        manifest = json.loads(payload["bundle-manifest.json"])
-        version, commit = manifest["version"], manifest["commit"]
-        if (manifest["format"] != 1 or manifest["target"] != target
-                or not re.fullmatch(r"\d+\.\d+\.\d+", version)
-                or not re.fullmatch(r"[a-f0-9]{40}", commit)
-                or root != "mihomoctl-" + version + "-offline-" + target
-                or path.name != root + ".tar.gz"):
-            raise ValueError()
-        if (manifest["source"], manifest["publishable"]) not in (
-                ("git-commit", True), ("worktree", False)) or (not manifest["publishable"] and not worktree):
-            raise ValueError()
-        files = manifest["files"]
-        if not isinstance(files, dict) or set(files) != set(payload) - {"SHA256SUMS", "bundle-manifest.json"}:
-            raise ValueError()
-        if any(hashlib.sha256(payload[name]).hexdigest() != value for name, value in files.items()):
-            raise ValueError()
-        sums = "".join(hashlib.sha256(body).hexdigest() + "  " + name + "\n"
-                       for name, body in sorted(payload.items()) if name != "SHA256SUMS").encode()
-        if payload["SHA256SUMS"] != sums:
-            raise ValueError()
-        receipt = json.loads(payload["release/build-receipt.json"])
-        if any(receipt[key] != manifest[key] for key in ("version", "commit", "source", "publishable")):
-            raise ValueError()
-        if any(hashlib.sha256(payload["release/" + name]).hexdigest() != value
-               for name, value in receipt["sha256"].items()):
-            raise ValueError()
-        release_sums = "".join(receipt["sha256"][name] + "  " + name + "\n"
-                               for name in sorted(receipt["sha256"])).encode()
-        if payload["release/SHA256SUMS"] != release_sums:
-            raise ValueError()
-        dependencies = manifest["dependencies"]
-        dependency_files = {entry["file"] for entry in dependencies}
-        if len(dependency_files) != len(dependencies) or any(
-                not entry["file"].startswith("wheelhouse/")
-                or len(PurePosixPath(entry["file"]).parts) != 2
-                or not entry["file"].endswith(".whl")
-                or files[entry["file"]] != entry["sha256"] for entry in dependencies):
-            raise ValueError()
-        required = {"release/" + name for name in receipt["sha256"]} | {
-            "release/SHA256SUMS", "release/build-receipt.json", "README.txt"} | dependency_files
-        if set(files) != required:
-            raise ValueError()
-    except (KeyError, TypeError, ValueError):
-        raise VerificationError("offline-bundle-manifest-or-internal-checksum-mismatch") from None
-    return manifest, payload
+        return shared(path, target, worktree)
+    except ValueError as error:
+        raise VerificationError(str(error)) from None
 
 
 def verify(path, target, python, worktree=False):

@@ -37,68 +37,18 @@ def digest(path):
 
 
 def locked_dependencies(text):
-    """Read the deliberately small, hash-pinned dependency lock surface."""
-    joined = " ".join(line.split("#", 1)[0].rstrip().removesuffix("\\")
-                      for line in text.splitlines())
-    tokens = joined.split()
-    locked = {}
-    current = None
-    for token in tokens:
-        requirement = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9_.-]*)==([0-9][A-Za-z0-9.]*)", token)
-        pin = re.fullmatch(r"--hash=sha256:([a-f0-9]{64})", token)
-        if requirement:
-            name = re.sub(r"[-_.]+", "-", requirement[1]).lower()
-            if name in locked:
-                raise ValueError("duplicate-locked-dependency")
-            current = {"version": requirement[2], "sha256": set()}
-            locked[name] = current
-        elif pin and current is not None:
-            current["sha256"].add(pin[1])
-        else:
-            raise ValueError("unsupported-dependency-lock")
-    if not locked or any(not value["sha256"] for value in locked.values()):
-        raise ValueError("dependency-lock-requires-hashes")
-    return locked
+    from mihomoctl.release_artifacts import locked_dependencies as shared
+    return shared(text)
 
 
 def target_environment(target):
-    if target not in TARGETS:
-        raise ValueError("unsupported-offline-target")
-    _, version, glibc = TARGETS[target]
-    return {"os": "linux", "version": [*version, 0], "implementation": "cpython",
-            "machine": "x86_64", "libc": ["glibc", glibc]}
+    from mihomoctl.release_artifacts import target_environment as shared
+    return shared(target)
 
 
 def checked_payload(artifacts, wheelhouse, target, worktree=False):
-    from mihomoctl import installation
-    receipt, _ = load_artifacts(artifacts, worktree)
-    version = receipt["version"]
-    source_name = "mihomoctl-" + version
-    with zipfile.ZipFile(artifacts / (source_name + ".zip")) as archive:
-        manifest = json.loads(archive.read(source_name + "/release-manifest.json"))
-        lock = locked_dependencies(archive.read(source_name + "/requirements-lock.txt").decode("utf-8"))
-    if manifest["version"] != version:
-        raise ValueError("bundle-source-version-mismatch")
-    for suffix in (".zip", ".tar.gz"):
-        build_release.verify_source_inventory(artifacts / (source_name + suffix), manifest)
-    project_wheel = artifacts / (source_name + "-py3-none-any.whl")
-    build_release.verify_wheel_inventory(project_wheel, manifest)
-    environment = target_environment(target)
-    selected = installation.resolve_dependency_wheels(manifest["dependencies"], wheelhouse, environment)
-    if set(lock) != {item["name"] for item in selected}:
-        raise ValueError("wheelhouse-differs-from-dependency-lock")
-    dependencies = []
-    for item in selected:
-        path = item["path"]
-        if path.is_symlink() or not path.is_file():
-            raise ValueError("unsafe-dependency-wheel")
-        pin = lock[item["name"]]
-        actual = digest(path)
-        if pin["version"] != item["version"] or actual not in pin["sha256"]:
-            raise ValueError("dependency-lock-digest-mismatch: " + path.name)
-        dependencies.append({"name": item["name"], "version": item["version"],
-                             "file": "wheelhouse/" + path.name, "sha256": actual})
-    return receipt, dependencies
+    from mihomoctl.release_artifacts import checked_payload as shared
+    return shared(artifacts, wheelhouse, target, worktree)
 
 
 def build(artifacts, wheelhouse, target, output, worktree=False):

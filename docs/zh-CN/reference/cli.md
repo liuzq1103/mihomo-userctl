@@ -557,10 +557,48 @@ options:
   --json      emit the mihomoctl/v1 JSON envelope
 ```
 
+## release
+
+```text
+usage: mihomoctl release [-h] {check,fetch} ...
+
+positional arguments:
+  {check,fetch}
+
+options:
+  -h, --help     show this help message and exit
+```
+
+### release check
+
+```text
+usage: mihomoctl release check [-h] [--json]
+
+options:
+  -h, --help  show this help message and exit
+  --json      emit the mihomoctl/v1 JSON envelope
+```
+
+### release fetch
+
+```text
+usage: mihomoctl release fetch [-h] --output-dir OUTPUT_DIR
+                               [--version VERSION]
+                               [--target {ubuntu22.04-x86_64-py310,ubuntu24.04-x86_64-py312}]
+                               [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --output-dir OUTPUT_DIR
+  --version VERSION
+  --target {ubuntu22.04-x86_64-py310,ubuntu24.04-x86_64-py312}
+  --json                emit the mihomoctl/v1 JSON envelope
+```
+
 ## update
 
 ```text
-usage: mihomoctl update [-h] [--dry-run] [--allow-same-version]
+usage: mihomoctl update [-h] [--dry-run] [--latest] [--allow-same-version]
                         [--allow-downgrade] [--wheelhouse WHEELHOUSE]
                         [--python PYTHON] [--json]
                         [source]
@@ -571,6 +609,7 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   --dry-run
+  --latest
   --allow-same-version
   --allow-downgrade
   --wheelhouse WHEELHOUSE

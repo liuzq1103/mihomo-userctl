@@ -29,9 +29,9 @@ class OfflineBundleTests(unittest.TestCase):
         self.base = Path(self.temporary.name)
         self.source = write_source(self.base / "source")
         self.artifacts = self.base / "artifacts"
-        self.artifacts.mkdir()
+        self.artifacts.mkdir(mode=0o755)
         self.wheelhouse = self.base / "wheelhouse"
-        self.wheelhouse.mkdir()
+        self.wheelhouse.mkdir(mode=0o755)
         self.dependency = build_wheel(self.wheelhouse, name="pyyaml", version="6.0.3", requires=(),
                                       files={"yaml/__init__.py": b"__version__ = '6.0.3'\n"})
         self.lock = "PyYAML==6.0.3 --hash=sha256:" + build_offline_bundle.digest(self.dependency) + "\n"

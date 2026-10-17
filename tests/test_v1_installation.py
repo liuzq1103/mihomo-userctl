@@ -129,6 +129,10 @@ def write_source(root, version="1.0.0", *, entry=installation.ENTRY_POINT,
     manifest_data["inventory"]["files"] = sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
     manifest_data["inventory"]["runtime_files"] = [f for f in manifest_data["inventory"]["files"] if f.startswith(("mihomoctl/", "scripts/"))]
     (root / "release-manifest.json").write_text(json.dumps(manifest_data) + "\n", encoding="utf8")
+    # Reviewed release trees carry explicit modes; never depend on the ambient
+    # umask (isolated CI steps inherit a permissive one from the sudo chain).
+    for path in (root, *root.rglob("*")):
+        path.chmod(0o755 if path.is_dir() else 0o644)
     return root
 
 
@@ -195,6 +199,7 @@ def build_wheel(dest, name="mihomoctl", version="1.0.0", files=None, entry=None,
             info = zipfile.ZipInfo(member, date_time=(2026, 1, 1, 0, 0, 0))
             info.external_attr = 0o644 << 16
             zf.writestr(info, payload)
+    path.chmod(0o644)
     return path
 
 
@@ -251,6 +256,14 @@ class ManifestProtocolTests(unittest.TestCase):
                 (root / "release-manifest.json").write_text(json.dumps(manifest))
                 with self.assertRaises(installation.InstallationError):
                     installation.load_manifest(root)
+
+    def test_deeply_nested_manifest_is_unreadable_not_a_crash(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "src"
+            root.mkdir()
+            (root / "release-manifest.json").write_text("[" * 100000, encoding="utf-8")
+            with self.assertRaisesRegex(installation.InstallationError, "release-manifest-unreadable"):
+                installation.load_manifest(root)
 
 
 @linux_only

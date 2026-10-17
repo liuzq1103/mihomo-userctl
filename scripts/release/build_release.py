@@ -8,6 +8,7 @@ import io
 import json
 import os
 import re
+import runpy
 from pathlib import Path, PurePosixPath
 import shutil
 import stat
@@ -48,74 +49,23 @@ def git(*args):
 
 
 def reviewed_files(manifest):
-    inventory = manifest.get("inventory", {})
-    files = inventory.get("files")
-    runtime = inventory.get("runtime_files")
-    if (inventory.get("roots") != [] or not isinstance(files, list) or not files
-            or not isinstance(runtime, list) or not runtime or len(set(files)) != len(files)
-            or len(set(runtime)) != len(runtime) or not set(runtime) <= set(files)):
-        raise ValueError("release-requires-exact-reviewed-inventory")
-    for value in files:
-        if not isinstance(value, str):
-            raise ValueError("unsafe-reviewed-inventory-entry")
-        path = PurePosixPath(value)
-        if (path.is_absolute() or ".." in path.parts
-                or "\\" in value or path.as_posix() != value):
-            raise ValueError("unsafe-reviewed-inventory-entry")
-        if "__pycache__" in path.parts or path.suffix in (".pyc", ".pyo"):
-            raise ValueError("release-bytecode-refused")
-    return sorted(files)
+    shared = runpy.run_path(str(ROOT / 'mihomoctl/release_artifacts.py'))['reviewed_files']
+    return shared(manifest)
 
 
 def verify_wheel_inventory(wheel, manifest):
-    prefix = "mihomoctl-" + manifest.get("version", VERSION) + ".dist-info/"
-    with zipfile.ZipFile(wheel) as package:
-        entries = package.infolist()
-        if any(stat.S_IFMT(entry.external_attr >> 16) not in (0, stat.S_IFREG, stat.S_IFDIR) for entry in entries):
-            raise ValueError("unsafe-wheel-member")
-        names = [i.filename for i in entries if not i.is_dir()]
-        if len(names) != len(set(names)):
-            raise ValueError("duplicate-wheel-members")
-        payload = {name for name in names if not name.startswith(prefix)}
-        if payload != set(manifest["inventory"]["runtime_files"]):
-            raise ValueError("wheel-differs-from-reviewed-runtime-inventory")
-        metadata_files = {prefix + name for name in (
-            "METADATA", "WHEEL", "RECORD", "entry_points.txt", "top_level.txt", "licenses/LICENSE", "LICENSE")}
-        if any(name.startswith(prefix) and name not in metadata_files for name in names):
-            raise ValueError("wheel-differs-from-reviewed-metadata-inventory")
-        from email.parser import BytesParser
-        if prefix + 'METADATA' not in names:
-            raise ValueError('wheel-metadata-missing')
-        metadata = BytesParser().parsebytes(package.read(prefix + 'METADATA'))
-        if metadata.get_all('Version') != [manifest.get('version', VERSION)] or metadata.get_all('Name') != ['mihomoctl']:
-            raise ValueError('wheel-release-identity-mismatch')
-        reject_bytecode(names)
+    shared = runpy.run_path(str(ROOT / 'mihomoctl/release_artifacts.py'))['verify_wheel_inventory']
+    return shared(wheel, dict(manifest, version=manifest.get('version', VERSION)))
 
 
 def reject_bytecode(names):
-    if any("__pycache__" in PurePosixPath(name).parts or name.endswith((".pyc", ".pyo")) for name in names):
-        raise ValueError("release-bytecode-refused")
+    shared = runpy.run_path(str(ROOT / 'mihomoctl/release_artifacts.py'))['reject_bytecode']
+    return shared(names)
 
 
 def verify_source_inventory(archive, manifest):
-    root = "mihomoctl-" + manifest["version"] + "/"
-    if archive.suffix == ".zip":
-        with zipfile.ZipFile(archive) as package:
-            entries = package.infolist()
-            if any(stat.S_IFMT(entry.external_attr >> 16) not in (0, stat.S_IFREG, stat.S_IFDIR) for entry in entries):
-                raise ValueError("unsafe-source-archive-member")
-            reject_bytecode([entry.filename for entry in entries])
-            names = [entry.filename for entry in entries if not entry.is_dir()]
-    else:
-        with tarfile.open(archive, "r:gz") as package:
-            entries = package.getmembers()
-            if any(not entry.isfile() and not entry.isdir() for entry in entries):
-                raise ValueError("unsafe-source-archive-member")
-            reject_bytecode([entry.name for entry in entries])
-            names = [entry.name for entry in entries if entry.isfile()]
-    reject_bytecode(names)
-    if len(names) != len(set(names)) or set(names) != {root + name for name in reviewed_files(manifest)}:
-        raise ValueError("archive-differs-from-reviewed-source-inventory")
+    shared = runpy.run_path(str(ROOT / 'mihomoctl/release_artifacts.py'))['verify_source_inventory']
+    return shared(archive, manifest)
 
 
 @private_creation_mask()

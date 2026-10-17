@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import textwrap
 import time
 import unicodedata
 from urllib.parse import quote, urlencode
@@ -163,9 +164,18 @@ def plain_console(service, initial_preview=None):
             print("检查私有配置与核心是否存在；重启失败可选 9 恢复备份。")
 
 
+def release_notice_lines(notice, width):
+    return [line for paragraph in notice.splitlines()
+            for line in textwrap.wrap(paragraph, max(1, width - 2))]
+
+
 def plain_tui(client):
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise ControlError("tui-requires-interactive-terminal")
+    from mihomoctl.notifications import take_tui_notice
+    notice = take_tui_notice()
+    if notice:
+        print(notice)
     while True:
         client.verify()
         groups = list(snapshot(client, "groups")["groups"])
@@ -204,6 +214,9 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
         raise ControlError("curses-unavailable-use-tui-plain") from None
 
     def screen(window):
+        from mihomoctl.notifications import take_tui_notice
+        release_notice = take_tui_notice()
+        notice_until = time.monotonic() + 30
         curses.curs_set(0)
         window.keypad(True)
         window.timeout(1000)
@@ -278,8 +291,16 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
             for index, line in enumerate(detail[:2]):
                 put(height-4+index, 1, line, width-2)
             put(height-2, 1, "↑↓ browse Tab pane Enter select / search m manual o script y apply r refresh t test q quit", width-2)
+            if release_notice and time.monotonic() < notice_until:
+                lines = release_notice_lines(release_notice, width)
+                for row, line in enumerate(lines[-(height-5):]):
+                    y = max(4, height - 2 - len(lines)) + row
+                    put(y, 1, ' ' * (width-2), width-2)
+                    put(y, 1, line, width-1)
             window.refresh()
             key = window.getch()
+            if key != -1:
+                release_notice = None
             if key in (ord('q'), 27): return
             if key == ord('/'):
                 put(height-5, 1, "Search (empty clears): ", width-2); window.refresh()

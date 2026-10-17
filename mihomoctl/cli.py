@@ -185,6 +185,25 @@ def dispatch(app, command, args, child_argv, json_mode):
             text = output.getvalue().rstrip()
             return _finish('help', name, env.PASS, {'help': text}, json_mode=json_mode, text=text)
         command_spec.validate(command, args)
+    if (command in ('status', 'version', 'doctor') and not json_mode
+            and sys.stdin.isatty() and sys.stdout.isatty() and sys.stderr.isatty()):
+        from .notifications import prepare
+        notice = prepare(scope)
+        if notice:
+            try:
+                print(notice, file=sys.stderr)
+            except (OSError, ValueError):
+                pass
+    if command == 'release':
+        from .release import check, check_text, fetch
+        if args[0] == 'check':
+            data = check()
+            return _finish('release-check', name, env.PASS, data,
+                           json_mode=json_mode, text=check_text(data))
+        values = command_spec.validate(command, args)
+        data = fetch(scope, values.output_dir, values.version, values.target)
+        return _finish('release-fetch', name, env.PASS, data,
+                       json_mode=json_mode, text=_kv_text(data))
     if command == "init":
         return cmd_init(app, args, json_mode)
     if command == "status":
@@ -251,7 +270,15 @@ def dispatch(app, command, args, child_argv, json_mode):
                        text="mihomoctl %s\ncore %s" % (data["mihomoctl"], data.get("core")))
     from .bridge import BRIDGE_COMMANDS, GUIDANCE_COMMANDS, guidance, run_bridge
     if command in BRIDGE_COMMANDS:
-        data, exc = run_bridge(scope, [command, *args], json_mode)
+        from .notifications import TUI_NOTICE, prepare
+        token = TUI_NOTICE.set(None)
+        try:
+            if (command == 'tui' and not json_mode and sys.stdin.isatty()
+                    and sys.stdout.isatty() and sys.stderr.isatty()):
+                TUI_NOTICE.set(prepare(scope))
+            data, exc = run_bridge(scope, [command, *args], json_mode)
+        finally:
+            TUI_NOTICE.reset(token)
         if exc is not None:
             raise exc
         legacy_overall = data.get("legacy_overall", env.PASS)
@@ -819,6 +846,16 @@ def cmd_installation(command, app, args, json_mode):
     if command == "update":
         parser = _parser("update")
         values = parser.parse_args(args)
+        if values.latest and values.source:
+            raise UsageError('usage-error', 'SOURCE and --latest are mutually exclusive')
+        if values.latest:
+            from .release import update_latest
+            data = update_latest(app.scope, dry_run=values.dry_run,
+                                 allow_same_version=values.allow_same_version,
+                                 allow_downgrade=values.allow_downgrade,
+                                 wheelhouse=values.wheelhouse, python=values.python)
+            return _finish('update', app.scope.name, env.PASS, data, json_mode=json_mode,
+                           text=_kv_text(data))
         data = installation.update(app.scope,
                                    source=Path(values.source) if values.source else None,
                                    dry_run=values.dry_run,

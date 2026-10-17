@@ -12,8 +12,8 @@ It supplies no subscription service and cannot force clients to honor proxy vari
 
 ## Requirements and stable version
 
-<!-- stable-version: 1.1.1 -->
-Current stable version: **1.1.1**. Requires Linux, Python 3.10+, PyYAML 6.0.1+, and Bash for the installer. Supply Mihomo separately or install it explicitly. Textual is optional; a plain terminal menu is available by default. On Windows, run inside Linux/WSL.
+<!-- stable-version: 1.2.0 -->
+Current stable version: **1.2.0**. Requires Linux, Python 3.10+, PyYAML 6.0.1+, and Bash for the installer. Supply Mihomo separately or install it explicitly. Textual is optional; a plain terminal menu is available by default. On Windows, run inside Linux/WSL.
 
 ## Quick Start
 
@@ -95,3 +95,21 @@ Default user/process scope; no self-elevation, sudo, shell startup file edits (.
 ## License and affiliation
 
 [MIT License](LICENSE). This independent, unofficial manager is not affiliated with Mihomo, OpenAI/Codex or Paseo.
+
+## Discover and acquire releases
+
+```bash
+mihomoctl release check
+mihomoctl release fetch --output-dir "$HOME/releases/mihomoctl-kit" --target ubuntu22.04-x86_64-py310
+mihomoctl update --latest
+```
+
+Since 1.2.0, interactive status/version/doctor/TUI entries can launch a daily,
+bounded background check and show each observed newer version once on a later
+entry. Failures preserve the original exit code. JSON, pipes and exec do not
+trigger checks. Set `MIHOMOCTL_NO_UPDATE_CHECK=1` to disable automatic checks.
+An observation never establishes that an installed version is the latest.
+
+Existing v1.0.0–v1.1.1 users must still use the verified new installer described
+in [INSTALL.md](INSTALL.md); old binaries cannot gain notifications themselves.
+See [upgrade and rollback](docs/en/update.md) for portable offline acquisition.

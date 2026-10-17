@@ -8,4 +8,4 @@ CI 必须同时通过 Ubuntu 22.04/Python 3.10 和 Ubuntu 24.04/Python 3.12：�
 
 `python scripts/release/build_release.py` 从选定 Git 提交读取版本，交叉核验运行时、manifest、文档及 wheel 元数据，严格执行逐文件清单，生成源码包、wheel、SHA256SUMS 和绑定提交的 receipt。--worktree 输出仅用于开发，不能发布。`python scripts/release/verify_release.py --help` 列出证据输入；最终提交门禁必须返回 verified: true。
 
-通过 PR 合并；main 最终提交取得完整门禁后才能创建 v1.1.1 标签。核对标签提交，再核验标签 CI，只上传该提交的源码 tar.gz/zip、wheel、两种离线套件、摘要、receipt 与门禁证据。发布说明须明确 v1.0.x 使用核验后的 v1.1.1 安装器升级。未观察真实 Codex 请求时仍记录 UNVERIFIED，不能用 CI 代理探测推断。
+通过 PR 合并；main 最终提交取得完整门禁后才能创建 v1.2.0 标签。核对标签提交，再核验标签 CI，只上传该提交的源码 tar.gz/zip、wheel、两种离线套件、摘要、receipt 与门禁证据。发布说明须明确 v1.0.x 使用核验后的 v1.2.0 安装器升级。未观察真实 Codex 请求时仍记录 UNVERIFIED，不能用 CI 代理探测推断。

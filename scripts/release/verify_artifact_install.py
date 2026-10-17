@@ -19,6 +19,9 @@ import tarfile
 import tempfile
 import zipfile
 
+if __package__ in (None, ''):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 
 MAX_BYTES = 512 * 1024 * 1024
 MAX_MEMBERS = 20000
@@ -54,36 +57,11 @@ def regular_file(path):
 
 
 def load_artifacts(folder, worktree):
-    receipt_path = regular_file(folder / "build-receipt.json")
-    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    if not isinstance(receipt, dict):
-        raise VerificationError("invalid-build-receipt")
-    commit = receipt.get("commit")
-    version = receipt.get("version")
-    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
-        raise VerificationError("full-build-commit-required")
-    if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
-        raise VerificationError("stable-build-version-required")
-    source = receipt.get("source")
-    publishable = receipt.get("publishable")
-    if (source, publishable) not in (("git-commit", True), ("worktree", False)):
-        raise VerificationError("inconsistent-build-source")
-    if source == "worktree" and not worktree:
-        raise VerificationError("worktree-build-requires-explicit-worktree-flag")
-    names = {"mihomoctl-" + version + suffix for suffix in
-             (".tar.gz", ".zip", "-py3-none-any.whl")}
-    hashes = receipt.get("sha256")
-    if not isinstance(hashes, dict) or set(hashes) != names:
-        raise VerificationError("artifact-inventory-mismatch")
-    for name, expected in hashes.items():
-        path = regular_file(folder / name)
-        if (not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected)
-                or digest(path) != expected):
-            raise VerificationError("artifact-digest-mismatch: " + name)
-    checksums = regular_file(folder / "SHA256SUMS").read_text(encoding="utf-8")
-    if checksums != "".join(hashes[n] + "  " + n + "\n" for n in sorted(names)):
-        raise VerificationError("checksum-inventory-mismatch")
-    return receipt, digest(receipt_path)
+    from mihomoctl.release_artifacts import load_artifacts as shared
+    try:
+        return shared(folder, worktree)
+    except ValueError as error:
+        raise VerificationError(str(error)) from None
 
 
 @private_creation_mask()
