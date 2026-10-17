@@ -18,6 +18,24 @@
   Explicit network failures return 2 / UNVERIFIED; optional notices never change
   the original command's exit code. No process restarts or core downloads occur.
 
+### Fixed: pathologically nested release JSON crashed instead of returning UNVERIFIED
+
+- Identified in independent cross-model review of this branch and confirmed by
+  two models before the fix. Adversarially deep release JSON (metadata, gate,
+  receipt, manifest or bundle manifest) raised an uncaught `RecursionError`,
+  which is a `RuntimeError`, not a `ValueError`, so it escaped every existing
+  error mapping: `mihomoctl release check --json` terminated with a raw
+  traceback instead of the contracted 2 / UNVERIFIED envelope, and `release
+  fetch` / `install` could crash the same way while validating a hostile
+  release tree.
+- Both parse boundaries now refuse such documents through the existing codes —
+  `release.read_json` maps them to `release-metadata-invalid`,
+  `installation.load_manifest` to `release-manifest-unreadable` — and the
+  acquisition wrapper reports deep artifact JSON as `release-artifact-invalid`.
+  CLI regressions cover the `release check` envelope, acquisition artifacts and
+  the manifest gate. No installer engine behavior and no trust decision
+  changed; valid documents parse exactly as before.
+
 ### Upgrade from older versions
 
 Existing v1.0.0–v1.1.1 binaries cannot acquire this notification feature by

@@ -63,6 +63,25 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(main(['release', 'check', '--json']), 2)
         self.assertEqual(json.loads(output.getvalue())['overall'], 'UNVERIFIED')
 
+    def test_deep_json_metadata_failure_preserves_envelope_contract(self):
+        for body in ('[' * 100000, '{"a":' * 50000 + '1' + '}' * 50000):
+            def hostile(_url, path, *_args, body=body):
+                Path(path).write_text(body)
+            with self.subTest(body=body[:12]), patch.object(release, 'transfer', side_effect=hostile):
+                with self.assertRaisesRegex(release.ReleaseError, 'release-metadata-invalid'):
+                    release.metadata()
+            with patch.object(release, 'transfer', side_effect=hostile), \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(['release', 'check', '--json']), 2)
+            document = json.loads(output.getvalue())
+            self.assertEqual(document['overall'], 'UNVERIFIED')
+            self.assertEqual(document['errors'][0]['code'], 'release-metadata-invalid')
+
+    def test_deep_artifact_json_is_reported_not_crashed(self):
+        with patch.object(release, '_fetch', side_effect=RecursionError):
+            with self.assertRaisesRegex(release.ReleaseError, 'release-artifact-invalid'):
+                release.fetch(Scope(), 'unused-output')
+
     def test_transport_timeout_includes_stalled_dns_worker(self):
         run = subprocess.run
         def stalled(_args, **kwargs):

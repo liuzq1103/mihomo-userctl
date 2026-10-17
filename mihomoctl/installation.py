@@ -209,7 +209,8 @@ def load_manifest(directory):
     except FileNotFoundError:
         raise InstallationError("release-manifest-missing",
                                 str(path), "use a complete reviewed release tree") from None
-    except (OSError, ValueError) as exc:
+    # RecursionError (pathologically nested documents) is not a ValueError.
+    except (OSError, ValueError, RecursionError) as exc:
         raise InstallationError("release-manifest-unreadable", str(exc)) from None
     if not isinstance(raw, dict):
         raise InstallationError("release-manifest-invalid", "not an object")

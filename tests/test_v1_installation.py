@@ -252,6 +252,14 @@ class ManifestProtocolTests(unittest.TestCase):
                 with self.assertRaises(installation.InstallationError):
                     installation.load_manifest(root)
 
+    def test_deeply_nested_manifest_is_unreadable_not_a_crash(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "src"
+            root.mkdir()
+            (root / "release-manifest.json").write_text("[" * 100000, encoding="utf-8")
+            with self.assertRaisesRegex(installation.InstallationError, "release-manifest-unreadable"):
+                installation.load_manifest(root)
+
 
 @linux_only
 class InventoryTests(unittest.TestCase):

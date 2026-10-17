@@ -73,7 +73,8 @@ def unique_object(pairs):
 def read_json(path):
     try:
         return json.loads(Path(path).read_text(encoding='utf-8'), object_pairs_hook=unique_object)
-    except (OSError, ValueError, UnicodeError):
+    # RecursionError (pathologically nested documents) is not a ValueError.
+    except (OSError, ValueError, UnicodeError, RecursionError):
         raise ReleaseError('release-metadata-invalid') from None
 
 
@@ -221,7 +222,8 @@ def fetch(scope, output_dir, version=None, target=None, *, selected=None, timeou
     import zipfile
     try:
         return _fetch(scope, output_dir, version, target, selected=selected, timeout=timeout)
-    except (ValueError, OSError, tarfile.TarError, zipfile.BadZipFile, EOFError, KeyError, TypeError) as error:
+    except (ValueError, OSError, RecursionError, tarfile.TarError, zipfile.BadZipFile,
+            EOFError, KeyError, TypeError) as error:
         detail = str(error).split(':', 1)[0]
         detail = detail if re.fullmatch(r'[a-z][a-z0-9-]{1,79}', detail) else None
         raise ReleaseError('release-artifact-invalid', detail) from None

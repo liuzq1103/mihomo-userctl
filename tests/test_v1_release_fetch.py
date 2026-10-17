@@ -113,6 +113,20 @@ class FetchTests(unittest.TestCase):
         with self.assertRaises(release.ReleaseError):
             self.fetch()
 
+    def test_deep_artifact_json_is_invalid_not_a_crash(self):
+        for name in ('build-receipt.json', 'release-gate.json'):
+            with self.subTest(name=name):
+                (self.assets / name).write_text('[' * 100000)
+                self.refresh_metadata()
+                with self.assertRaisesRegex(release.ReleaseError,
+                                            'release-artifact-invalid|release-metadata-invalid'):
+                    self.fetch()
+                self.assertFalse((self.base / 'output').exists())
+        (self.assets / 'build-receipt.json').unlink()
+        self.refresh_metadata()
+        with self.assertRaises(release.ReleaseError):
+            self.fetch()
+
     def rehash_release(self):
         receipt = json.loads((self.assets / 'build-receipt.json').read_text())
         receipt['sha256'] = {name: hashlib.sha256((self.assets / name).read_bytes()).hexdigest()
