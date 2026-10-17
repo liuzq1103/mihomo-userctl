@@ -200,7 +200,15 @@ class FetchTests(unittest.TestCase):
                             (Scope().data_root, ('cores/mihomo', 'core-home/config.yaml'))):
             for name in names:
                 path = root / name
-                path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                # mkdir(parents=True) would create intermediate scope roots with
+                # the ambient umask; every level must be private from creation.
+                missing = []
+                cursor = path.parent
+                while not cursor.exists():
+                    missing.append(cursor)
+                    cursor = cursor.parent
+                for component in reversed(missing):
+                    component.mkdir(mode=0o700)
                 path.write_bytes(('private fixture ' + name).encode())
                 path.chmod(0o600)
                 protected[path] = path.read_bytes()
