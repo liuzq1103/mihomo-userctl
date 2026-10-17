@@ -166,6 +166,10 @@ def plain_console(service, initial_preview=None):
 def plain_tui(client):
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise ControlError("tui-requires-interactive-terminal")
+    from mihomoctl.notifications import take_tui_notice
+    notice = take_tui_notice()
+    if notice:
+        print(notice)
     while True:
         client.verify()
         groups = list(snapshot(client, "groups")["groups"])
@@ -204,6 +208,8 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
         raise ControlError("curses-unavailable-use-tui-plain") from None
 
     def screen(window):
+        from mihomoctl.notifications import take_tui_notice
+        release_notice = take_tui_notice()
         curses.curs_set(0)
         window.keypad(True)
         window.timeout(1000)
@@ -253,7 +259,7 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
             members = [n for n in group.get("members", []) if query.casefold() in n.casefold()] if group else []
             node_index = min(node_index, max(0, len(members)-1))
             put(0, 1, "MIHOMO · 我的节点 / My nodes", width-2, curses.A_BOLD)
-            put(1, 1, "Nodes | / Search | c Connections | o Override | m Manual group", width-2)
+            put(1, 1, release_notice or "Nodes | / Search | c Connections | o Override | m Manual group", width-2)
             put(2, 1, "Group: " + (group["name"] if group else "none") + " | " +
                 ("MANUAL" if group and group["selectable"] else "AUTO / read-only") +
                 " | Filter: " + (query or "all"), width-2, curses.A_BOLD)

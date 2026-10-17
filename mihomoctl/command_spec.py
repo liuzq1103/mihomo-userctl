@@ -47,6 +47,7 @@ NATIVE = {
     'migrate': [arg('--dry-run', action='store_true'), arg('--apply', action='store_true'),
                 arg('--remove-loader', action='store_true'), arg('--no-import', action='store_true'), arg('--core')],
     'rollback': [arg('backup')],
+    'release': {'check': []},
     'update': [arg('source', nargs='?'), arg('--dry-run', action='store_true'),
                arg('--allow-same-version', action='store_true'), arg('--allow-downgrade', action='store_true'),
                arg('--wheelhouse'), arg('--python')],

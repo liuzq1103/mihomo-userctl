@@ -313,6 +313,10 @@ class Console(App):
         yield Footer()
 
     def on_mount(self):
+        from mihomoctl.notifications import take_tui_notice
+        notice = take_tui_notice()
+        if notice:
+            self.notify(notice, title='mihomoctl release', timeout=30, markup=False)
         self.query_one("#search").display = False
         self.query_one("#command").display = False
         self.query_one("#groups", DataTable).add_columns("分组", "方式", "当前选择")

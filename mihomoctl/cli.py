@@ -185,6 +185,17 @@ def dispatch(app, command, args, child_argv, json_mode):
             text = output.getvalue().rstrip()
             return _finish('help', name, env.PASS, {'help': text}, json_mode=json_mode, text=text)
         command_spec.validate(command, args)
+    if (command in ('status', 'version', 'doctor') and not json_mode
+            and sys.stdin.isatty() and sys.stdout.isatty() and sys.stderr.isatty()):
+        from .notifications import prepare
+        notice = prepare(scope)
+        if notice:
+            print(notice, file=sys.stderr)
+    if command == 'release':
+        from .release import check, check_text
+        data = check()
+        return _finish('release-check', name, env.PASS, data,
+                       json_mode=json_mode, text=check_text(data))
     if command == "init":
         return cmd_init(app, args, json_mode)
     if command == "status":
@@ -251,7 +262,15 @@ def dispatch(app, command, args, child_argv, json_mode):
                        text="mihomoctl %s\ncore %s" % (data["mihomoctl"], data.get("core")))
     from .bridge import BRIDGE_COMMANDS, GUIDANCE_COMMANDS, guidance, run_bridge
     if command in BRIDGE_COMMANDS:
-        data, exc = run_bridge(scope, [command, *args], json_mode)
+        from .notifications import TUI_NOTICE, prepare
+        token = TUI_NOTICE.set(None)
+        try:
+            if (command == 'tui' and not json_mode and sys.stdin.isatty()
+                    and sys.stdout.isatty() and sys.stderr.isatty()):
+                TUI_NOTICE.set(prepare(scope))
+            data, exc = run_bridge(scope, [command, *args], json_mode)
+        finally:
+            TUI_NOTICE.reset(token)
         if exc is not None:
             raise exc
         legacy_overall = data.get("legacy_overall", env.PASS)
