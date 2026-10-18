@@ -6,6 +6,8 @@
 
 Scope flags precede COMMAND. `exec` and `direct` pass everything after `--` to the child.
 
+外层 Shell 运算符不属于 `exec` 的子进程；安装管道应包裹整个 Shell，见 [代理继承与下载审阅](../first-run.md#通过代理安装第三方-cli)。
+
 Compatibility: `profiles` = `profile list`; `export --binding NAME` = `integration export NAME`; `dashboard` = `ui`; `health` = `health check`. Retired: `codex`, `paseo`, `opencode`, `diagnose`, `ready`.
 
 ## init

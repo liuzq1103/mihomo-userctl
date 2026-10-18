@@ -4,6 +4,7 @@ import argparse
 import ast
 import contextlib
 import io
+import json
 from pathlib import Path
 import re
 import shlex
@@ -18,7 +19,8 @@ from mihomoctl.release_identity import check as check_version
 
 BILINGUAL_TOPICS = ('README.md', 'setup.md', 'subscriptions.md', 'rules.md', 'first-run.md',
                     'security.md', 'update.md', 'offline-install.md', 'agent-install-prompt.md',
-                    'codex-install-prompt.md', 'operations/integrations.md', 'operations/release.md',
+                    'agent-local-install-prompt.md', 'codex-install-prompt.md', 'troubleshooting.md',
+                    'operations/integrations.md', 'operations/release.md',
                     'reference/cli.md', 'reference/configuration.md')
 
 
@@ -65,10 +67,29 @@ def command_tokens(command):
 
 
 def check_command(command, full=False):
+    # Keep quoted shell programs opaque, but detect an outer installer pipeline.
+    # exec only replaces one process; it cannot scope the caller's pipe/sequence.
+    shell = shlex.shlex(command, posix=True, punctuation_chars='|&;')
+    shell.whitespace_split = True
+    words = list(shell)
+    if '--' in words:
+        head, child = words[:words.index('--')], words[words.index('--') + 1:]
+        if 'exec' in head and child and Path(child[0]).name in ('curl', 'wget'):
+            for index, word in enumerate(child[:-1]):
+                if word in ('|', '|&', '&&', ';') and Path(child[index + 1]).name in ('bash', 'sh', 'zsh'):
+                    raise ValueError('unscoped-installer-pipeline')
     values = command_tokens(command)
     if not values or '[' in command or 'COMMAND' in values or any('/' in v for v in values[:1]):
         return
     name = values.pop(0)
+    if name == 'core' and values[:1] == ['install'] and '--version' in values and '--sha256' not in values:
+        index = values.index('--version') + 1
+        version = values[index] if index < len(values) else ''
+        if re.fullmatch(r'v\d+\.\d+\.\d+', version):
+            pins = json.loads((ROOT / 'mihomoctl/mihomo-digests.json').read_text(encoding='utf-8'))['pins']
+            asset = 'mihomo-linux-amd64-compatible-' + version + '.gz'
+            if not any(pin['version'] == version and pin['asset'] == asset for pin in pins):
+                raise ValueError('documented-core-version-without-pin')
     if name in spec.RETIRED:
         raise ValueError('retired-command-in-example')
     parser = spec.command_parser(name)
@@ -98,24 +119,35 @@ def check_command(command, full=False):
 
 def check_commands(path, text, errors):
     fence = None
+    pending = None
     for number, line in enumerate(text.splitlines(), 1):
         marker = re.match(r'^\s*(`{3,}|~{3,})(.*)', line)
         if marker:
+            if pending:
+                errors.append('invalid-cli-example: %s:%d: unclosed-shell-quote' % (relative(path), pending[0]))
+                pending = None
             if fence is None:
                 fence = (marker[1][0], marker[2].strip())
             elif marker[1][0] == fence[0]:
                 fence = None
             continue
         examples = []
-        if fence and fence[1] in ('bash', 'sh', 'shell') and line.strip().startswith('mihomoctl '):
+        if pending:
+            examples.append((pending[1] + '\n' + line, True))
+        elif fence and fence[1] in ('bash', 'sh', 'shell') and line.strip().startswith('mihomoctl '):
             examples.append((line.strip(), True))
         elif fence is None:
             examples.extend((item, False) for item in re.findall(r'`(mihomoctl [^`]+)`', line))
         for command, full in examples:
             try:
                 check_command(command, full)
+                pending = None
             except (UsageError, ValueError) as error:
-                errors.append('invalid-cli-example: %s:%d: %s' % (relative(path), number, type(error).__name__))
+                if full and str(error) in ('No closing quotation', 'No escaped character'):
+                    pending = (pending[0] if pending else number, command)
+                else:
+                    errors.append('invalid-cli-example: %s:%d: %s' % (relative(path), number, str(error)))
+                    pending = None
     if fence:
         errors.append('unclosed-code-fence: ' + relative(path))
 

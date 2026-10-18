@@ -17,11 +17,17 @@ Current stable version: **1.2.0**. Requires Linux, Python 3.10+, PyYAML 6.0.1+, 
 
 ## Quick Start
 
-Follow [INSTALL.md](INSTALL.md) to verify the release and install the controller with its dependencies. With an existing trusted Mihomo binary:
+Complete new setup defaults to controller, trusted core and initialization, without starting. Follow [INSTALL.md](INSTALL.md) for the controller. Without a trusted core, use fixed tested v1.19.32 from [setup](docs/en/setup.md) (built-in digest covers x86_64 only). Preserve an existing manager without reinitializing; with no manager and a trusted core:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 mihomoctl init --core /absolute/path/to/mihomo
+mihomoctl config validate
+```
+
+Initialization is now complete. When ready to run, explicitly execute:
+
+```bash
 mihomoctl start
 mihomoctl health check
 mihomoctl exec -- curl --fail --head https://example.com
@@ -64,6 +70,8 @@ mihomoctl exec -- codex "检查当前项目"
 mihomoctl direct -- codex
 ```
 
+For third-party CLI installers, wrap the entire installation shell so its subsequent downloads inherit the proxy; see [installer proxy inheritance](docs/en/first-run.md#install-a-third-party-cli-through-the-proxy).
+
 `exec` refuses to launch when local health checks fail. `direct` clears eight proxy variables. Remote-node routing still depends on client behavior, NO_PROXY and destination rules. See [first run and verification](docs/en/first-run.md).
 
 ## Connect systemd, containers and CI
@@ -87,6 +95,7 @@ Default user/process scope; no self-elevation, sudo, shell startup file edits (.
 
 ## Documentation
 
+- [Local agent installation prompt](docs/en/agent-local-install-prompt.md) · [Offline installation](docs/en/offline-install.md)
 - [Installation and upgrades](INSTALL.md) · [Tutorials](docs/en/README.md)
 - [CLI reference](docs/en/reference/cli.md) · [Configuration contract](docs/en/reference/configuration.md)
 - [Operations](docs/en/operations/integrations.md) · [Release acceptance](docs/en/operations/release.md)

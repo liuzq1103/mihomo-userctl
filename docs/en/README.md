@@ -7,4 +7,6 @@ Follow [setup](setup.md) → [subscriptions](subscriptions.md) → [rules](rules
 - [systemd, containers and CI](operations/integrations.md)
 - [Security](security.md) · [Upgrade/rollback](update.md) · [Offline installation](offline-install.md)
 - [CLI reference](reference/cli.md) · [Configuration contract](reference/configuration.md)
+- [Local installation prompt (OpenCode/Codex)](agent-local-install-prompt.md) · [Installer proxy troubleshooting](first-run.md#install-a-third-party-cli-through-the-proxy)
+- [Installation and runtime troubleshooting](troubleshooting.md)
 - [Agent instructions](agent-install-prompt.md) · [Release acceptance](operations/release.md)

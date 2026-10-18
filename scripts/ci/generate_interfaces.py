@@ -80,6 +80,11 @@ def reference(language):
                     if language == 'en' else '# CLI 命令参考\n\n由实际解析定义生成；初始化前也可使用 `mihomoctl COMMAND --help`。\n')
     result = [introduction, '\n`mihomoctl [--user|--system] COMMAND [ARGS...] [--json]`\n\n',
               'Scope flags precede COMMAND. `exec` and `direct` pass everything after `--` to the child.\n\n',
+              ('Shell operators outside `exec` remain in the caller. Wrap the entire installer shell; '
+               'see [proxy inheritance and reviewed downloads](../first-run.md#install-a-third-party-cli-through-the-proxy).\n\n'
+               if language == 'en' else
+               '外层 Shell 运算符不属于 `exec` 的子进程；安装管道应包裹整个 Shell，见 '
+               '[代理继承与下载审阅](../first-run.md#通过代理安装第三方-cli)。\n\n'),
               'Compatibility: `profiles` = `profile list`; `export --binding NAME` = `integration export NAME`; '
               '`dashboard` = `ui`; `health` = `health check`. Retired: `codex`, `paseo`, `opencode`, `diagnose`, `ready`.\n']
     for command in spec.public_commands():

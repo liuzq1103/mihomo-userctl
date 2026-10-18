@@ -1,9 +1,11 @@
 # Install mihomoctl 1.2.0
 
 <!-- stable-version: 1.2.0 -->
-Linux, Bash and Python 3.10+ are required. The controller needs PyYAML 6.0.1+. Mihomo itself is separate. Default scope is user; no sudo, shell startup file writes (.bashrc, .zshrc, profile) or service actions are performed. [中文初始化教程](docs/zh-CN/setup.md) · [English setup](docs/en/setup.md).
+Linux, Bash and Python 3.10+ are required. The controller needs PyYAML 6.0.1+. Mihomo itself is separate from the controller archive. Complete new setup includes the explicit core and initialization steps below, with no runtime start by default; the installer itself remains controller-only. Default scope is user; no sudo, shell startup file writes (.bashrc, .zshrc, profile) or service actions are performed. [中文初始化教程](docs/zh-CN/setup.md) · [English setup](docs/en/setup.md).
 
 ## Verify and install the release
+
+Before installation writes, inspect existing manager/core paths and decide network access. Preserve an existing manager. For complete new setup, reuse a trusted local core or allow the explicit fixed-version download below. Strict offline use requires a verified compatible core and dependencies in advance; report missing materials before installing only the controller. Copy shared/NAS packages and the entire required wheelhouse into an owned private directory before using them.
 
 Obtain mihomoctl-1.2.0.tar.gz (or .zip), SHA256SUMS and build-receipt.json from [v1.2.0](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.2.0). Check that the receipt identifies the tagged commit and the release gate is verified: true. Compare the downloaded digest against a checksum obtained through a trusted independent channel; a colocated checksum alone is not publisher authentication.
 
@@ -36,16 +38,28 @@ python3 /absolute/backup/bootstrap.py rollback /absolute/backup
 
 Do not bypass version/trust gates or add legacy version shims. See [upgrade and rollback](docs/en/update.md).
 
-## Initialize and operate
+## Complete new setup: core and initialization
+
+Inspect existing managers and trusted cores before installation. Preserve an existing manager without reinitializing or proactively installing a replacement core. Without a manager, reuse a trusted core; if none exists and networking is allowed, default on Linux x86_64 to the project's fixed tested version (not an upstream latest claim):
 
 ```bash
-mihomoctl init --core /absolute/path/to/mihomo
+export PATH="$HOME/.local/bin:$PATH"
+mihomoctl core install --version v1.19.32
+mihomoctl init --core "${XDG_DATA_HOME:-$HOME/.local/share}/mihomoctl/cores/v1.19.32/mihomo"
+mihomoctl config validate
+```
+
+Run this branch only for a new manager with no trusted existing core. For a supplied core, instead run init once with its absolute trusted path, followed by config validate. The built-in core digest covers only x86_64/amd64-compatible; arm64/armv7 need a checked corresponding asset SHA256 or trusted local core. Strict offline use requires the core beforehand: neither source nor offline dependency kits include it. Local packages allow an explicit subsequent core download unless strict offline use was requested. Report missing materials before writes. Initial download needs direct access or an already working trusted proxy, not this installation's uninitialized/stopped exec.
+
+Verify controller installation, core version and initialized configuration separately. Leave runtime health and remote routing UNVERIFIED while stopped. When ready to start explicitly:
+
+```bash
 mihomoctl start
 mihomoctl profile list
 mihomoctl health check
 ```
 
-Already initialized managers do not need init again. A fixed core may be explicitly installed with core install; see [setup](docs/en/setup.md). Follow [subscriptions](docs/en/subscriptions.md), [rules](docs/en/rules.md) and [client verification](docs/en/first-run.md). Default MATCH,DIRECT does not establish remote routing.
+Already initialized managers do not need init again. On an existing manager, core install activates the replacement and may stop/restart a running core; it is not a harmless preparation step. See [setup](docs/en/setup.md) and the [copyable local agent prompt](docs/en/agent-local-install-prompt.md) ([中文](docs/zh-CN/agent-local-install-prompt.md)). Follow [subscriptions](docs/en/subscriptions.md), [rules](docs/en/rules.md) and [client verification](docs/en/first-run.md). Default MATCH,DIRECT does not establish remote routing. For third-party installers, proxy the entire installation shell and subsequent downloads; follow [download, review and execute](docs/en/first-run.md#install-a-third-party-cli-through-the-proxy).
 
 System installation requires an administrator's explicit leading --system selection; it is never inferred from UID 0. TUN is system-only. User installs work without systemd. Third-party service restarts remain operator actions.
 
