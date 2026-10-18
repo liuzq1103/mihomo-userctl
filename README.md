@@ -17,11 +17,17 @@ mihomoctl 为 Linux 上的 Mihomo 提供用户级运行管理、认证代理环�
 
 ## 最短 Quick Start
 
-先按 [INSTALL.md](INSTALL.md) 核验发布包、安装控制层和依赖。已有可信 Mihomo 二进制时：
+完整新装默认完成控制器、可信核心与初始化，不启动。先按 [INSTALL.md](INSTALL.md) 安装控制层；没有可信核心时，按 [初始化教程](docs/zh-CN/setup.md) 使用固定测试版本 v1.19.32（内置摘要仅覆盖 x86_64）。已有 manager 保留，不重复 init；没有 manager 且已有可信核心时：
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 mihomoctl init --core /absolute/path/to/mihomo
+mihomoctl config validate
+```
+
+以上完成初始化；需要运行时，再显式执行：
+
+```bash
 mihomoctl start
 mihomoctl health check
 mihomoctl exec -- curl --fail --head https://example.com
@@ -64,6 +70,8 @@ mihomoctl exec -- codex "检查当前项目"
 mihomoctl direct -- codex
 ```
 
+安装第三方 CLI 时，整个安装 Shell 及其后续下载都需要继承代理，见 [代理安装教程](docs/zh-CN/first-run.md#通过代理安装第三方-cli)。
+
 `exec` 的本地健康检查失败时拒绝启动；`direct` 清除八个代理变量。Codex 是否走远端节点还取决于客户端行为、NO_PROXY 和目标路由，见 [首次运行与验证](docs/zh-CN/first-run.md)。
 
 ## 如何配置 systemd、容器和 CI 接入
@@ -87,6 +95,7 @@ Listener 可达、选中节点、外部探测成功都不能单独证明 Codex �
 
 ## 文档导航
 
+- [本地安装 Agent prompt](docs/zh-CN/agent-local-install-prompt.md) · [离线安装](docs/zh-CN/offline-install.md)
 - [安装与升级](INSTALL.md) · [教程目录](docs/zh-CN/README.md)
 - [命令参考](docs/zh-CN/reference/cli.md) · [配置契约](docs/zh-CN/reference/configuration.md)
 - [接入运维](docs/zh-CN/operations/integrations.md) · [发布验收](docs/zh-CN/operations/release.md)

@@ -6,6 +6,8 @@ Generated grammar; use `mihomoctl COMMAND --help` before initialization.
 
 Scope flags precede COMMAND. `exec` and `direct` pass everything after `--` to the child.
 
+Shell operators outside `exec` remain in the caller. Wrap the entire installer shell; see [proxy inheritance and reviewed downloads](../first-run.md#install-a-third-party-cli-through-the-proxy).
+
 Compatibility: `profiles` = `profile list`; `export --binding NAME` = `integration export NAME`; `dashboard` = `ui`; `health` = `health check`. Retired: `codex`, `paseo`, `opencode`, `diagnose`, `ready`.
 
 ## init

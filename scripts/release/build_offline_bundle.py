@@ -78,7 +78,14 @@ def build(artifacts, wheelhouse, target, output, worktree=False):
         "Extract and review release/mihomoctl-%s.tar.gz; read INSTALL.md and docs/en/offline-install.md.\n"
         "Run bash install.sh --python /usr/bin/python3 --wheelhouse /ABSOLUTE/KIT/wheelhouse --dry-run,\n"
         "then repeat without --dry-run. Installation never downloads dependencies or starts services.\n"
-        "Mihomo, OpenCode, Codex and Node are not included; prepare/install them yourself.\n"
+        "This kit installs the controller/dependencies only; Mihomo, OpenCode, Codex and Node are not included.\n"
+        "Complete new setup also needs a trusted core and initialization, without starting by default.\n"
+        "Read docs/en/agent-local-install-prompt.md (or docs/zh-CN/agent-local-install-prompt.md).\n"
+        "Strict offline: prepare a verified compatible core BEFORE installation; report missing inputs early.\n"
+        "Local source does not imply strict offline: when networking is allowed, new x86_64 setups\n"
+        "without a trusted core explicitly install fixed v1.19.32, then init and config validate.\n"
+        "The built-in core digest covers amd64-compatible only; other architectures need a checked digest.\n"
+        "Preserve existing managers; do not repeat init or proactively core install (it may restart the runtime).\n"
         "The enclosed receipt/checksums alone do not independently authenticate the source.\n" % version
     ).encode()
     provenance = {"format": 1, "version": version, "commit": receipt["commit"], "target": target,

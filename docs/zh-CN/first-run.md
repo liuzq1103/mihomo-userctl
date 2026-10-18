@@ -24,3 +24,52 @@ mihomoctl doctor
 ```
 
 外部探测只证明该探测的结果。Listener 成功、选中节点或外部探测成功，均不能单独证明 Codex 使用远端节点。没有观察真实 Codex 请求时记录 **UNVERIFIED** 并说明缺少的证据。需要停止时显式 `mihomoctl stop`。systemd、容器与 CI 请用 [binding](operations/integrations.md)，准备好后由操作者明确重启应用。
+
+
+## 通过代理安装第三方 CLI
+
+先完成 Mihomo 初始化、显式启动和本地健康检查；若下载站应走远端节点，还需先配置订阅与匹配的路由。安装核心本身不能依赖尚未运行的自身代理。这里只演示显式请求安装 Claude Code 的场景，不会在安装 mihomoctl 时自动安装第三方应用。
+
+`exec` 将代理变量交给其启动的进程及后代，不改变父 Shell 或已运行的 daemon。外层 `|`、`&&`、`;` 由当前 Shell 处理。因此，把左侧 curl 包进 exec 后再在外层接 Bash，右侧及其下载不会继承代理。完整管道必须位于受代理 Shell 内：
+
+```bash
+mihomoctl exec -- bash -o pipefail -c 'curl -fsSL https://claude.ai/install.sh | bash'
+```
+
+该写法修复环境作用范围，并通过 pipefail 报告管道失败；它仍会流式执行已收到的内容。`curl -f` 只拒绝 HTTP 错误状态，不拒绝 HTTP 200 的地区限制或登录 HTML 页面，pipefail 也不能阻止已经发生的执行。推荐分步下载、审阅、执行。
+
+先下载到私有目录，并拒绝空文件、明显 HTML 和 Bash 语法错误。此步骤不执行安装脚本：
+
+```bash
+# installer-download
+umask 077
+installer_dir=$(mktemp -d "$HOME/claude-installer.XXXXXXXX")
+mihomoctl exec -- bash -euo pipefail -c '
+  curl -fsSL --dump-header "$1/headers" --output "$1/install.sh" https://claude.ai/install.sh
+  test -s "$1/install.sh"
+  if LC_ALL=C grep -Eiq "<(!doctype[[:space:]]+html|html|head|body)([[:space:]>])" "$1/install.sh"; then
+    printf "%s\n" "Refusing an HTML response; inspect network/routing." >&2
+    exit 1
+  fi
+  bash -n "$1/install.sh"
+  touch "$1/download-checked"
+' bash "$installer_dir"
+```
+
+只有上一块成功后，才在本地审阅 `$installer_dir/headers` 的最终响应与 `$installer_dir/install.sh` 的内容和来源。若返回地区限制页面、登录页或未知脚本则停止，检查目标规则、NO_PROXY 和下载站/后续资产站的连接；不要换成盲目直连执行或关闭 TLS 校验。上述检查、Content-Type 和 bash -n 都不能认证脚本，也不能保证网络一定走远端节点。
+
+确认该私有文件是预期安装器后，在同一终端显式执行；Bash 和后续下载继承代理环境：
+
+```bash
+# installer-execute-after-review
+if test -f "$installer_dir/download-checked"; then
+  mihomoctl exec -- bash "$installer_dir/install.sh"
+else
+  printf '%s\n' 'Download checks did not pass; stop and inspect the previous failure.' >&2
+  false
+fi
+```
+
+`download-checked` 仅记录下载/格式检查通过，人工审阅仍是必要步骤。保留文件供排障，使用后自行清理该独立目录。通过 `claude --version` 检查安装；登录和真实联网请求另行验证。第三方安装器对 PATH 或其他文件的修改由其自身决定，不属于 mihomoctl 的安装器保证。
+
+官方说明：[安装](https://code.claude.com/docs/en/setup)、[代理与 HTML/403 排障](https://code.claude.com/docs/en/troubleshoot-install)。`Could not resolve host` 需要检查代理继承与 DNS；`syntax error near unexpected token '<'` 常意味着把网页当脚本执行，不能简单归因于 Bash 版本。
