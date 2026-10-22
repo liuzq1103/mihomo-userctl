@@ -44,7 +44,10 @@ try:
 except ImportError:  # Windows hosts without fcntl: everything is skipped.
     LINUX = False
 
-TEST_PYTHON = Path("/tmp/mihomoctl-v1-test-env/bin/python")
+# The interpreter the launcher is asked to embed. Prefer the one running this
+# suite: CI builds its own virtualenv, so a hard-coded path resolves to None
+# there and every test that installs for real would fail rather than skip.
+TEST_PYTHON = Path(sys.executable or "/tmp/mihomoctl-v1-test-env/bin/python")
 SHELL_DECOYS = (".bashrc", ".zshrc", ".profile", ".bash_profile")
 # The repository's own release identity is whatever release-manifest.json says;
 # fixture versions below stay literal so a version bump needs no test edit.
