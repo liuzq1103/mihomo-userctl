@@ -82,6 +82,10 @@ def check_command(command, full=False):
     if not values or '[' in command or 'COMMAND' in values or any('/' in v for v in values[:1]):
         return
     name = values.pop(0)
+    if name in ('help', '--help', '-h'):
+        if name == 'help' and values:
+            check_command('mihomoctl ' + ' '.join(values) + ' --help', full)
+        return
     if name == 'core' and values[:1] == ['install'] and '--version' in values and '--sha256' not in values:
         index = values.index('--version') + 1
         version = values[index] if index < len(values) else ''

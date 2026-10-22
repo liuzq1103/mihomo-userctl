@@ -18,7 +18,6 @@ import tempfile
 import time
 import unicodedata
 import zipfile
-from urllib.parse import quote, urlencode
 if not __package__:
     sys.path.insert(0, str(Path(__file__).absolute().parents[2]))
 try:
@@ -47,20 +46,20 @@ if hasattr(os, "getuid"):
             sys.exit(2)
 
 try:
-    from .controller_types import SCHEMA, COMMANDS, ControlError, Parser, LIMIT, TEST_URL, label, number
+    from .controller_types import SCHEMA, COMMANDS, ControlError, Parser, LIMIT, error_detail
     from .controller_config import private, read_config, patch_config, endpoint
     from .controller_api import Client
-    from .controller_service import proxies, select, snapshot
+    from .controller_service import proxies, select, snapshot, measure_delay
     from .controller_health import add_probe_options, probe_options, health_candidate
     from .controller_policy import POLICY_KEYS, OVERRIDE_RUNNER, flclash_input, policy_candidate
     from .controller_transaction import apply_policy
     from .controller_dashboard import choose_port, archive_ui, setup, initialize
     from .controller_console import plain_tui, plain_console, tui
 except ImportError:
-    from controller_types import SCHEMA, COMMANDS, ControlError, Parser, LIMIT, TEST_URL, label, number
+    from controller_types import SCHEMA, COMMANDS, ControlError, Parser, LIMIT, error_detail
     from controller_config import private, read_config, patch_config, endpoint
     from controller_api import Client
-    from controller_service import proxies, select, snapshot
+    from controller_service import proxies, select, snapshot, measure_delay
     from controller_health import add_probe_options, probe_options, health_candidate
     from controller_policy import POLICY_KEYS, OVERRIDE_RUNNER, flclash_input, policy_candidate
     from controller_transaction import apply_policy
@@ -254,9 +253,8 @@ def main(argv=None, app=None):
             payload = select(client, *args.values)
         elif args.command == "latency":
             if args.values[0] not in proxies(client):
-                raise ControlError("unknown-node", 1)
-            raw = client.request("/proxies/" + quote(args.values[0], safe="") + "/delay?" + urlencode({"url": TEST_URL, "timeout": 5000}))
-            payload = {"name": args.values[0], "delay_ms": number(raw.get("delay")), "target": TEST_URL, "model_request": "UNVERIFIED"}
+                raise ControlError("unknown-node", 1, detail=repr(str(args.values[0])))
+            payload = measure_delay(client, args.values[0])
         elif args.command == "tui":
             if args.json:
                 raise ControlError("tui-does-not-support-json")
@@ -293,5 +291,5 @@ if __name__ == "__main__":
                               "config-missing": "缺少私有 Mihomo 配置；请按 setup.md 创建权限为 600 的 config.yaml，再运行初始化。",
                               "controller-unreachable": "控制器暂不可达；配置保存后需运行 mihomoctl restart，或在 TUI 首页启动服务。",
                               "controller-capability-unsupported": "当前核心不支持此 API；其他功能仍可使用。"
-                          }.get(code, "操作未完成；请检查私有配置及运行环境，修正后重试。")}}, ensure_ascii="--json" in sys.argv))
+                          }.get(code, error_detail(code, getattr(error, "detail", "")) or "操作未完成；请检查私有配置及运行环境，修正后重试。")}}, ensure_ascii="--json" in sys.argv))
         sys.exit(rc)

@@ -35,6 +35,17 @@ except ImportError:
 
 # Unit name used when neither the Application nor an owned legacy file names one.
 DEFAULT_UNIT = "mihomo"
+DELAY_ERROR_CODES = {404: "node-not-in-core", 503: "node-unreachable", 504: "delay-timeout"}
+
+
+def measure_delay(client, node, timeout_ms=5000):
+    raw = client.request("/proxies/" + quote(label(node), safe="") + "/delay?" +
+                         urlencode({"url": TEST_URL, "timeout": timeout_ms}),
+                         status_codes=DELAY_ERROR_CODES)
+    return {"name": node, "delay_ms": number(raw.get("delay")), "target": TEST_URL,
+            "model_request": "UNVERIFIED", "sampled_at": time.time()}
+
+
 # The seven facts a V1 runtime view must always show, in display order.
 RUNTIME_FIELDS = ("core", "controller", "listeners", "config", "proxy_mode", "tun", "error")
 UNVERIFIED_REASON = "runtime-application-unavailable"
@@ -761,11 +772,8 @@ class ConsoleService:
     def latency(self, node):
         client = self.client()
         if node not in proxies(client):
-            raise ControlError("unknown-node", 1)
-        raw = client.request("/proxies/" + quote(node, safe="") + "/delay?" +
-                             urlencode({"url": TEST_URL, "timeout": 5000}), optional=True)
-        return {"name": node, "delay_ms": number(raw.get("delay")), "target": TEST_URL,
-                "model_request": "UNVERIFIED", "sampled_at": time.time()}
+            raise ControlError("unknown-node", 1, detail=repr(str(node)))
+        return measure_delay(client, node)
 
     def batch_latency(self, nodes, cancelled=None, progress=None):
         from concurrent.futures import ThreadPoolExecutor, as_completed

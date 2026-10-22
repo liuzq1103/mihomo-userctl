@@ -180,6 +180,7 @@ def build_wheel(dest, name="mihomoctl", version="1.0.0", files=None, entry=None,
         metadata = ["Metadata-Version: 2.1", "Name: %s" % name, "Version: %s" % version]
         if requires_python:
             metadata.append("Requires-Python: %s" % requires_python)
+        metadata += ["Requires-Dist: %s" % r for r in requires]
         members[dist + ".dist-info/METADATA"] = ("\n".join(metadata) + "\n\n").encode()
     members[dist + ".dist-info/WHEEL"] = (
         "Wheel-Version: 1.0\nGenerator: fixture\nRoot-Is-Purelib: true\nTag: %s\n"
@@ -324,6 +325,32 @@ class PyprojectTests(unittest.TestCase):
 
 @linux_only
 class WheelLogicTests(unittest.TestCase):
+    def test_selected_nested_extra_and_environment_markers(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            # An already resolved dependency may acquire an extra later.
+            build_wheel(root, 'markdown_it_py', '3.0.0', requires=[
+                'linkify-it-py>=1,<3 ; extra == "linkify"'], files={'markdown_it/__init__.py': b''})
+            build_wheel(root, 'textual', '8.2.8', requires=[
+                'markdown-it-py[linkify] (>=2.1.0)',
+                'tree-sitter ; (python_version >= "3.10") and (extra == "syntax")'],
+                files={'textual/__init__.py': b''})
+            build_wheel(root, 'linkify_it_py', '2.0.3', requires=(), files={'linkify_it/__init__.py': b''})
+            result = installation.resolve_dependency_wheels([
+                'markdown-it-py>=2', 'textual==8.2.8 ; extra == "tui"'], root, extras=['tui'])
+            self.assertCountEqual([wheel['name'] for wheel in result], ['textual', 'markdown-it-py', 'linkify-it-py'])
+            result = installation.resolve_dependency_wheels(['textual==8.2.8 ; extra == "tui"'], root)
+            self.assertEqual(result, [])
+            with self.assertRaisesRegex(installation.InstallationError, 'unsupported-environment-marker'):
+                installation.resolve_dependency_wheels(['textual ; python_version >= "3.10"'], root, extras=['tui'])
+            result = installation.resolve_dependency_wheels([
+                'textual ; extra == "tui" and python_version >= "3.10"'], root, extras=['tui'], origin='tui')
+            self.assertTrue(all(wheel['origin'] == 'tui' for wheel in result))
+            self.assertIn('textual', [wheel['name'] for wheel in result])
+            build_wheel(root, 'tree_sitter', '0.25.0', requires=(), files={'tree_sitter/__init__.py': b''})
+            result = installation.resolve_dependency_wheels(['textual[syntax]==8.2.8'], root, origin='tui')
+            self.assertIn('tree-sitter', [wheel['name'] for wheel in result])
+
     def test_version_ordering_and_specifiers(self):
         self.assertLess(installation.parse_version("1.0.0rc1"), installation.parse_version("1.0.0"))
         self.assertLess(installation.parse_version("1.0.0"), installation.parse_version("1.0.1"))
@@ -428,6 +455,129 @@ class InstallationTestBase(unittest.TestCase):
 
 @linux_only
 class UserInstallTests(InstallationTestBase):
+    def test_in_place_drift_during_lock_acquisition_refuses_upgrade(self):
+        installed = self.install()
+        current = installation.current_target(self.paths)
+        generation = self.paths.generations / installed['generation']
+        module = generation / 'lib/mihomoctl/cli.py'
+        before_generations = set(self.paths.generations.iterdir())
+        before_backups = set(self.paths.backups_root.iterdir())
+        source = write_source(self.base / 'upgrade-source', version='1.0.1')
+        operation_lock = locks.operation_lock
+
+        @contextlib.contextmanager
+        def lock_with_in_place_drift(scope):
+            with operation_lock(scope):
+                module.chmod(0o644)
+                module.write_bytes(b'# changed after preflight verification\n')
+                self.assertEqual(installation.current_target(self.paths), current)
+                yield
+
+        with patch.object(locks, 'operation_lock', side_effect=lock_with_in_place_drift), \
+                patch.object(installation, 'verify_installed', wraps=installation.verify_installed) as verify:
+            with self.assertRaisesRegex(installation.InstallationDriftError, 'installed-code-modified'):
+                self.install(source=source)
+        # The preflight and version checks share one installed record; the
+        # separate in-lock digest check must reject drift before staging a new generation.
+        self.assertEqual(verify.call_count, 1)
+        self.assertEqual(installation.current_target(self.paths), current)
+        self.assertEqual(set(self.paths.generations.iterdir()), before_generations)
+        self.assertEqual(set(self.paths.backups_root.iterdir()), before_backups)
+
+    def test_inherited_extra_survives_base_only_or_absent_wheelhouse_and_can_be_cleared(self):
+        self.add_tui()
+        build_wheel(self.wheelhouse, name='rich', version='14.2.0', requires=(), files={'rich/__init__.py': b''})
+        # Rebuild Textual with transitive and shared-base dependencies to test attribution.
+        build_wheel(self.wheelhouse, name='textual', version='8.2.8',
+                    requires=('rich>=14.2.0', 'PyYAML>=6.0.1'),
+                    files={'textual/__init__.py': b'__version__ = "8.2.8"\n'})
+        self.install(extras=['tui'])
+        record = installation.verify_installed(self.scope)
+        self.assertIn('textual', record['extra_packages']['tui'])
+        self.assertIn('rich', record['extra_packages']['tui'])
+        self.assertNotIn('yaml', record['extra_packages']['tui'])
+        for wheel in self.wheelhouse.glob('*.whl'):
+            if not wheel.name.startswith('PyYAML-'):
+                wheel.unlink()
+        for wheelhouse in (self.wheelhouse, None):
+            old_generation = installation.current_record(self.scope)['generation']
+            with patch('socket.socket', side_effect=AssertionError('upgrade connected')), \
+                    patch.object(installation, 'verify_generation', wraps=installation.verify_generation) as verify:
+                result = self.install(allow_same_version=True, wheelhouse=wheelhouse)
+            self.assertEqual(sum(call.args[0]['generation'] == old_generation for call in verify.call_args_list), 2)
+            self.assertEqual(result['extras_carried_forward'], ['tui'])
+            record = installation.verify_installed(self.scope)
+            self.assertEqual(record['extras_carried_forward'], ['tui'])
+            self.assertIn('lib/textual/__init__.py', record['file_digests'])
+            lib = self.paths.generations / result['generation'] / 'lib'
+            code = 'import sys; sys.path.insert(0, sys.argv[1]); import textual,rich; assert textual.__file__.startswith(sys.argv[1]); assert rich.__file__.startswith(sys.argv[1])'
+            subprocess.run([str(self.python), '-I', '-B', '-c', code, str(lib)], check=True)
+        with self.assertRaises(installation.InstallationError) as caught:
+            self.install(extras=['tui'], allow_same_version=True)
+        self.assertEqual(caught.exception.code, 'extra-wheels-unavailable')
+        self.assertEqual(caught.exception.detail, 'tui')
+        self.assertIn('textual', caught.exception.remediation)
+        self.assertIn('--wheelhouse', caught.exception.remediation)
+        result = self.install(extras=[], allow_same_version=True)
+        self.assertEqual(result['extras'], [])
+        self.assertFalse((self.paths.generations / result['generation'] / 'lib/textual').exists())
+
+    def test_unattributed_inherited_extra_is_loudly_dropped(self):
+        self.add_tui()
+        self.install(extras=['tui'])
+        record = installation.verify_installed(self.scope)
+        record.pop('extra_packages')  # An older generation has no safe attribution.
+        generation = self.paths.generations / record['generation']
+        generation.chmod(0o755)
+        (generation / 'record.json').chmod(0o600)
+        (generation / 'record.json').write_text(json.dumps(record))
+        next(self.wheelhouse.glob('textual-*.whl')).unlink()
+        result = self.install(allow_same_version=True)
+        self.assertEqual(result['extras'], [])
+        self.assertEqual(result['warnings'][0]['code'], 'extras-dropped')
+        self.assertEqual(result['warnings'][0]['detail'], 'tui')
+        self.assertEqual(installation.verify_installed(self.scope)['warnings'], result['warnings'])
+
+    def add_tui(self):
+        with (self.source / 'pyproject.toml').open('a', encoding='utf-8') as stream:
+            stream.write('\n[project.optional-dependencies]\ntui = ["textual==8.2.8"]\n')
+        build_wheel(self.wheelhouse, name='textual', version='8.2.8', requires=(),
+                    files={'textual/__init__.py': b'__version__ = "8.2.8"\n'})
+
+    def test_extra_stays_private_is_verified_and_survives_upgrade(self):
+        self.add_tui()
+        before = self.snapshot_home()
+        with patch('socket.socket', side_effect=AssertionError('offline install connected')):
+            result = self.install(extras=['tui'])
+        generation = self.paths.generations / result['generation']
+        module = generation / 'lib/textual/__init__.py'
+        self.assertTrue(module.is_file())
+        self.assertEqual(module.stat().st_mode & 0o222, 0)
+        record = installation.verify_installed(self.scope)
+        self.assertEqual(record['extras'], ['tui'])
+        self.assertIn('lib/textual/__init__.py', record['file_digests'])
+        self.assertEqual(installation.installation_status(self.scope)['extras'], ['tui'])
+        self.assert_no_outside_changes(before)
+        result = self.install(allow_same_version=True)
+        self.assertTrue((self.paths.generations / result['generation'] / 'lib/textual/__init__.py').is_file())
+        self.assertEqual(installation.verify_installed(self.scope)['extras'], ['tui'])
+
+    def test_extra_not_installed_implicitly_and_unknown_extra_fails(self):
+        self.add_tui()
+        result = self.install()
+        self.assertFalse((self.paths.generations / result['generation'] / 'lib/textual').exists())
+        self.assertEqual(installation.verify_installed(self.scope)['extras'], [])
+        with self.assertRaisesRegex(installation.InstallationError, 'unknown-extra'):
+            self.install(extras=['typo'], allow_same_version=True)
+
+    def test_selected_extra_requires_local_wheels(self):
+        self.add_tui()
+        with self.assertRaisesRegex(installation.InstallationError, 'extra-wheels-unavailable'):
+            self.install(extras=['tui'], wheelhouse=None)
+        next(self.wheelhouse.glob('textual-*.whl')).unlink()
+        with self.assertRaisesRegex(installation.InstallationError, 'extra-wheels-unavailable'):
+            self.install(extras=['tui'])
+
     def test_full_user_install_from_source_tree(self):
         before = self.snapshot_home()
         result = self.install()
@@ -571,6 +721,18 @@ class InstallRefusalTests(InstallationTestBase):
 
 @linux_only
 class WheelInstallTests(InstallationTestBase):
+    def test_wheel_metadata_extra_is_private_and_unknown_name_fails(self):
+        source = self.wheel_source(requires=('PyYAML>=6.0.1', 'textual==8.2.8 ; python_version >= "3.10" and extra == "tui"'))
+        build_wheel(self.wheelhouse, name='textual', version='8.2.8', requires=(),
+                    files={'textual/__init__.py': b'__version__ = "8.2.8"\n'})
+        base = self.install(source=source, extras=[])
+        self.assertFalse((self.paths.generations / base['generation'] / 'lib/textual').exists())
+        result = self.install(source=source, extras=['tui'], allow_same_version=True)
+        self.assertTrue((self.paths.generations / result['generation'] / 'lib/textual/__init__.py').is_file())
+        self.assertEqual(installation.verify_installed(self.scope)['extras'], ['tui'])
+        with self.assertRaisesRegex(installation.InstallationError, 'unknown-extra'):
+            self.install(source=source, extras=['typo'], allow_same_version=True)
+
     def wheel_source(self, **kwargs):
         directory = self.base / ("wheel-src-" + kwargs.get("version", "1.0.0"))
         directory.mkdir(parents=True, exist_ok=True)
@@ -810,6 +972,23 @@ class PruneTests(InstallationTestBase):
 
 @linux_only
 class BootstrapScriptTests(InstallationTestBase):
+    def test_bootstrap_extra_selection_inheritance_clear_and_exclusion(self):
+        with (self.source / 'pyproject.toml').open('a') as stream:
+            stream.write('\n[project.optional-dependencies]\ntui = ["textual==8.2.8"]\n')
+        build_wheel(self.wheelhouse, name='textual', version='8.2.8', requires=(), files={'textual/__init__.py': b''})
+        args = ['install', '--source', str(self.source), '--wheelhouse', str(self.wheelhouse), '--python', str(self.python)]
+        probe = self.run_script(*args, '--extras', 'tui', '--extras', 'tui')
+        self.assertEqual(probe.returncode, 0, probe.stderr)
+        self.assertEqual(json.loads(probe.stdout[probe.stdout.index('{'):])['extras'], ['tui'])
+        probe = self.run_script(*args, '--allow-same-version')
+        self.assertEqual(probe.returncode, 0, probe.stderr)
+        self.assertEqual(json.loads(probe.stdout[probe.stdout.index('{'):])['extras'], ['tui'])
+        probe = self.run_script(*args, '--allow-same-version', '--no-extras')
+        self.assertEqual(probe.returncode, 0, probe.stderr)
+        self.assertEqual(json.loads(probe.stdout[probe.stdout.index('{'):])['extras'], [])
+        probe = self.run_script(*args, '--extras', 'tui', '--no-extras')
+        self.assertEqual(probe.returncode, 2)
+
     def run_script(self, *argv):
         return subprocess.run([sys.executable, str(ROOT / "scripts" / "bootstrap.py"), *argv],
                               capture_output=True, text=True, timeout=120,

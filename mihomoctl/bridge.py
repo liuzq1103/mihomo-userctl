@@ -179,7 +179,9 @@ def run_bridge(scope, args, json_mode=False):
                     code = exc.code if isinstance(exc.code, int) else 0
             output = buffer.getvalue()
         except controller.ControlError as exc:
-            error = BridgeError(getattr(exc, "code", "controller-error"))
+            from .controller.controller_types import error_detail
+            error = BridgeError(getattr(exc, "code", "controller-error"),
+                                error_detail(exc.code, getattr(exc, "detail", "")))
             error.exit_code = getattr(exc, 'rc', 2)
             raise error from None
         except MihomoctlError:

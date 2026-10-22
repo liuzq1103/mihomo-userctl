@@ -4,6 +4,10 @@ from dataclasses import dataclass, field
 import queue
 import threading
 import time
+try:
+    from .controller_types import ERROR_LABELS
+except ImportError:
+    from controller_types import ERROR_LABELS
 
 
 class Workers:
@@ -44,7 +48,12 @@ class Snapshot:
     freshness: str = "loading"
     sampled_at: float = 0
     error: str = ""
+    error_label: str = ""
     revision: int = 0
+
+    @property
+    def error_message(self):
+        return self.error + ("（" + self.error_label + "）" if self.error_label else "")
 
 
 @dataclass
@@ -86,6 +95,7 @@ class Store:
                 return True
             self.pending.pop(key, None)
             snap.error = "console-busy"
+            snap.error_label = ERROR_LABELS.get(snap.error, "")
             snap.freshness = "stale" if snap.value is not None else "error"
             self.events.append(key)
             return False
@@ -103,8 +113,10 @@ class Store:
             if error:
                 snap.freshness = "unsupported" if error == "controller-capability-unsupported" else "stale" if snap.value is not None else "error"
                 snap.error = error
+                snap.error_label = ERROR_LABELS.get(error, "")
             else:
                 snap.value, snap.error = value, ""
+                snap.error_label = ""
                 snap.sampled_at, snap.freshness = time.time(), "fresh"
             self.events.append(key)
 
@@ -140,9 +152,11 @@ class Store:
                 snap = self.state.snapshots.setdefault(key, Snapshot())
                 if error:
                     snap.error = error
+                    snap.error_label = ERROR_LABELS.get(error, "")
                     snap.freshness = "unsupported" if error == "controller-capability-unsupported" else "stale" if snap.value is not None else "error"
                 else:
                     snap.value, snap.error = value, ""
+                    snap.error_label = ""
                     snap.sampled_at, snap.freshness = time.time(), "fresh"
                     if key == "logs" and value is not None:
                         self.state.logs.append(value)

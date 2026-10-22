@@ -8,4 +8,12 @@
 - init 成功但 exec 被健康门阻止：默认初始化不启动。准备好后显式 start，检查配置、端口和日志。不要用尚未运行的代理下载自身核心。
 - 本地请求成功却未走远端：默认 MATCH,DIRECT；检查订阅、规则、NO_PROXY 和真实客户端连接链，见 [分层验证](first-run.md)。
 
+## 所有节点测速失败 / unknown-node / 引用对象缺失
+
+先运行 `mihomoctl nodes --json`，将核心实际名称与错误中显示的请求名称逐字符核对，包括空格、旗帜 emoji 与地区缩写（例如 🇺🇸 与 US 不同）。`unknown-node` 表示查询前核心表中就没有该名称；延迟接口的 404 为 `node-not-in-core`，表示请求时节点已不在核心表。分组的 `missing_member_count` 和最多五个 `missing_members` 可在分组结果中查看，编号菜单提示及 Textual `: chain` 会解释缺失引用。
+
+检查 `mihomoctl providers --json`、订阅/提供商加载状态和 `mihomoctl logs`，确认上游没有重命名节点、Provider 缓存可读且已加载。必要时显式 `mihomoctl provider refresh NAME`，或审阅后重新导入订阅；配置保存后运行 `mihomoctl restart`，再核对核心节点表。不要只凭磁盘配置或界面旧快照判定节点存在。
+
+503 `node-unreachable` 是节点存在但探测失败，504 `delay-timeout` 是探测超时；此时检查节点可达性、出站网络及公共目标 `https://www.gstatic.com/generate_204` 的可达性，不应按“核心不支持 API”处理。延迟成功也不验证模型业务。编号菜单没有测速，零安装测速请用 `mihomoctl tui --engine curses` 的 `t`；Textual 私有安装见 [控制台指南](console.md)。探测配置必须写 `group "名称"` 或 `provider "名称"`；Selector 应探测其背后的 provider。
+
 报告控制器、核心、初始化、运行态及真实远端请求各阶段的 PASS/FAIL/UNVERIFIED。不要上传原始凭据或连接明细。

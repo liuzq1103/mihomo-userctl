@@ -1,5 +1,6 @@
 """User-level controller component; no global proxy or daemon."""
 import os
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -7,20 +8,19 @@ import sys
 import textwrap
 import time
 import unicodedata
-from urllib.parse import quote, urlencode
 try:
     from . import files
 except ImportError:
     import files
 try:
-    from .controller_types import ControlError, TEST_URL, number
-    from .controller_service import select, snapshot
+    from .controller_types import ControlError, error_text, TUI_INSTALL_COMMAND
+    from .controller_service import select, snapshot, measure_delay
     from .controller_policy import policy_candidate
     from .controller_transaction import apply_policy
     from .controller_health import guidance, parse_console
 except ImportError:
-    from controller_types import ControlError, TEST_URL, number
-    from controller_service import select, snapshot
+    from controller_types import ControlError, error_text, TUI_INSTALL_COMMAND
+    from controller_service import select, snapshot, measure_delay
     from controller_policy import policy_candidate
     from controller_transaction import apply_policy
     from controller_health import guidance, parse_console
@@ -62,6 +62,8 @@ def plain_console(service, initial_preview=None):
             return
         print("警告：此预览会移除本地的" + "、".join(units) +
               "；提供商策略按订阅内容整体替换，不自动降级，可用 9 恢复备份回退。")
+    if importlib.util.find_spec("textual") is None:
+        print("更多功能：Textual 可用户私有安装：" + TUI_INSTALL_COMMAND)
     while True:
         if initial_preview:
             print("已收到标准输入订阅预览；选择 3 审阅并保存。")
@@ -124,7 +126,7 @@ def plain_console(service, initial_preview=None):
                 service.restore()
                 print("已恢复，请选择 7 重启。")
             elif choice == "10":
-                print('输入 group "组名" 或 provider "名称"；可加 --preset resilient 或 --url / --expected-status / --interval / --timeout / --lazy / --tolerance。')
+                print('必须以 group 或 provider 开头：group "组名" 或 provider "名称"；可加 --preset resilient 或 --url / --expected-status / --interval / --timeout / --lazy / --tolerance。')
                 scope, name, options = parse_console(input("探测配置: "))
                 result = service.health_check(scope, name, options)
                 print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -160,13 +162,57 @@ def plain_console(service, initial_preview=None):
                     for limit in value.get("environment") or []:
                         print("  - " + str(limit))
         except (ControlError, files.InstallError, OSError, ValueError, subprocess.TimeoutExpired) as error:
-            print("操作未完成：" + getattr(error, "code", "配置或环境不可用"))
+            print("操作未完成：" + error_text(getattr(error, "code", "配置或环境不可用"), getattr(error, "detail", "")))
             print("检查私有配置与核心是否存在；重启失败可选 9 恢复备份。")
 
 
 def release_notice_lines(notice, width):
     return [line for paragraph in notice.splitlines()
             for line in textwrap.wrap(paragraph, max(1, width - 2))]
+
+
+def display_width(text):
+    return sum(0 if unicodedata.combining(char) else
+               2 if unicodedata.east_asian_width(char) in ("W", "F") else 1 for char in text)
+
+
+def wrap_cells(text, width):
+    lines, line = [], ""
+    for char in text:
+        if line and display_width(line + char) > max(1, width):
+            lines.append(line)
+            line = ""
+        line += char
+    return lines + ([line] if line else [])
+
+
+def legend_lines(width):
+    items = (("↑↓", "浏览"), ("Tab", "切面板"), ("Enter", "选择"), ("q", "退出"),
+             ("/", "搜索"), ("r", "刷新"), ("t", "测速"), ("c", "连接"),
+             ("f", "流量"), ("m", "手动"), ("o", "脚本"), ("y", "保存"))
+    def pack(labels):
+        rows = [""]
+        for key, title in items:
+            token = key + (" " + title if labels else "")
+            candidate = (rows[-1] + "  " + token).strip()
+            if display_width(candidate) > width:
+                rows.append(token)
+            else:
+                rows[-1] = candidate
+        return rows
+    rows = pack(True)
+    if len(rows) > 2:
+        rows = pack(False)
+    if len(rows) > 2 or any(display_width(row) > width for row in rows):
+        # Preserve every key even when two rows cannot fit; put() clips safely.
+        rows = [rows[0], "  ".join(rows[1:])]
+    return (rows + [""])[:2]
+
+
+def curses_header(width):
+    full = "Nodes 节点 | /搜 Search c连 Conn o预览 Override m手动 Manual"
+    compact = "Nodes节点 /搜Search c连Conn o预览Override m手动Manual"
+    return full if display_width(full) <= width else compact
 
 
 def plain_tui(client):
@@ -252,7 +298,7 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
                     node_index = members.index(previous_node) if previous_node in members else 0
                     note = "已刷新 / Refreshed " + time.strftime("%H:%M:%S")
                 except ControlError as error:
-                    note = "UNVERIFIED: " + error.code
+                    note = "UNVERIFIED: " + error_text(error.code, error.detail)
                 last_refresh = time.monotonic()
             height, width = window.getmaxyx()
             window.erase()
@@ -266,10 +312,10 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
             members = [n for n in group.get("members", []) if query.casefold() in n.casefold()] if group else []
             node_index = min(node_index, max(0, len(members)-1))
             put(0, 1, "MIHOMO · 我的节点 / My nodes", width-2, curses.A_BOLD)
-            put(1, 1, "Nodes | / Search | c Connections | o Override | m Manual group", width-2)
-            put(2, 1, "Group: " + (group["name"] if group else "none") + " | " +
+            put(1, 1, curses_header(width-3), width-2)
+            put(2, 1, "组 Group: " + (group["name"] if group else "none") + " | " +
                 ("MANUAL" if group and group["selectable"] else "AUTO / read-only") +
-                " | Filter: " + (query or "all"), width-2, curses.A_BOLD)
+                " 筛选 Filter: " + (query or "all"), width-2, curses.A_BOLD)
             put(3, 1, "策略组 / Groups", middle-2, curses.A_BOLD)
             put(3, middle, "节点 / Nodes ({})  [*] selected".format(len(members)), width-middle-1, curses.A_BOLD)
             for y in range(3, height-6):
@@ -290,7 +336,8 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
             put(height-5, 1, note, width-2)
             for index, line in enumerate(detail[:2]):
                 put(height-4+index, 1, line, width-2)
-            put(height-2, 1, "↑↓ browse Tab pane Enter select / search m manual o script y apply r refresh t test q quit", width-2)
+            for index, line in enumerate(legend_lines(width-3)):
+                put(height-2+index, 1, line, width-2)
             if release_notice and time.monotonic() < notice_until:
                 lines = release_notice_lines(release_notice, width)
                 for row, line in enumerate(lines[-(height-5):]):
@@ -336,7 +383,7 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
                         summary = pending[2]
                         note = "PREVIEW: " + ", ".join(summary["changed_sections"]) + " | y saves, q cancels"
                         detail = ["Groups: " + ", ".join(g["name"] for g in summary["groups"]),
-                                  "Rules: {} | existing connections unchanged; restart required".format(summary["rule_count"])]
+                                  "规则 {}；保存后需重启".format(summary["rule_count"])]
                 except (ControlError, files.InstallError, OSError, ValueError, subprocess.TimeoutExpired) as error:
                     pending = None
                     note = "FAIL: " + (error.code if isinstance(error, ControlError) else "policy-operation-failed")
@@ -360,7 +407,7 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
                     if key == ord('c'):
                         rows = snapshot(client, "connections", details)["connections"]
                         detail = [(row.get("host", "") + " | " if details else "") + " ← ".join(row["chains"]) for row in rows[:2]] or ["No active connections"]
-                        note = "Active chains (first 2); use mihomoctl connections for all."
+                        note = "前两条链路；全部见 mihomoctl connections"
                     elif key == ord('f'):
                         values = snapshot(client, "traffic")
                         detail = ["↑ {} B/s   ↓ {} B/s".format(values["up"], values["down"])]
@@ -368,9 +415,8 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
                         if key == ord('t'):
                             name = members[node_index]
                             note = "Testing public HTTPS target..."; put(height-5, 1, note, width-2); window.refresh()
-                            raw = client.request("/proxies/"+quote(name, safe="")+"/delay?"+urlencode({"url": TEST_URL,"timeout":5000}))
-                            delays[name] = number(raw.get("delay"))
-                            detail = [name+": "+str(delays[name])+" ms; model UNVERIFIED"]
+                            delays[name] = measure_delay(client, name)["delay_ms"]
+                            detail = wrap_cells(name+": "+str(delays[name])+" ms; UNVERIFIED", width-3)[:2]
                         else:
                             if not group["selectable"]:
                                 note = "自动组只读 / Auto group: m previews conversion to manual; y saves."
@@ -380,6 +426,7 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
                             note = "已确认切换 / Selection confirmed; existing connections unchanged"
                         last_refresh = time.monotonic()
                 except ControlError as error:
+                    detail = wrap_cells(error_text(error.code, error.detail), width-3)[:2]
                     note = "FAIL: " + error.code
     try:
         curses.wrapper(screen)

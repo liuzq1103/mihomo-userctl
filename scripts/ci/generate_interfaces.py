@@ -39,7 +39,7 @@ def completion():
             if command == 'health': words.insert(0, 'check')
             cases.append('    %s) words=%r ;;' % (command, ' '.join(words)))
         for flag, settings in all_rows:
-            if flag.startswith('--') and settings.get('action') not in ('store_true','store_false'):
+            if flag.startswith('--') and settings.get('action') not in ('store_true','store_false','store_const'):
                 if flag in ('--core','--config','--file','--output','--output-dir','--path','--wheelhouse','--python','--archive','--source-file','--url-file','--home-dir','--script'):
                     file_flags.add(flag)
                 else:

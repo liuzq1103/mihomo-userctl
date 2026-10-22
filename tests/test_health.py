@@ -23,6 +23,27 @@ import yaml
 
 
 class GraphTests(unittest.TestCase):
+    def test_dangling_members_have_counts_warning_and_guidance(self):
+        rows = self.rows()
+        rows['Entry']['members'].extend('Gone' + str(i) for i in range(7))
+        row = health.annotate(rows)['Entry']
+        self.assertEqual(row['chain_state'], 'complete')
+        self.assertEqual(row['missing_member_count'], 7)
+        self.assertEqual(row['missing_members'], ['Gone' + str(i) for i in range(5)])
+        self.assertIn('missing-member-references', row['warnings'])
+        text = '\n'.join(health.guidance(row))
+        self.assertIn('订阅或提供商尚未加载', text)
+        self.assertIn('上游已重命名', text)
+        self.assertIn('Gone0', text)
+
+    def test_probe_syntax_error_explains_required_prefix(self):
+        with self.assertRaises(ControlError) as caught:
+            health.parse_console('Ai+')
+        self.assertEqual(caught.exception.code, 'invalid-health-check-options')
+        self.assertIn('group', str(caught.exception))
+        self.assertIn('provider', str(caught.exception))
+        self.assertEqual(health.parse_console('group "Ai+"')[:2], ('group', 'Ai+'))
+
     def rows(self, selected="A", history=None, alive=True):
         class Client:
             def request(self, *args, **kwargs):

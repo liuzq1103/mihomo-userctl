@@ -18,7 +18,7 @@ _mihomoctl_complete() {
   action=${COMP_WORDS[command_index+1]}
   case "$previous" in
     --archive|--config|--core|--file|--home-dir|--output|--output-dir|--path|--python|--script|--source-file|--url-file|--wheelhouse) mapfile -t COMPREPLY < <(compgen -f -- "$current"); return ;;
-    --allow-non-loopback|--binding|--egress-url|--engine|--expected-status|--interval|--lazy|--lines|--policy|--port|--preset|--profile|--sha256|--target|--theme|--timeout|--tolerance|--url|--version) return ;;
+    --allow-non-loopback|--binding|--egress-url|--engine|--expected-status|--extras|--interval|--lazy|--lines|--policy|--port|--preset|--profile|--sha256|--target|--theme|--timeout|--tolerance|--url|--version) return ;;
   esac
   case "$command" in
     init) words='--core --port --config --allow-non-loopback --json --help' ;;
@@ -110,7 +110,7 @@ _mihomoctl_complete() {
           fetch) words='--output-dir --version --target --json --help' ;;
         esac
       fi ;;
-    update) words='--dry-run --latest --allow-same-version --allow-downgrade --wheelhouse --python --json --help' ;;
+    update) words='--dry-run --latest --allow-same-version --allow-downgrade --wheelhouse --python --extras --no-extras --json --help' ;;
     rules)
       if ((COMP_CWORD == command_index+1)); then words='status check'
       else

@@ -179,9 +179,8 @@ def _specifier_satisfied(spec, version_key):
 def parse_requirement(text):
     """Split 'Name[extras] specifier ; marker' into (name, spec, marker).
 
-    Marker-only requirements whose marker mentions ``extra`` are optional
-    extras and are skipped by the caller; any other marker fails closed
-    because this installer never evaluates environment markers."""
+    Optional markers are handled explicitly by the resolver; other environment
+    markers fail closed. Parenthesized PEP 508 version clauses occur in wheels."""
     text = text.strip()
     marker = None
     if ";" in text:
@@ -190,7 +189,10 @@ def parse_requirement(text):
     match = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9._-]*)(\[[^\]]*\])?\s*(.*)", text.strip())
     if not match:
         raise InstallationError("unsupported-requirement", text)
-    return normalize_name(match[1]), match[3].strip(), marker
+    spec = match[3].strip()
+    if spec.startswith("(") and spec.endswith(")"):
+        spec = spec[1:-1].strip()
+    return normalize_name(match[1]), spec, marker
 
 
 # ---------------------------------------------------------------------------
@@ -334,7 +336,7 @@ def parse_pyproject(path):
                 raise InstallationError("pyproject-unsupported-syntax", "line %d" % lineno)
             section, current_key = stripped[1:-1], None
             continue
-        if section not in ("project", "project.scripts", "tool.setuptools"):
+        if section not in ("project", "project.scripts", "project.optional-dependencies", "tool.setuptools"):
             continue
         if pending_items is not None:
             chunk, closed, pending_items = _array_chunk(stripped, pending_items)
@@ -614,7 +616,45 @@ def unpack_wheel(path, lib_dir, *, allowed_top_levels=None):
     return info
 
 
-def resolve_dependency_wheels(requirements, wheelhouse, target=None):
+def _extra_marker(marker):
+    """Extract the explicit extra clause, including compound wheel markers."""
+    match = re.search(r'''\bextra\s*==\s*(["'])([A-Za-z0-9._-]+)\1''', marker)
+    if not match:
+        raise InstallationError("unsupported-environment-marker", marker)
+    return normalize_name(match[2])
+
+
+def _selected_requirements(requirements, extras=()):
+    selected = {normalize_name(extra) for extra in extras}
+    result = []
+    for requirement in requirements:
+        _, _, marker = parse_requirement(requirement)
+        if marker is not None:
+            if _extra_marker(marker) not in selected:
+                continue
+            requirement = requirement.partition(";")[0].strip()
+        result.append(requirement)
+    return result
+
+
+def _validate_extras(extras, available):
+    selected = sorted({normalize_name(extra) for extra in extras})
+    unknown = set(selected) - {normalize_name(extra) for extra in available}
+    if unknown:
+        raise InstallationError("unknown-extra", ", ".join(sorted(unknown)),
+                                "available extras: " + (", ".join(sorted(available)) or "none"))
+    return selected
+
+
+def _requirement_extras(requirement):
+    match = re.match(r"[A-Za-z0-9][A-Za-z0-9._-]*\[([^\]]*)\]", requirement.strip())
+    names = [name.strip() for name in match[1].split(",")] if match else []
+    if any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name) for name in names):
+        raise InstallationError("unsupported-requirement", requirement)
+    return {normalize_name(name) for name in names}
+
+
+def resolve_dependency_wheels(requirements, wheelhouse, target=None, extras=(), *, origin=None):
     """Pick wheels from ``wheelhouse`` satisfying the closed requirement set."""
     if not Path(wheelhouse).is_dir():
         raise InstallationError("wheelhouse-missing", str(wheelhouse))
@@ -623,18 +663,22 @@ def resolve_dependency_wheels(requirements, wheelhouse, target=None):
         info = parse_wheel_filename(path)
         available.setdefault(info["name"], []).append(info)
     chosen_wheels = []
-    queue = list(requirements)
+    queue = [(requirement, origin) for requirement in _selected_requirements(requirements, extras)]
     seen = {}
+    metadata = {}
+    activated = {}
     while queue:
-        text = queue.pop(0)
+        text, origin = queue.pop(0)
         name, spec, marker = parse_requirement(text)
-        if marker is not None:
-            if "extra" in marker:
-                continue  # optional extra, never installed implicitly
-            raise InstallationError("unsupported-environment-marker", text)
+        requested = _requirement_extras(text)
         if name in seen:
             if not _specifier_satisfied(spec, parse_version(seen[name]["version"])):
                 raise InstallationError("dependency-constraint-conflict", name)
+            added = requested - activated[name]
+            if added:
+                activated[name].update(added)
+                queue.extend((requirement, origin) for requirement in
+                             _selected_requirements(metadata[name]["requires"], added))
             continue
         candidates = [i for i in available.get(name, []) if wheel_compatible_here(i, target)]
         chosen = None
@@ -646,6 +690,7 @@ def resolve_dependency_wheels(requirements, wheelhouse, target=None):
             raise InstallationError(
                 "dependency-wheel-missing", "%s%s in %s" % (name, spec, wheelhouse),
                 "add the wheel to --wheelhouse or install the dependency system-wide")
+        chosen = dict(chosen, origin=origin)
         seen[name] = chosen
         chosen_wheels.append(chosen)
         with zipfile.ZipFile(chosen["path"]) as zf:
@@ -657,7 +702,10 @@ def resolve_dependency_wheels(requirements, wheelhouse, target=None):
             if meta["requires_python"] and not _specifier_satisfied(
                     meta["requires_python"], parse_version(".".join(map(str, version)))):
                 raise InstallationError("wheel-requires-python-unsatisfied", chosen["path"].name)
-        queue.extend(meta["requires"])
+        metadata[name], activated[name] = meta, requested
+        # Name[extra] selects that dependency's extras, independently of the
+        # root project's extras (Textual requires markdown-it-py[linkify]).
+        queue.extend((requirement, origin) for requirement in _selected_requirements(meta["requires"], requested))
     return chosen_wheels
 
 
@@ -902,7 +950,8 @@ def installation_status(scope):
     if record is None:
         return status
     status.update(installed=True, version=record.get("version"),
-                  generation=record.get("generation"), python=record.get("python"))
+                  generation=record.get("generation"), python=record.get("python"),
+                  extras=record.get("extras", []))
     try:
         verify_installed(scope)
     except MihomoctlError as error:
@@ -1104,7 +1153,7 @@ def _copy_source_packages(source_root, lib_dir, manifest):
         raise InstallationError("source-version-markers-disagree", "mihomoctl/__init__.py")
 
 
-def _stage_wheels(source, lib_dir, wheelhouse, manifest, target=None):
+def _stage_wheels(source, lib_dir, manifest, target=None):
     main_candidates = [w for w in source.wheels
                        if parse_wheel_filename(w)["name"] == PROJECT_NAME]
     if len(main_candidates) != 1:
@@ -1143,20 +1192,128 @@ def _stage_wheels(source, lib_dir, wheelhouse, manifest, target=None):
     base = [r for r in requirements if parse_requirement(r)[2] is None]
     if sorted(parse_requirement(r) for r in base) != sorted(parse_requirement(r) for r in manifest["dependencies"]):
         raise InstallationError("wheel-dependencies-disagree-with-manifest", main_path.name)
-    if wheelhouse is not None:
-        for chosen in resolve_dependency_wheels(requirements, wheelhouse, target):
-            unpack_wheel(chosen["path"], lib_dir)
+    optional = {}
+    for requirement in requirements:
+        marker = parse_requirement(requirement)[2]
+        if marker is not None:
+            optional.setdefault(_extra_marker(marker), []).append(requirement)
+    return base, optional
 
 
-def stage_payload(source, lib_dir, wheelhouse, interpreter):
+def _carry_extra(group, previous, previous_lib, lib_dir, chosen):
+    """Copy only attributed, digest-verified files; never infer package ownership."""
+    tops = previous.get("extra_packages", {}).get(group, [])
+    if not tops or previous_lib is None:
+        return []
+    if any(not isinstance(top, str) or top in (".", "..", PROJECT_NAME)
+           or "/" in top or "\\" in top for top in tops):
+        raise InstallationDriftError("invalid-extra-packages", group)
+    files = [(name, digest) for name, digest in previous["file_digests"].items()
+             if name.startswith("lib/") and name.split("/")[1] in tops]
+    if not files:
+        return []
+    carried = set()
+    # A shared dependency already supplied by the current release wins as a
+    # whole package; do not merge old modules or duplicate distribution metadata.
+    occupied = {top for top in tops if Path(lib_dir, top).exists()}
+    for top in tops:
+        if top.endswith('.dist-info'):
+            distribution = normalize_name(top[:-len('.dist-info')].rsplit('-', 1)[0])
+            if distribution in chosen:
+                occupied.add(top)
+    for name, digest in files:
+        relative = PurePosixPath(name).relative_to("lib")
+        if relative.parts[0] in occupied:
+            continue
+        source = Path(previous_lib, relative)
+        # Recheck bytes being carried, rather than walking the full generation again.
+        payload = source.read_bytes()
+        if digest_bytes(payload) != digest:
+            raise InstallationDriftError("extra-package-drift", str(relative))
+        target = Path(lib_dir, relative)
+        _mkdir_owned_parents(target.parent, 0o755)
+        target.write_bytes(payload)
+        target.chmod(0o644)
+        carried.add(relative.parts[0])
+    return sorted(carried)
+
+
+def _stage_dependencies(base, optional, lib_dir, wheelhouse, target, extras,
+                        *, inherited=False, previous=None, previous_lib=None):
+    selected = sorted({normalize_name(extra) for extra in extras})
+    if not inherited:
+        _validate_extras(selected, optional)
+    wheels = resolve_dependency_wheels(base, wheelhouse, target) if wheelhouse is not None else []
+    chosen = {wheel["name"]: wheel for wheel in wheels}
+    for wheel in wheels:
+        unpack_wheel(wheel["path"], lib_dir)
+    packages, kept, carried, warnings, pending_carry = {}, [], [], [], []
+    for group in selected:
+        try:
+            if group not in optional:
+                raise InstallationError("unknown-extra", group)
+            if wheelhouse is None:
+                raise InstallationError("wheelhouse-missing", "provide --wheelhouse for " + group)
+            extra_wheels = resolve_dependency_wheels(optional[group], wheelhouse, target, [group], origin=group)
+            for wheel in extra_wheels:
+                if wheel["name"] in chosen and chosen[wheel["name"]]["version"] != wheel["version"]:
+                    raise InstallationError("dependency-constraint-conflict", wheel["name"])
+        except InstallationError as error:
+            if not inherited:
+                raise InstallationError("extra-wheels-unavailable", group,
+                                        "provide --wheelhouse with all wheels for %s (%s); %s" %
+                                        (group, ", ".join(optional[group]), error.render())) from error
+            pending_carry.append(group)
+            continue
+        kept.append(group)
+        packages[group] = []
+        for wheel in extra_wheels:
+            # Metadata directories travel with modules so importlib.metadata
+            # also sees the private distributions after an offline upgrade.
+            with zipfile.ZipFile(wheel["path"]) as archive:
+                tops = {_safe_member(name)[0] for name in archive.namelist() if not name.endswith("/")}
+            if wheel["origin"] == group and chosen.get(wheel["name"], {}).get("origin", group) is not None:
+                packages[group].extend(tops)
+            if wheel["name"] not in chosen:
+                unpack_wheel(wheel["path"], lib_dir)
+                chosen[wheel["name"]] = wheel
+        packages[group] = sorted(set(packages[group]))
+    for group in pending_carry:
+        tops = _carry_extra(group, previous or {}, previous_lib, lib_dir, chosen)
+        # Another inherited extra may already have carried the same package.
+        shared = set((previous or {}).get('extra_packages', {}).get(group, []))
+        shared.intersection_update(top for items in packages.values() for top in items)
+        tops = sorted(set(tops) | shared)
+        if tops:
+            packages[group] = tops
+            kept.append(group)
+            carried.append(group)
+        else:
+            warnings.append({"code": "extras-dropped", "detail": group,
+                             "reason": "no attributed packages available to carry forward"})
+    requirements = list(base)
+    for group in kept:
+        if group not in carried:
+            requirements.extend(_selected_requirements(optional[group], [group]))
+    return {"requirements": requirements, "extras": sorted(kept), "extra_packages": packages,
+            "extras_carried_forward": carried, "warnings": warnings}
+
+
+def stage_payload(source, lib_dir, wheelhouse, interpreter, extras=(), *, inherited=False,
+                  previous=None, previous_lib=None):
     target = interpreter_target(interpreter)
     if source.kind == "source-tree":
+        values = parse_pyproject(source.root / "pyproject.toml")
+        optional = {normalize_name(name): requirements for (section, name), requirements in values.items()
+                    if section == "project.optional-dependencies"}
+        if any(not isinstance(requirements, list) for requirements in optional.values()):
+            raise InstallationError("pyproject-unsupported-syntax", "extra must be a requirement array")
         _copy_source_packages(source.root, lib_dir, source.manifest)
-        if wheelhouse and source.manifest["dependencies"]:
-            for chosen in resolve_dependency_wheels(source.manifest["dependencies"], wheelhouse, target):
-                unpack_wheel(chosen["path"], lib_dir)
+        base = source.manifest["dependencies"]
     else:
-        _stage_wheels(source, lib_dir, wheelhouse, source.manifest, target)
+        base, optional = _stage_wheels(source, lib_dir, source.manifest, target)
+    return _stage_dependencies(base, optional, lib_dir, wheelhouse, target, extras,
+                               inherited=inherited, previous=previous, previous_lib=previous_lib)
 
 
 def _entry_stub(python, lib_dir, manifest):
@@ -1284,7 +1441,7 @@ def _old_installation_conflict(scope, paths):
 
 def install(scope, source, *, wheelhouse=None, manifest_path=None, python=None,
             dry_run=False, allow_same_version=False, allow_downgrade=False,
-            lock=True, smoke=True):
+            lock=True, smoke=True, extras=None):
     """Install (or update to) a reviewed protocol-2 source.
 
     ``source`` may be a source tree, a release .tar.gz/.zip archive or a
@@ -1307,13 +1464,19 @@ def install(scope, source, *, wheelhouse=None, manifest_path=None, python=None,
         if source_obj.kind == "source-tree":
             cross_check_pyproject(source_obj.root, source_obj.manifest)
         interpreter = resolve_python(python, system=scope.system)
+        previous_record = verify_installed(scope) if current_target(paths) else None
+        inherited = extras is None
+        extras = sorted({normalize_name(extra) for extra in
+                         ((previous_record or {}).get("extras", []) if inherited else extras)})
+        previous_lib = paths.generations / previous_record["generation"] / "lib" if previous_record else None
         # Stage only in an ephemeral private directory. Both dry-run and install
         # validate the complete payload before creating any installation paths.
         with tempfile.TemporaryDirectory(prefix="mihomoctl-preflight-") as temporary:
             lib = Path(temporary) / "lib"
             lib.mkdir(mode=0o700)
-            stage_payload(source_obj, lib, wheelhouse, interpreter)
-            check_dependencies(interpreter, lib, source_obj.manifest["dependencies"])
+            staged = stage_payload(source_obj, lib, wheelhouse, interpreter, extras,
+                                   inherited=inherited, previous=previous_record, previous_lib=previous_lib)
+            check_dependencies(interpreter, lib, staged["requirements"])
         conflict = _old_installation_conflict(scope, paths)
         if conflict:
             raise InstallationError("legacy-installation-present", conflict[0], conflict[1])
@@ -1329,9 +1492,8 @@ def install(scope, source, *, wheelhouse=None, manifest_path=None, python=None,
                                     "review and remove it, then retry")
         _pending_backup(paths)
 
-        record = None
-        if (paths.install_root / "current").is_symlink():
-            record = verify_installed(scope)  # refuse updates over a drifted installation
+        record = previous_record
+        if record:
             current = parse_version(record["version"])
             new = parse_version(source_obj.manifest["version"])
             if current == new and not allow_same_version:
@@ -1344,6 +1506,7 @@ def install(scope, source, *, wheelhouse=None, manifest_path=None, python=None,
 
         if dry_run:
             return {"dry_run": True, "version": source_obj.manifest["version"],
+                    **{key: staged[key] for key in ("extras", "extra_packages", "extras_carried_forward", "warnings")},
                     "source_kind": source_obj.kind, "install_root": str(paths.install_root),
                     "bin_link": str(paths.bin_link), "python": str(interpreter),
                     "replaces": record["version"] if record else None,
@@ -1354,7 +1517,8 @@ def install(scope, source, *, wheelhouse=None, manifest_path=None, python=None,
             expected = "generations/" + record["generation"] if record else None
             if current_target(paths) != expected:
                 raise InstallationError("installation-changed-retry", "installation changed while acquiring the operation lock")
-            return _install_locked(scope, paths, source_obj, interpreter, wheelhouse, smoke=smoke)
+            return _install_locked(scope, paths, source_obj, interpreter, wheelhouse, smoke=smoke,
+                                   extras=extras, inherited=inherited, previous_record=previous_record)
     finally:
         if source_obj is not None:
             source_obj.close()
@@ -1365,7 +1529,8 @@ def _nulllock():
     yield
 
 
-def _install_locked(scope, paths, source_obj, interpreter, wheelhouse, *, smoke):
+def _install_locked(scope, paths, source_obj, interpreter, wheelhouse, *, smoke, extras=(),
+                    inherited=False, previous_record=None):
     _pending_backup(paths)
     _require_install_dir(paths.install_root, scope, create=True, code="installation-failed")
     _require_install_dir(paths.generations, scope, create=True, code="installation-failed")
@@ -1373,6 +1538,7 @@ def _install_locked(scope, paths, source_obj, interpreter, wheelhouse, *, smoke)
 
     previous = current_target(paths)
     if previous:
+        # The pointer may stay unchanged while bytes drift during lock acquisition.
         verify_generation(current_record(scope), paths)
 
     generation = paths.generations / uuid.uuid4().hex
@@ -1383,7 +1549,9 @@ def _install_locked(scope, paths, source_obj, interpreter, wheelhouse, *, smoke)
         lib = generation / "lib"
         lib.mkdir(mode=0o755)
         (generation / "bin").mkdir(mode=0o755)
-        stage_payload(source_obj, lib, wheelhouse, interpreter)
+        previous_lib = paths.generations / previous_record["generation"] / "lib" if previous_record else None
+        staged = stage_payload(source_obj, lib, wheelhouse, interpreter, extras,
+                               inherited=inherited, previous=previous_record, previous_lib=previous_lib)
         stub = generation / "bin" / CONSOLE_SCRIPT
         stub.write_text(_entry_stub(interpreter, lib, source_obj.manifest), encoding="utf-8")
         os.chmod(stub, 0o755)
@@ -1402,6 +1570,7 @@ def _install_locked(scope, paths, source_obj, interpreter, wheelhouse, *, smoke)
                   "python": str(interpreter), "entry_point": source_obj.manifest["entry_point"],
                   "source_kind": source_obj.kind, "source_root": str(source_obj.root),
                   "file_digests": digests,
+                  **{key: staged[key] for key in ("extras", "extra_packages", "extras_carried_forward", "warnings")},
                   "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         _write_private_json(generation / "record.json", record)
 
@@ -1437,8 +1606,9 @@ def _install_locked(scope, paths, source_obj, interpreter, wheelhouse, *, smoke)
                 "install_root": str(paths.install_root), "bin_link": str(paths.bin_link),
                 "backup": str(backup), "python": str(interpreter), "replaced": previous,
                 "source_kind": source_obj.kind,
+                **{key: staged[key] for key in ("extras", "extra_packages", "extras_carried_forward", "warnings")},
                 "notes": ["no shell startup files were modified", "no services were started"],
-                "warnings": []}
+                }
     except BaseException as failure:
         if switched:
             try:

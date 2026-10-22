@@ -1,5 +1,7 @@
 """State, real socket ownership, bounded jobs and node-only transactions."""
 import hashlib
+import contextlib
+import io
 import json
 import importlib.util
 import os
@@ -11,7 +13,7 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 if sys.platform != "linux":
     raise unittest.SkipTest("Linux ownership, private paths and sockets")
@@ -23,6 +25,174 @@ from mihomoctl.controller.controller_service import ConsoleService
 
 
 class StoreTests(unittest.TestCase):
+    def test_cli_delay_and_bridge_envelopes_preserve_codes_and_useful_detail(self):
+        from mihomoctl.controller import controller
+        from mihomoctl.cli import main
+        from mihomoctl.controller.controller_types import ERROR_LABELS
+        client = Mock()
+        with patch('mihomoctl.bridge.bridge_environment', side_effect=lambda scope: contextlib.nullcontext({})), \
+                patch.object(controller, 'read_config', return_value=(None, {}, None)), \
+                patch.object(controller, 'endpoint', return_value=(1234, 'token')), \
+                patch.object(controller, 'Client', return_value=client), \
+                patch.object(controller, 'proxies', return_value={'A': {}}) as core:
+            for code in ('node-not-in-core', 'node-unreachable', 'delay-timeout', 'controller-unreachable'):
+                client.request.side_effect = ControlError(code, 1)
+                with contextlib.redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(main(['latency', 'A', '--json']), 1)
+                error = json.loads(output.getvalue())['errors'][0]
+                self.assertEqual(error['code'], code)
+                if code in ERROR_LABELS:
+                    self.assertIn(ERROR_LABELS[code], error['detail'])
+                    self.assertNotIn(code, error['detail'])
+                else:
+                    self.assertNotIn('detail', error)
+            core.return_value = {}
+            name = '👩\u200d💻\ufeff\u200b'
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(['latency', name, '--json']), 1)
+            error = json.loads(output.getvalue())['errors'][0]
+            self.assertEqual(error['code'], 'unknown-node')
+            self.assertIn(repr(name), error['detail'])
+        self.assertEqual(str(ControlError('unlabelled', detail='useful')), 'unlabelled: useful')
+        self.assertEqual(str(ControlError('controller-unreachable')), 'controller-unreachable')
+
+    def test_plain_error_and_conditional_textual_hint(self):
+        from mihomoctl.controller import controller_console as console
+        from mihomoctl.controller.controller_types import ERROR_LABELS, TUI_INSTALL_COMMAND
+        for available in (None, object()):
+            service = Mock()
+            service.read.side_effect = ControlError('node-not-in-core')
+            with contextlib.redirect_stdout(io.StringIO()) as output, \
+                    patch.object(console.sys.stdin, 'isatty', return_value=True), \
+                    patch.object(console.sys.stdout, 'isatty', return_value=True), \
+                    patch.object(console.importlib.util, 'find_spec', return_value=available), \
+                    patch('builtins.input', side_effect=['1', 'q']):
+                console.plain_console(service)
+            self.assertEqual(TUI_INSTALL_COMMAND in output.getvalue(), available is None)
+            self.assertIn('node-not-in-core', output.getvalue())
+            self.assertIn(ERROR_LABELS['node-not-in-core'], output.getvalue())
+
+    def test_curses_failure_draws_code_and_label(self):
+        from mihomoctl.controller import controller_console as console
+        from mihomoctl.controller.controller_types import ERROR_LABELS
+        window = Mock()
+        window.getmaxyx.return_value = (24, 80)
+        window.getch.side_effect = [ord('t'), ord('q')]
+        curses = Mock(KEY_UP=259, KEY_DOWN=258, KEY_LEFT=260, KEY_RIGHT=261, KEY_ENTER=343,
+                      A_BOLD=1, A_DIM=2, A_REVERSE=4, A_NORMAL=0, error=RuntimeError)
+        curses.wrapper.side_effect = lambda callback: callback(window)
+        with patch.dict(sys.modules, {'curses': curses}), \
+                patch.object(console.sys.stdin, 'isatty', return_value=True), \
+                patch.object(console.sys.stdout, 'isatty', return_value=True), \
+                patch('mihomoctl.notifications.take_tui_notice', return_value=None), \
+                patch.object(console, 'snapshot', return_value={'groups': [
+                    {'name': 'G', 'type': 'Selector', 'selected': 'A', 'members': ['A'], 'selectable': True}]}), \
+                patch.object(console, 'measure_delay', side_effect=ControlError('node-unreachable')):
+            console.tui(Mock())
+        drawn = ' '.join(str(call.args[2]) for call in window.addstr.call_args_list)
+        self.assertIn('node-unreachable', drawn)
+        self.assertIn(ERROR_LABELS['node-unreachable'], drawn)
+
+    def test_delay_http_failures_and_batch_keep_specific_codes(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from mihomoctl.controller.controller_api import Client
+        from mihomoctl.controller.controller_service import measure_delay
+        from mihomoctl.controller.controller_types import ERROR_LABELS, TEST_URL
+        from urllib.parse import parse_qs, urlsplit
+        class Handler(BaseHTTPRequestHandler):
+            status = 404
+            seen = []
+            def do_GET(self):
+                type(self).seen.append(self.path)
+                self.send_response(type(self).status)
+                self.end_headers()
+                self.wfile.write(b'{}')
+            def log_message(self, *args):
+                pass
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        client = Client(server.server_port, 'fixture')
+        service = ConsoleService.__new__(ConsoleService)
+        with patch.object(service, 'client', return_value=client), \
+                patch('mihomoctl.controller.controller_service.proxies', return_value={'A /旗': {}}):
+            for status, code in ((404, 'node-not-in-core'), (503, 'node-unreachable'), (504, 'delay-timeout')):
+                Handler.status = status
+                with self.subTest(status=status):
+                    with self.assertRaises(ControlError) as caught:
+                        measure_delay(client, 'A /旗')
+                    self.assertEqual(caught.exception.code, code)
+                    self.assertIn(ERROR_LABELS[code], str(caught.exception))
+                    with self.assertRaises(ControlError) as caught:
+                        service.latency('A /旗')
+                    self.assertEqual(caught.exception.code, code)
+                    result = service.batch_latency(['A /旗'])
+                    self.assertEqual(result['results'][0]['error'], code)
+            # Unmapped requests and explicitly optional capabilities keep the old behavior.
+            with self.assertRaises(ControlError) as caught:
+                client.request('/version')
+            self.assertEqual(caught.exception.code, 'controller-request-failed')
+            Handler.status = 404
+            with self.assertRaises(ControlError) as caught:
+                client.request('/optional', optional=True)
+            self.assertEqual(caught.exception.code, 'controller-capability-unsupported')
+        path = Handler.seen[0]
+        self.assertTrue(path.startswith('/proxies/A%20%2F%E6%97%97/delay?'))
+        self.assertEqual(parse_qs(urlsplit(path).query), {'url': [TEST_URL], 'timeout': ['5000']})
+
+    def test_unknown_node_includes_exact_requested_spelling(self):
+        service = ConsoleService.__new__(ConsoleService)
+        name = '🇺🇸 US / 节点\u200d\u200b\ufeff'
+        with patch.object(service, 'client'), patch('mihomoctl.controller.controller_service.proxies', return_value={}):
+            with self.assertRaises(ControlError) as caught:
+                service.latency(name)
+        self.assertEqual(caught.exception.code, 'unknown-node')
+        self.assertIn(repr(name), str(caught.exception))
+
+    def test_curses_legend_fits_terminal_cells(self):
+        from mihomoctl.controller.controller_console import legend_lines, display_width, curses_header
+        for width in (30, 40, 60, 80, 100):
+            lines = legend_lines(width - 3)
+            self.assertEqual(len(lines), 2)
+            self.assertTrue(all(display_width(line) <= width - 3 for line in lines))
+            for key in ('Tab', 'Enter', '/', 'r', 't', 'c', 'f', 'm', 'o', 'y', 'q'):
+                self.assertIn(key, ' '.join(lines))
+        for width in (57, 77, 97):
+            header = curses_header(width)
+            self.assertIn('Nodes', header)
+            self.assertIn('节点', header)
+            self.assertLessEqual(display_width(header), width)
+            for key in ('/', 'c', 'o', 'm', 'Search', 'Conn', 'Override', 'Manual'):
+                self.assertIn(key, header)
+
+    def test_curses_legend_never_raises_or_drops_keys_at_narrow_widths(self):
+        from mihomoctl.controller.controller_console import legend_lines, curses_header, wrap_cells, release_notice_lines
+        for width in (0, 1, 5, 10, 20, 25, 30, 40, 60, 80):
+            with self.subTest(width=width):
+                rows = legend_lines(width)
+                self.assertLessEqual(len(rows), 2)
+                keys = ' '.join(rows).split()
+                for key in ('↑↓', 'Tab', 'Enter', 'q', '/', 'r', 't', 'c', 'f', 'm', 'o', 'y'):
+                    self.assertIn(key, keys)
+                # Other width-sensitive render helpers must degrade without raising.
+                self.assertIsInstance(curses_header(width), str)
+                self.assertTrue(wrap_cells('节点 A', width))
+                self.assertTrue(release_notice_lines('A release notice', width))
+
+    def test_main_module_keeps_generic_guidance_for_unlabelled_errors(self):
+        import runpy
+        from mihomoctl.controller import controller_config
+        with patch.object(controller_config, 'read_config', side_effect=ControlError('unlabelled-fixture')), \
+                patch.object(sys, 'argv', ['controller.py', 'latency', 'A', '--json']), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            with self.assertRaises(SystemExit):
+                runpy.run_module('mihomoctl.controller.controller', run_name='__main__')
+        error = json.loads(output.getvalue())['error']
+        self.assertIn('操作未完成；请检查私有配置及运行环境', error['message'])
+        self.assertNotEqual(error['code'], error['message'])
+
     def test_stream_stop_prevents_late_data_and_redacts_reader_failure(self):
         store = state.Store()
         self.addCleanup(store.close)
