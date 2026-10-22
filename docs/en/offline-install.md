@@ -10,7 +10,7 @@ Treat a NAS directory such as `/mnt/nas/public/software` as source only. Set `um
 
 ## Path one: complete release fetch output
 
-On a connected Linux/WSL machine with 1.2.0 installed:
+On a connected Linux/WSL machine with 1.3.0 installed:
 
 ```bash
 mihomoctl release fetch --output-dir "$HOME/releases/mihomoctl-kit" --target ubuntu22.04-x86_64-py310
@@ -30,13 +30,13 @@ kit_root="$KIT/kit"
 
 ## Path two: directly downloaded offline tarball
 
-With only `mihomoctl-1.2.0-offline-TARGET.tar.gz` and its `.sha256`, expand the outer archive first. This example targets Ubuntu 22.04; set PACKAGES to the directory containing private copies:
+With only `mihomoctl-1.3.0-offline-TARGET.tar.gz` and its `.sha256`, expand the outer archive first. This example targets Ubuntu 22.04; set PACKAGES to the directory containing private copies:
 
 ```bash
 # offline-archive-layout
 umask 077
 PACKAGES=/absolute/private/packages
-bundle=mihomoctl-1.2.0-offline-ubuntu22.04-x86_64-py310
+bundle=mihomoctl-1.3.0-offline-ubuntu22.04-x86_64-py310
 (cd "$PACKAGES" && sha256sum --check --strict "$bundle.tar.gz.sha256") &&
 kit_parent=$(mktemp -d "$HOME/mihomoctl-kit.XXXXXXXX") &&
 tar --no-same-owner --no-same-permissions -xzf "$PACKAGES/$bundle.tar.gz" -C "$kit_parent" &&
@@ -54,8 +54,8 @@ Both paths now provide the actual `kit_root`. Read its README.txt and review bui
 # offline-controller-install
 umask 077
 source_parent=$(mktemp -d "$HOME/mihomoctl-source.XXXXXXXX") &&
-tar --no-same-owner --no-same-permissions -xzf "$kit_root/release/mihomoctl-1.2.0.tar.gz" -C "$source_parent" &&
-cd "$source_parent/mihomoctl-1.2.0" &&
+tar --no-same-owner --no-same-permissions -xzf "$kit_root/release/mihomoctl-1.3.0.tar.gz" -C "$source_parent" &&
+cd "$source_parent/mihomoctl-1.3.0" &&
 bash install.sh --user --python /usr/bin/python3 --wheelhouse "$kit_root/wheelhouse" --dry-run &&
 bash install.sh --user --python /usr/bin/python3 --wheelhouse "$kit_root/wheelhouse"
 ```
@@ -70,7 +70,7 @@ Set PATH for this terminal only. For strict offline use also disable unrelated b
 export PATH="$HOME/.local/bin:$PATH"
 export MIHOMOCTL_NO_UPDATE_CHECK=1
 mihomoctl version
-/usr/bin/python3 "$source_parent/mihomoctl-1.2.0/scripts/bootstrap.py" verify --user
+/usr/bin/python3 "$source_parent/mihomoctl-1.3.0/scripts/bootstrap.py" verify --user
 ```
 
 Run verify using the Python selected during installation. Without a manager, use the prepared trusted core and [setup](setup.md) to init exactly once and validate configuration; preserve an existing manager without reinstalling its core. Leave the runtime stopped by default. Report controller, core and initialization separately; runtime health and remote routing remain UNVERIFIED. Retain the self-contained backup reported by the installer and the working directory; see [upgrade/rollback](update.md). Restoring controller code does not remove newly initialized user data.

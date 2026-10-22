@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "1.2.0",
+  "version": "1.3.0",
   "update_protocol": 2,
   "validation_profile": "installation-v2",
   "requires_python": ">=3.10",
@@ -137,6 +137,7 @@
       "docs/en/v1.md",
       "docs/en/vscode-remote.md",
       "docs/release-1.2.0.md",
+      "docs/release-1.3.0.md",
       "docs/release-review.md",
       "docs/zh-CN/README.md",
       "docs/zh-CN/acceptance.md",

@@ -1,5 +1,55 @@
 # Changelog
 
+## [1.3.0] - 2026-10-22
+
+### Added
+
+- Textual is now installed privately, in the user's own generation directory,
+  like PyYAML already was. `bash install.sh --user --python PYTHON
+  --wheelhouse DIR --extras tui` stages `textual==8.2.8` and its transitive
+  dependencies into the read-only generation `lib`. No sudo, no system pip,
+  no third-party index. `mihomoctl update` and `mihomoctl update --latest`
+  accept the same `--extras`/`--no-extras` pair; an upgrade inherits the
+  extras recorded by the previous generation.
+- An inherited extra that a new wheelhouse cannot resolve is carried forward
+  from the previous generation, file by file, only for packages attributed to
+  that extra and re-hashed against their recorded digests. Anything that
+  cannot be attributed is dropped loudly (`extras-dropped`) instead of
+  silently disappearing. Unknown extra names fail closed with
+  `unknown-extra`.
+- `mihomoctl` with no command, and `mihomoctl --help`, now print a grouped
+  command guide with a one-line description per command. The bare invocation
+  still exits 2 with the unchanged `usage-error` envelope.
+- Health reporting names the group members that are absent from the core
+  proxy table (`missing_members`, `missing_member_count`), so a dangling
+  subscription reference is visible instead of only inferable. The
+  `selected_chain` verdict itself is unchanged.
+- `docs/{en,zh-CN}/console.md` expand from a five-line stub into a real guide:
+  which front end has a speed test, how to install Textual privately, what
+  each delay outcome means, the full key map and the probe syntax.
+  `docs/{en,zh-CN}/troubleshooting.md` gain an entry for every node failing
+  the delay test.
+
+### Fixed
+
+- `GET /proxies/<name>/delay` returning 404, 503 or 504 all collapsed into one
+  opaque `controller-request-failed`, which hid the actual cause: 404 means the
+  name is not in the core proxy table at all. They are now `node-not-in-core`,
+  `node-unreachable` and `delay-timeout`, with a label in the CLI, plain menu,
+  curses and Textual.
+- `unknown-node` echoes the exact spelling that was requested, so a flag
+  degraded to a country code or a renamed node can be recognised.
+- The curses key legend is laid out by display cell and wrapped to the
+  terminal width, instead of being clipped at the right edge. It degrades to
+  keys-only, and then to a clipped row, rather than raising on a narrow
+  terminal. The pane header is bilingual.
+- `invalid-health-check-options` now states that a probe target must begin with
+  `group` or `provider`.
+- `textual-environment-incomplete-use-engine-curses` keeps its error code but
+  its remediation now names both real options: `mihomoctl tui --engine curses`
+  (standard library, nothing to install) and the private `--extras tui`
+  install.
+
 ## [1.2.0] - 2026-10-17
 
 ### Added
