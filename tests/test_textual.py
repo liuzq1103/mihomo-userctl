@@ -46,6 +46,41 @@ class Service:
 
 
 class TextualTests(unittest.IsolatedAsyncioTestCase):
+    def test_delay_codes_are_translated_in_results_and_hints(self):
+        from mihomoctl.controller.controller_types import ERROR_LABELS, error_text
+        from mihomoctl.controller.controller_textual import summarize
+        for code in ('node-not-in-core', 'node-unreachable', 'delay-timeout'):
+            rows = report_lines({'results': [{'name': 'A', 'state': 'failed', 'error': code}]})
+            self.assertIn(ERROR_LABELS[code], '\n'.join(rows))
+            self.assertIn(code, '\n'.join(rows))
+            self.assertIn(ERROR_LABELS[code], summarize('error', code))
+            self.assertIn(code, summarize('error', code))
+        message = error_text('textual-environment-incomplete-use-engine-curses')
+        self.assertIn('textual/rich', message)
+        self.assertIn('mihomoctl tui --engine curses', message)
+        self.assertIn('--extras tui', message)
+
+    async def test_single_node_failure_keeps_code_label_in_store_and_hint(self):
+        from mihomoctl.controller.controller_types import ControlError, ERROR_LABELS
+        from textual.widgets import Static
+        class Failed(Service):
+            def latency(self, node):
+                raise ControlError('delay-timeout')
+        service = Failed()
+        app = Console(service)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await self.settle(pilot, app, 'overview')
+            app.schedule('operation', lambda: service.latency('B'))
+            await self.wait_for(pilot, lambda: app.store.state.snapshots.get('operation') and
+                                app.store.state.snapshots['operation'].error, 'single node failure')
+            await pilot.pause(.2)
+            snapshot = app.store.state.snapshots['operation']
+            self.assertEqual(snapshot.error, 'delay-timeout')
+            self.assertEqual(snapshot.error_label, ERROR_LABELS['delay-timeout'])
+            rendered = str(app.query_one('#hint', Static).render())
+            self.assertIn('delay-timeout', rendered)
+            self.assertIn(ERROR_LABELS['delay-timeout'], rendered)
+
     async def test_health_preview_requires_confirmed_save_and_journal_filters(self):
         class Tasks(Service):
             def health_check(self, scope=None, name=None, options=None, apply=False):

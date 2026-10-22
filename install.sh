@@ -20,6 +20,8 @@ Install or update the mihomoctl CLI from a local, reviewed source
 
 Options are passed to scripts/bootstrap.py; common ones:
   --source PATH          source tree, release .tar.gz/.zip, or wheel directory
+  --extras GROUP         stage optional dependencies privately (repeatable; e.g. tui)
+  --no-extras            explicitly clear optional dependencies (otherwise inherit)
   --wheelhouse DIR       directory with dependency wheels (e.g. PyYAML)
   --system               system-wide install (root only; default: user)
   --python BIN           interpreter for the installed launcher
@@ -29,6 +31,9 @@ Options are passed to scripts/bootstrap.py; common ones:
 
 No shell startup files are modified; no services are started; a proxy is
 not required.  An existing Mihomo core is never adopted or replaced.
+
+Private Textual install:
+  bash install.sh --user --python <python> --wheelhouse <wheelhouse-dir> --extras tui
 EOF
 }
 

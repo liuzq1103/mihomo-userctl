@@ -602,7 +602,8 @@ options:
 ```text
 usage: mihomoctl update [-h] [--dry-run] [--latest] [--allow-same-version]
                         [--allow-downgrade] [--wheelhouse WHEELHOUSE]
-                        [--python PYTHON] [--json]
+                        [--python PYTHON] [--extras GROUP | --no-extras]
+                        [--json]
                         [source]
 
 positional arguments:
@@ -616,6 +617,8 @@ options:
   --allow-downgrade
   --wheelhouse WHEELHOUSE
   --python PYTHON
+  --extras GROUP        select optional dependencies (repeatable)
+  --no-extras           clear optional dependencies
   --json                emit the mihomoctl/v1 JSON envelope
 ```
 

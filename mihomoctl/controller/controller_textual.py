@@ -14,11 +14,11 @@ from textual.widgets import Button, DataTable, Footer, Header, Input, RichLog, S
 
 try:
     from .controller_state import Store, Snapshot
-    from .controller_types import ControlError
+    from .controller_types import ControlError, error_text
     from .controller_health import guidance, parse_console
 except ImportError:
     from controller_state import Store, Snapshot
-    from controller_types import ControlError
+    from controller_types import ControlError, error_text
     from controller_health import guidance, parse_console
 
 # V1 page set. The subscription page is "subscriptions"; "profile" is the
@@ -117,7 +117,7 @@ def report_lines(value, prefix="", depth=0):
                 rows.append(prefix + title)
                 rows.extend(report_lines(child, prefix + "  ", depth + 1))
             else:
-                text = str(child)
+                text = error_text(str(child)) if key == "error" else str(child)
                 rows.append(prefix + title + ": " + (VALUES.get(text, text) if key in STATUS_KEYS else text))
         return rows
     if isinstance(value, list):
@@ -146,7 +146,7 @@ def summarize(key, value, limit=8):
     if isinstance(value, (int, float)):
         return "{}: {}".format(LABELS.get(key, key), value)
     if isinstance(value, str):
-        return "{}: {}".format(LABELS.get(key, key), value)
+        return "{}: {}".format(LABELS.get(key, key), error_text(value) if key == "error" else value)
     if isinstance(value, dict):
         parts = ["{}={}".format(LABELS.get(name, name), summarize("", item, limit=2)[8:])
                  for name, item in list(value.items())[:limit] if item is not None]
@@ -529,7 +529,7 @@ class Console(App):
                         summary = " | ".join(line.strip() for line in report_lines(result)[:3])
                     self.query_one("#hint", Static).update(Text(summary))
                 else:
-                    self.query_one("#hint", Static).update("操作未完成：" + snap.error + ("；可点击恢复备份，再重启" if self.pending_restart and self.last_backup else "；请检查核心与私有配置"))
+                    self.query_one("#hint", Static).update(Text("操作未完成：" + snap.error_message + ("；可点击恢复备份，再重启" if self.pending_restart and self.last_backup else "；请检查核心与私有配置")))
             if key == "logs" and not snap.error and not hasattr(self.service, "logs"):
                 self.store.state.logs.append(snap.value)
             if (key == self.page or key in ("operation", "runtime", "traffic", "memory")) and not (self.paused and self.page in ("logs", "connections")):
@@ -664,11 +664,11 @@ class Console(App):
         sampled = time.strftime("%H:%M:%S", time.localtime(snap.sampled_at)) if snap.sampled_at else "never"
         self.query_one("#status", Static).update(Text("{}：{} | 作用域 {} | 更新于 {} | {}{}".format(
             PAGE_NAMES[self.page], {"fresh": "已更新", "stale": "旧数据", "unsupported": "核心不支持"}.get(snap.freshness, snap.freshness),
-            self.scope_badge(), sampled, snap.error, " | 已暂停" if self.paused else "")))
+            self.scope_badge(), sampled, snap.error_message, " | 已暂停" if self.paused else "")))
         value = snap.value
         if value is None:
             self.query_one("#body", RichLog).clear()
-            self.query_one("#body", RichLog).write(Text("暂不可用。可回首页初始化控制器、启动或重启；服务与诊断仍可使用。 " + snap.error))
+            self.query_one("#body", RichLog).write(Text("暂不可用。可回首页初始化控制器、启动或重启；服务与诊断仍可使用。 " + snap.error_message))
             self.query_one("#hint", Static).update("当前核心不支持此功能；其他页面仍可使用，r 重新检查。" if snap.freshness == "unsupported" else "连接或配置未就绪；回首页初始化、启动或重启。")
             return
         if self.page == "runtime":
@@ -877,7 +877,7 @@ class Console(App):
             try:
                 scope, name, options = parse_console(rest)
             except ControlError as error:
-                self.query_one("#hint", Static).update(error.code)
+                self.query_one("#hint", Static).update(error_text(error.code, error.detail))
                 return
             self.clear_preview()
             self.schedule("operation", lambda: self.service.health_check(scope, name, options))

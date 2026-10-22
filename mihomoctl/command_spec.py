@@ -54,7 +54,9 @@ NATIVE = {
     'update': [arg('source', nargs='?'), arg('--dry-run', action='store_true'),
                arg('--latest', action='store_true'),
                arg('--allow-same-version', action='store_true'), arg('--allow-downgrade', action='store_true'),
-               arg('--wheelhouse'), arg('--python')],
+               arg('--wheelhouse'), arg('--python'),
+               arg('--extras', action='append', default=None, metavar='GROUP', help='select optional dependencies (repeatable)'),
+               arg('--no-extras', action='store_const', const=[], dest='extras', help='clear optional dependencies')],
     'rules': {'status': RULES, 'check': RULES}, 'version': [],
     # Existing compatibility entries, intentionally omitted from completion.
     'profiles': [], 'export': [arg('--binding', required=True)] + EXPORT,
@@ -95,8 +97,8 @@ ALIASES = ('profiles','export','dashboard')
 
 
 def options(parser, rows, context=''):
-    grouped = ('--dry-run','--apply') if context == 'migrate' else ('--output','--reveal') if context == 'env export' else ()
-    group = parser.add_mutually_exclusive_group(required=True) if grouped else None
+    grouped = ('--dry-run','--apply') if context == 'migrate' else ('--output','--reveal') if context == 'env export' else ('--extras','--no-extras') if context == 'update' else ()
+    group = parser.add_mutually_exclusive_group(required=context != 'update') if grouped else None
     for name, kwargs in rows:
         (group if name in grouped else parser).add_argument(name, **kwargs)
     parser.add_argument('--json', action='store_true', help='emit the mihomoctl/v1 JSON envelope')
@@ -147,3 +149,66 @@ def validate(command, args):
 
 def public_commands():
     return [name for name in (*NATIVE, *BRIDGED) if name not in ALIASES]
+
+
+COMMAND_GROUPS = {
+    "Common": {
+        "start": "Start the managed Mihomo runtime.",
+        "stop": "Stop the managed runtime.",
+        "restart": "Restart to apply saved configuration.",
+        "status": "Show runtime facts and evidence.",
+        "tui": "Open the interactive console.",
+        "health": "Check runtime readiness and proxy access.",
+        "doctor": "Diagnose configuration and runtime prerequisites.",
+    },
+    "Service and configuration": {
+        "init": "Initialize a user-scoped runtime configuration.",
+        "logs": "Read managed runtime logs.",
+        "config": "Validate the active or specified configuration.",
+        "service": "Manage the owned systemd service.",
+        "core": "Install, adopt or list Mihomo binaries.",
+        "tun": "Inspect or change explicit TUN settings.",
+        "controller": "Inspect or initialize the local controller.",
+    },
+    "Nodes and routing": {
+        "nodes": "List exact node names from the core proxy table.",
+        "groups": "Inspect routing groups and selected chains.",
+        "select": "Select a member of a manual group.",
+        "latency": "Probe one node against the public HTTPS target.",
+        "connections": "Inspect active connection chains.",
+        "traffic": "Sample upload and download rates.",
+        "subscription": "Preview and apply a private subscription.",
+        "providers": "List proxy providers and their state.",
+        "provider": "Request a proxy provider refresh.",
+        "dns": "Query DNS through the controller.",
+        "mode": "Change the running core routing mode.",
+        "health-check": "Preview or save group/provider probe settings.",
+        "manual": "Preview conversion to a manual routing group.",
+        "override": "Preview a trusted routing script.",
+        "rules": "Inspect and validate custom rule state.",
+        "ui": "Show the configured dashboard access URL.",
+    },
+    "Environment and access": {
+        "profile": "Inspect and select proxy profiles.",
+        "env": "Show or export scoped proxy variables.",
+        "exec": "Run a child with a selected proxy environment.",
+        "direct": "Run a child with proxy variables removed.",
+        "integration": "Inspect and export declarative application bindings.",
+    },
+    "Installation and release": {
+        "version": "Show the installed CLI version.",
+        "update": "Preview or install a reviewed release.",
+        "release": "Check or fetch release artifacts.",
+        "rollback": "Restore a recorded operation backup.",
+        "migrate": "Preview or apply migration from the legacy layout.",
+    },
+}
+
+
+def grouped_help():
+    lines = ["Usage: mihomoctl [--user|--system] COMMAND [OPTIONS] [--json]"]
+    for title, commands in COMMAND_GROUPS.items():
+        lines.extend(("", title + ":"))
+        lines.extend("  %-14s %s" % (name, description) for name, description in commands.items())
+    lines.extend(("", "Use mihomoctl COMMAND --help for command options."))
+    return "\n".join(lines)

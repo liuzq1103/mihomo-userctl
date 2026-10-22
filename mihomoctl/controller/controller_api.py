@@ -29,7 +29,7 @@ class Client:
                 raise ControlError('controller-runtime-mismatch')
             self.address = controller.address
 
-    def request(self, path, method="GET", body=None, anonymous=False, stream=False, optional=False):
+    def request(self, path, method="GET", body=None, anonymous=False, stream=False, optional=False, status_codes=None):
         # http.client ignores all proxy variables and never follows redirects.
         connection = http.client.HTTPConnection(self.address, self.port, timeout=8)
         headers = {} if anonymous else {"Authorization": "Bearer " + self.token}
@@ -47,7 +47,7 @@ class Client:
             if optional and response.status in (404, 405):
                 raise ControlError("controller-capability-unsupported")
             if response.status not in (200, 204):
-                raise ControlError("controller-request-failed", 1)
+                raise ControlError((status_codes or {}).get(response.status, "controller-request-failed"), 1)
             raw = response.readline(LIMIT + 1) if stream else response.read(LIMIT + 1)
             if len(raw) > LIMIT:
                 raise ControlError("controller-response-too-large")

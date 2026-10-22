@@ -40,7 +40,10 @@ def main(argv=None):
     try:
         manager_args, system = _extract_scope(manager_args)
         if not manager_args:
-            raise UsageError("usage-error", "a command is required")
+            if not json_mode:
+                from .command_spec import grouped_help
+                print(grouped_help())
+            raise UsageError("usage-error", "a command is required", "run mihomoctl --help")
         command = manager_args[0]
         app = Application(system=system)
         return dispatch(app, command, manager_args[1:], child_argv, json_mode)
@@ -172,7 +175,7 @@ def dispatch(app, command, args, child_argv, json_mode):
             return dispatch(app, args[0], [*args[1:], '--help'], child_argv, json_mode)
         commands = command_spec.public_commands()
         return _finish('help', name, env.PASS, {'commands': commands}, json_mode=json_mode,
-                       text='Usage: mihomoctl [--user|--system] COMMAND [OPTIONS] [--json]\nCommands: ' + ' '.join(commands))
+                       text=command_spec.grouped_help())
     if command not in command_spec.RETIRED:
         if '--help' in args or '-h' in args:
             output = io.StringIO()
@@ -853,7 +856,7 @@ def cmd_installation(command, app, args, json_mode):
             data = update_latest(app.scope, dry_run=values.dry_run,
                                  allow_same_version=values.allow_same_version,
                                  allow_downgrade=values.allow_downgrade,
-                                 wheelhouse=values.wheelhouse, python=values.python)
+                                 wheelhouse=values.wheelhouse, python=values.python, extras=values.extras)
             return _finish('update', app.scope.name, env.PASS, data, json_mode=json_mode,
                            text=_kv_text(data))
         data = installation.update(app.scope,
@@ -861,7 +864,7 @@ def cmd_installation(command, app, args, json_mode):
                                    dry_run=values.dry_run,
                                    allow_same_version=values.allow_same_version,
                                    allow_downgrade=values.allow_downgrade,
-                                   wheelhouse=values.wheelhouse, python=values.python)
+                                   wheelhouse=values.wheelhouse, python=values.python, extras=values.extras)
         return _finish("update", app.scope.name, env.PASS, data, json_mode=json_mode,
                        text=_kv_text(data))
     parser = _parser("rollback")

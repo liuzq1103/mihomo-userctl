@@ -17,6 +17,7 @@ except ImportError:
 FIELDS = ("url", "expected-status", "interval", "timeout", "lazy", "tolerance")
 AUTO_TYPES = ("URLTest", "Fallback")
 EVIDENCE_LABELS = {
+    "missing-member-references": "分组引用的节点不在核心代理表中：订阅或提供商尚未加载，或上游已重命名节点",
     "complete": "链路完整", "cycle": "存在循环引用", "missing-reference": "引用对象缺失",
     "unknown-selection": "当前选择未知", "selection-not-in-members": "当前选择不在候选列表",
     "unknown": "尚无法判断", "observed-success": "曾观测到探测成功",
@@ -110,6 +111,10 @@ def annotate(rows):
         candidates = automatic_candidates(rows, name)
         automatic = [n for n in chain if rows.get(n, {}).get("type") in AUTO_TYPES]
         warnings = [] if state == "complete" else [state]
+        missing = [member for member in row["members"] if member not in rows]
+        row.update(missing_members=missing[:5], missing_member_count=len(missing))
+        if missing:
+            warnings.append("missing-member-references")
         if row.get("selectable") and not automatic and state == "complete":
             warnings.append("manual-path-bypasses-automatic" if candidates else "manual-path-no-automatic-candidate")
         if row.get("fixed"):
@@ -146,6 +151,8 @@ def guidance(row):
              "链路状态：" + EVIDENCE_LABELS.get(row.get("chain_state"), "尚无法判断") + "；探测仅代表已观测结果，不保证业务可用。"]
     if row.get("warnings"):
         lines.append("提示：" + "；".join(EVIDENCE_LABELS.get(w, w) for w in row["warnings"]))
+    if row.get("missing_member_count"):
+        lines.append("缺失引用 {} 个：{}".format(row["missing_member_count"], ", ".join(row["missing_members"])))
     for evidence in row.get("automatic_evidence", []):
         lines.append("自动组 {}：{}；{}".format(evidence["group"], EVIDENCE_LABELS.get(evidence["probe_state"], "尚无法判断"),
                                             "；".join(EVIDENCE_LABELS.get(w, w) for w in evidence["warnings"])))

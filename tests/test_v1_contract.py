@@ -25,6 +25,41 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @unittest.skipUnless(sys.platform == 'linux', 'Linux runtime contract')
 class PublicGrammarTests(unittest.TestCase):
+    def test_update_extra_flags_reach_local_and_latest_installers(self):
+        for latest in (False, True):
+            target = 'mihomoctl.release.update_latest' if latest else 'mihomoctl.installation.update'
+            for flags, selection in (([], None), (['--extras', 'tui', '--extras', 'other'], ['tui', 'other']),
+                                     (['--no-extras'], [])):
+                with patch(target, return_value={}) as update, contextlib.redirect_stdout(io.StringIO()):
+                    code = main(['update', *(['--latest'] if latest else ['/source']), *flags, '--json'])
+                self.assertEqual(code, 0)
+                self.assertEqual(update.call_args.kwargs['extras'], selection)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(['update', '--extras', 'tui', '--no-extras', '--json']), 2)
+
+    def test_grouped_guide_and_bare_command_contract(self):
+        groups = spec.COMMAND_GROUPS
+        names = [name for commands in groups.values() for name in commands]
+        self.assertCountEqual(names, spec.public_commands())
+        self.assertEqual(len(names), len(set(names)))
+        with contextlib.redirect_stdout(io.StringIO()) as help_output:
+            self.assertEqual(main(['--help']), 0)
+        for title, commands in groups.items():
+            self.assertIn(title + ':', help_output.getvalue())
+            for name, description in commands.items():
+                self.assertTrue(description.strip())
+                self.assertTrue(description.isascii())
+                self.assertIn(name, help_output.getvalue())
+                self.assertIn(description, help_output.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()) as error:
+            self.assertEqual(main([]), 2)
+        self.assertEqual(output.getvalue(), help_output.getvalue())
+        self.assertIn('usage-error: a command is required', error.getvalue())
+        self.assertIn('--help', error.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(main(['--json']), 2)
+        self.assertEqual(json.loads(output.getvalue())['errors'][0]['code'], 'usage-error')
+
     def test_every_public_help_works_without_configuration_or_operational_calls(self):
         with tempfile.TemporaryDirectory() as folder:
             environment = dict(os.environ, HOME=folder, XDG_CONFIG_HOME=folder + '/config',
@@ -77,6 +112,10 @@ class PublicGrammarTests(unittest.TestCase):
 
 
 class DriftGateTests(unittest.TestCase):
+    def test_docs_gate_accepts_top_level_help(self):
+        for command in ('mihomoctl --help', 'mihomoctl -h', 'mihomoctl help', 'mihomoctl help nodes'):
+            docs.check_command(command, full=True)
+
     def test_installer_scope_gate_distinguishes_outer_and_quoted_operators(self):
         for operator in ('|', '&&', ';'):
             with self.subTest(operator=operator), self.assertRaisesRegex(ValueError, 'unscoped-installer'):

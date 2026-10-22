@@ -10,7 +10,7 @@ NAS 例如 `/mnt/nas/public/software` 只作来源。设置 `umask 077`，把所
 
 ## 路径一：release fetch 的完整输出目录
 
-联网 Linux/WSL 上已有 1.2.0 时可执行：
+联网 Linux/WSL 上已有 1.3.0 时可执行：
 
 ```bash
 mihomoctl release fetch --output-dir "$HOME/releases/mihomoctl-kit" --target ubuntu22.04-x86_64-py310
@@ -30,13 +30,13 @@ kit_root="$KIT/kit"
 
 ## 路径二：直接取得 offline tarball
 
-只有 `mihomoctl-1.2.0-offline-TARGET.tar.gz` 和其 `.sha256` 时，需要先展开外层。下面以 Ubuntu 22.04 目标为例，替换 PACKAGES 为私有副本所在目录：
+只有 `mihomoctl-1.3.0-offline-TARGET.tar.gz` 和其 `.sha256` 时，需要先展开外层。下面以 Ubuntu 22.04 目标为例，替换 PACKAGES 为私有副本所在目录：
 
 ```bash
 # offline-archive-layout
 umask 077
 PACKAGES=/absolute/private/packages
-bundle=mihomoctl-1.2.0-offline-ubuntu22.04-x86_64-py310
+bundle=mihomoctl-1.3.0-offline-ubuntu22.04-x86_64-py310
 (cd "$PACKAGES" && sha256sum --check --strict "$bundle.tar.gz.sha256") &&
 kit_parent=$(mktemp -d "$HOME/mihomoctl-kit.XXXXXXXX") &&
 tar --no-same-owner --no-same-permissions -xzf "$PACKAGES/$bundle.tar.gz" -C "$kit_parent" &&
@@ -54,8 +54,8 @@ kit_root="$kit_parent/$bundle" &&
 # offline-controller-install
 umask 077
 source_parent=$(mktemp -d "$HOME/mihomoctl-source.XXXXXXXX") &&
-tar --no-same-owner --no-same-permissions -xzf "$kit_root/release/mihomoctl-1.2.0.tar.gz" -C "$source_parent" &&
-cd "$source_parent/mihomoctl-1.2.0" &&
+tar --no-same-owner --no-same-permissions -xzf "$kit_root/release/mihomoctl-1.3.0.tar.gz" -C "$source_parent" &&
+cd "$source_parent/mihomoctl-1.3.0" &&
 bash install.sh --user --python /usr/bin/python3 --wheelhouse "$kit_root/wheelhouse" --dry-run &&
 bash install.sh --user --python /usr/bin/python3 --wheelhouse "$kit_root/wheelhouse"
 ```
@@ -70,7 +70,7 @@ bash install.sh --user --python /usr/bin/python3 --wheelhouse "$kit_root/wheelho
 export PATH="$HOME/.local/bin:$PATH"
 export MIHOMOCTL_NO_UPDATE_CHECK=1
 mihomoctl version
-/usr/bin/python3 "$source_parent/mihomoctl-1.2.0/scripts/bootstrap.py" verify --user
+/usr/bin/python3 "$source_parent/mihomoctl-1.3.0/scripts/bootstrap.py" verify --user
 ```
 
 verify 使用上面安装时选定的解释器。没有 manager 时，使用预先准备的可信核心，按 [初始化教程](setup.md) 只 init 一次，并执行 config validate；已有 manager 则保留，不重新安装核心。默认保持停止；分别记录控制器、核心、初始化结果，运行态和远端代理仍为 UNVERIFIED。保留安装器报告的自包含备份及工作目录，见 [升级回滚](update.md)。恢复控制器代码不会删除新初始化的数据。

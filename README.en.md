@@ -12,8 +12,8 @@ It supplies no subscription service and cannot force clients to honor proxy vari
 
 ## Requirements and stable version
 
-<!-- stable-version: 1.2.0 -->
-Current stable version: **1.2.0**. Requires Linux, Python 3.10+, PyYAML 6.0.1+, and Bash for the installer. Supply Mihomo separately or install it explicitly. Textual is optional; a plain terminal menu is available by default. On Windows, run inside Linux/WSL.
+<!-- stable-version: 1.3.0 -->
+Current stable version: **1.3.0**. Requires Linux, Python 3.10+, PyYAML 6.0.1+, and Bash for the installer. Supply Mihomo separately or install it explicitly. Textual is optional; a plain terminal menu is available by default. On Windows, run inside Linux/WSL.
 
 ## Quick Start
 

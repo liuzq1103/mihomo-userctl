@@ -12,8 +12,8 @@ mihomoctl 为 Linux 上的 Mihomo 提供用户级运行管理、认证代理环�
 
 ## 系统要求和当前稳定版本
 
-<!-- stable-version: 1.2.0 -->
-当前稳定版本：**1.2.0**。要求 Linux、Python 3.10+、PyYAML 6.0.1+；安装入口需要 Bash。Mihomo 核心另行提供或显式安装。Textual 界面是可选依赖；默认可用纯终端菜单。Windows 请在 Linux/WSL 中运行。
+<!-- stable-version: 1.3.0 -->
+当前稳定版本：**1.3.0**。要求 Linux、Python 3.10+、PyYAML 6.0.1+；安装入口需要 Bash。Mihomo 核心另行提供或显式安装。Textual 界面是可选依赖；默认可用纯终端菜单。Windows 请在 Linux/WSL 中运行。
 
 ## 最短 Quick Start
 

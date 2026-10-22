@@ -95,6 +95,11 @@ def main(argv=None):
                         help="source tree, release .tar.gz/.zip, or wheel directory (default: this tree)")
     source.add_argument("--wheelhouse", type=Path, default=None,
                         help="directory with dependency wheels for offline installation")
+    extras = install_parser.add_mutually_exclusive_group()
+    extras.add_argument("--extras", action="append", default=None, metavar="GROUP",
+                                help="stage an optional dependency group privately (repeatable)")
+    extras.add_argument("--no-extras", action="store_const", const=[], dest="extras",
+                        help="explicitly clear optional dependency groups")
     install_parser.add_argument("--manifest", type=Path, default=None,
                                 help="explicit release-manifest.json path")
     install_parser.add_argument("--python", default=None,
@@ -144,14 +149,14 @@ def main(argv=None):
                     scope, args.source or REPO_ROOT, wheelhouse=args.wheelhouse,
                     manifest_path=args.manifest, python=args.python, dry_run=args.dry_run,
                     allow_same_version=args.allow_same_version,
-                    allow_downgrade=args.allow_downgrade)
+                    allow_downgrade=args.allow_downgrade, extras=args.extras)
             elif args.command == "uninstall":
                 result = installation.uninstall(scope, dry_run=args.dry_run)
             elif args.command == "verify":
                 record = installation.verify_installed(scope)
                 result = {"version": record["version"], "generation": record["generation"],
                           "install_root": record["install_root"], "bin_link": record["bin_link"],
-                          "python": record["python"], "overall": "PASS"}
+                          "python": record["python"], "extras": record.get("extras", []), "overall": "PASS"}
             elif args.command == "status":
                 result = installation.installation_status(scope)
             else:
