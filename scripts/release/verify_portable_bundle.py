@@ -331,12 +331,8 @@ def verify(bundle, report, real_users=False, require_isolation=False, ssh_user=N
                       'os': platform.freedesktop_os_release().get('ID'),
                       'publishable': manifest['publishable'], 'network_isolated': isolated,
                       'real_uids': real_users, 'users': rows, 'core_sha256': rows[0]['core_sha256'],
-                      'bundle_sha256': hashlib.sha256(Path(bundle).read_bytes()).hexdigest(),
-                      'bundle_bytes': Path(bundle).stat().st_size}
-            if report:
-                Path(report).write_text(json.dumps(result, indent=2, sort_keys=True) + '\n')
-            print(json.dumps(result, sort_keys=True))
-            return result
+                      'bundle_sha256': hashlib.sha256(delivered.read_bytes()).hexdigest(),
+                      'bundle_bytes': delivered.stat().st_size}
         finally:
             for home in homes:
                 (home / 'finish').touch(exist_ok=True)
@@ -356,6 +352,14 @@ def verify(bundle, report, real_users=False, require_isolation=False, ssh_user=N
             for path in base.rglob('*'):
                 if path.is_dir() and not path.is_symlink():
                     path.chmod(0o700)
+        # A CI checkout, its input archive and report destination can all live
+        # below the SSH account's home. The disposable bind mount hides that
+        # home while workers run: use the staged archive for its identity and
+        # publish evidence only after finally has unmounted the test home.
+        if report:
+            Path(report).write_text(json.dumps(result, indent=2, sort_keys=True) + '\n')
+        print(json.dumps(result, sort_keys=True))
+        return result
 
 
 if __name__ == '__main__':
