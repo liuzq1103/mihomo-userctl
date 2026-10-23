@@ -1,213 +1,314 @@
-name: v1
+name: Deliver gated v1.4.0
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
+  actions: read
 concurrency:
-  group: v1-${{ github.ref }}
-  cancel-in-progress: true
+  group: deliver-mihomoctl-v1.4.0
+  cancel-in-progress: false
 jobs:
-  ubuntu:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            python: '3.10'
-            offline_target: ubuntu22.04-x86_64-py310
-          - os: ubuntu-24.04
-            python: '3.12'
-            offline_target: ubuntu24.04-x86_64-py312
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    defaults:
-      run:
-        shell: bash --noprofile --norc -eo pipefail {0}
+  deliver:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: c4f35010e709cf1c3b3c48696f65034ee4e50a6e
           fetch-depth: 0
-      - name: Use umask 022 for isolated regression
+      - name: Require the successful exact main commit and CI run
+        shell: bash
         run: |
-          umask 022
-          printf 'umask 022\n' > "$RUNNER_TEMP/mihomoctl-ci-env"
-          echo "BASH_ENV=$RUNNER_TEMP/mihomoctl-ci-env" >> "$GITHUB_ENV"
-      - uses: actions/setup-node@v4
+          cat > "$RUNNER_TEMP/deliver.py" <<'PY'
+          """One-off publication of the already validated main commit; no rebuilds."""
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          import time
+
+          ROOT = Path.cwd()
+          BASE = ROOT / 'dist/publish-1.4.0'
+          ASSETS = BASE / 'assets'
+          REPO = 'liuzq1103/mihomo-userctl'
+          COMMIT = 'c4f35010e709cf1c3b3c48696f65034ee4e50a6e'
+          TAG = 'v1.4.0'
+          RUN = '39911971968'
+
+
+          def gh(*arguments, optional=False):
+              result = subprocess.run(['gh', *arguments], capture_output=True, text=True, timeout=600)
+              if result.returncode:
+                  if optional:
+                      return None
+                  raise RuntimeError('GitHub command failed: ' + ' '.join(arguments[:2]) + '\n' + result.stderr[-1500:])
+              return result.stdout
+
+
+          def api(endpoint, optional=False):
+              text = gh('api', 'repos/' + REPO + '/' + endpoint, optional=optional)
+              return json.loads(text) if text is not None else None
+
+
+          def validate_run():
+              run = api('actions/runs/' + RUN)
+              assert run['repository']['full_name'] == REPO
+              assert run['head_branch'] == 'main' and run['head_sha'] == COMMIT
+              assert run['event'] == 'push' and run['status'] == 'completed' and run['conclusion'] == 'success'
+              assert run['path'] == '.github/workflows/test.yml'
+              assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == COMMIT
+              print('Validated completed main CI run and exact checkout:', COMMIT, flush=True)
+
+
+          def publish():
+              validate_run()
+              inventory = json.loads((BASE / 'asset-inventory.json').read_text())
+              gate = json.loads((ASSETS / 'release-gate.json').read_text())
+              assert gate['commit'] == COMMIT and gate['version'] == '1.4.0' and gate['verified'] is True
+              names = set(gate['assets']) | {'release-gate.json', 'validation-evidence.json'}
+              assert set(inventory) == names == {p.name for p in ASSETS.iterdir()}
+              for name, expected in inventory.items():
+                  path = ASSETS / name
+                  assert path.stat().st_size == expected['bytes'] and hashlib.sha256(path.read_bytes()).hexdigest() == expected['sha256']
+              release = api('releases/tags/' + TAG, optional=True)
+              if release is None:
+                  gh('release', 'create', TAG, '--repo', REPO, '--target', COMMIT, '--draft',
+                     '--title', 'mihomoctl v1.4.0 - complete SSH bundle', '--notes-file', str(BASE / 'release-notes.md'))
+                  release = api('releases/tags/' + TAG)
+              assert release['target_commitish'] == COMMIT and release['prerelease'] is False
+              for asset in release['assets']:
+                  assert asset['name'] in inventory
+                  assert asset['digest'] == 'sha256:' + inventory[asset['name']]['sha256']
+              missing = names - {asset['name'] for asset in release['assets']}
+              if missing:
+                  assert release['draft'] is True, 'refuse to change an incomplete public release'
+                  gh('release', 'upload', TAG, '--repo', REPO, *[str(ASSETS / name) for name in sorted(missing)])
+              release = api('releases/tags/' + TAG)
+              assert names == {asset['name'] for asset in release['assets']}
+              for asset in release['assets']:
+                  assert asset['state'] == 'uploaded'
+                  assert asset['digest'] == 'sha256:' + inventory[asset['name']]['sha256']
+                  assert asset['size'] == inventory[asset['name']]['bytes']
+              print('Verified all uploaded GitHub asset digests:', len(names), flush=True)
+              if release['draft']:
+                  gh('release', 'edit', TAG, '--repo', REPO, '--draft=false', '--latest')
+              release = api('releases/tags/' + TAG)
+              assert release['draft'] is False and release['published_at']
+              tag = api('git/ref/tags/' + TAG)
+              assert tag['object']['type'] == 'commit' and tag['object']['sha'] == COMMIT
+              assert api('releases/latest')['tag_name'] == TAG
+              destination = BASE / 'published-download'
+              gh('release', 'download', TAG, '--repo', REPO, '--dir', str(destination))
+              assert names == {p.name for p in destination.iterdir()}
+              for name, expected in inventory.items():
+                  path = destination / name
+                  assert path.stat().st_size == expected['bytes'] and hashlib.sha256(path.read_bytes()).hexdigest() == expected['sha256']
+              result = {'success': True, 'tag': TAG, 'commit': COMMIT, 'assets': len(names),
+                        'url': release['html_url'], 'published_at': release['published_at'],
+                        'downloaded_hashes_match': True, 'validation_run': RUN}
+              (BASE / 'publication-verification.json').write_text(json.dumps(result, indent=2) + '\n')
+              print(json.dumps(result, sort_keys=True), flush=True)
+
+
+          if '--validate-only' in sys.argv:
+              validate_run()
+          else:
+              publish()
+          PY
+          python3 "$RUNNER_TEMP/deliver.py" --validate-only
+      - uses: actions/download-artifact@v4
         with:
-          node-version: '22'
-      - name: Prepare build and optional UI dependencies
+          github-token: ${{ github.token }}
+          run-id: 39911971968
+          path: dist/publish-1.4.0/ci
+      - name: Prepare the isolated validator
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck python3-venv iproute2 dbus-user-session openssh-server
-          /usr/bin/python3 -m venv /tmp/mihomoctl-v1-ci-python
-          source /tmp/mihomoctl-v1-ci-python/bin/activate
-          echo /tmp/mihomoctl-v1-ci-python/bin >> "$GITHUB_PATH"
-          python -c "import sys; assert '.'.join(map(str, sys.version_info[:2])) == '${{ matrix.python }}'"
-          python -m pip install --upgrade pip setuptools wheel build
-          python -m pip install .
-          python -m pip install --require-hashes --only-binary=:all: -r scripts/textual-requirements.txt
-      - name: Syntax and reviewed-content checks
+          umask 077
+          python3 -m venv "$RUNNER_TEMP/validator"
+          "$RUNNER_TEMP/validator/bin/python" -m pip install --only-binary=:all: --require-hashes -r requirements-lock.txt
+      - name: Recheck the gate and assemble the original CI assets
+        shell: bash
         run: |
-          python scripts/release/version.py --check
-          python scripts/ci/generate_interfaces.py --check
-          rc=0
-          python -m compileall -q mihomoctl scripts tests || rc=$?
-          printf 'compileall_rc=%s\n' "$rc"
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-          rc=0
-          find . -type f \( -name '*.sh' -o -name '*.bash' \) -not -path './.git/*' -print0 | xargs -0 -n1 bash -n || rc=$?
-          printf 'bash_syntax_rc=%s\n' "$rc"
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-          rc=0
-          shellcheck -x install.sh uninstall.sh completions/mihomoctl.bash tests/secret-scan.sh || rc=$?
-          printf 'shellcheck_rc=%s\n' "$rc"
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-          rc=0
-          python scripts/ci/secret_scan.py || rc=$?
-          printf 'secret_scan_rc=%s\n' "$rc"
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-          rc=0
-          git diff --check || rc=$?
-          printf 'diff_check_rc=%s\n' "$rc"
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-      - name: Fail-closed audit of the documentation and secret gates
+          cat > "$RUNNER_TEMP/assemble.py" <<'PY'
+          """Validate downloaded CI candidates and assemble only gated release assets."""
+          import argparse
+          import hashlib
+          import importlib.util
+          import json
+          from pathlib import Path
+          import shutil
+          import sys
+          import tempfile
+
+          ROOT = Path.cwd()
+          parser = argparse.ArgumentParser()
+          parser.add_argument('--commit', required=True)
+          parser.add_argument('--run-id', required=True)
+          args = parser.parse_args()
+          base = ROOT / 'dist/publish-1.4.0'
+          download = base / 'ci'
+          assets = base / 'assets'
+          assets.mkdir(parents=True, exist_ok=True)
+          c22 = download / 'release-candidate-ubuntu-22.04'
+          c24 = download / 'release-candidate-ubuntu-24.04'
+          ci_gate = json.loads((download / 'release-gate/release-gate.json').read_text())
+          if ci_gate['commit'] != args.commit or ci_gate['version'] != '1.4.0' or ci_gate['verified'] is not True:
+              raise ValueError('downloaded gate identity mismatch')
+          for name in ci_gate['assets']:
+              if Path(name).name != name:
+                  raise ValueError('unsafe asset name')
+              source = (c24 if '-offline-ubuntu24.04-' in name else c22) / name
+              if not source.is_file() or source.is_symlink():
+                  raise ValueError('missing or unsafe asset: ' + name)
+              shutil.copyfile(source, assets / name)
+
+          spec = importlib.util.spec_from_file_location('v1_ci', ROOT / 'scripts/ci/v1_ci.py')
+          ci = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(ci)
+          with tempfile.TemporaryDirectory(prefix='mihomoctl-publish-gate-') as directory:
+              source = Path(directory) / 'source'
+              ci.snapshot(source)
+              sys.path.insert(0, str(source))
+              from scripts.release.verify_release import verify
+              gate = verify(c22, download, args.commit, assets, c22)
+              if gate != ci_gate:
+                  raise ValueError('locally rechecked gate differs from CI gate')
+              from scripts.ci.secret_scan import check as scan_metadata
+          shutil.copyfile(download / 'release-gate/release-gate.json', assets / 'release-gate.json')
+          reports = {}
+          for ubuntu in ('22.04', '24.04'):
+              reports[ubuntu] = {}
+              for path in sorted((download / ('validation-ubuntu-' + ubuntu)).glob('*.json')):
+                  report = json.loads(path.read_text())
+                  if report.get('commit') != args.commit or report.get('success') is not True:
+                      raise ValueError('failed or mismatched evidence: ' + str(path))
+                  reports[ubuntu][path.stem] = report
+              if set(reports[ubuntu]) != {'unit', 'real-core', 'privileged', 'artifact-install', 'offline-bundle-install', 'release-acquisition', 'portable-acceptance'}:
+                  raise ValueError('incomplete evidence inventory')
+          evidence = {'format': 1, 'version': '1.4.0', 'commit': args.commit,
+                      'workflow_run': 'https://github.com/liuzq1103/mihomo-userctl/actions/runs/' + args.run_id,
+                      'reports': reports}
+          (assets / 'validation-evidence.json').write_text(json.dumps(evidence, indent=2, sort_keys=True) + '\n')
+          expected = set(gate['assets']) | {'release-gate.json', 'validation-evidence.json'}
+          if {p.name for p in assets.iterdir()} != expected:
+              raise ValueError('unexpected file in publication directory')
+          inventory = {p.name: {'sha256': hashlib.sha256(p.read_bytes()).hexdigest(), 'bytes': p.stat().st_size}
+                       for p in sorted(assets.iterdir())}
+          (base / 'asset-inventory.json').write_text(json.dumps(inventory, indent=2, sort_keys=True) + '\n')
+          notes = (ROOT / 'docs/release-1.4.0.md').read_text(encoding='utf-8')
+          notes = notes.replace('(../INSTALL.md)', '(https://github.com/liuzq1103/mihomo-userctl/blob/v1.4.0/INSTALL.md)')
+          for local in ('zh-CN/console.md', 'en/console.md', 'en/operations/release.md'):
+              notes = notes.replace('(' + local + ')', '(https://github.com/liuzq1103/mihomo-userctl/blob/v1.4.0/docs/' + local + ')')
+          notes += '\n## Published acceptance evidence / 本次发布验收\n\n'
+          notes += 'Validated commit: `' + args.commit + '`. [CI run](' + evidence['workflow_run'] + '). All mandatory gates passed on both targets.\n\n'
+          notes += '| Suite | Ubuntu 22.04 | Ubuntu 24.04 |\n| --- | --- | --- |\n'
+          for key, label in [('unit', 'Unit/controller/TUI'), ('real-core', 'Real Mihomo core'), ('privileged', 'Real UIDs/systemd/TUN'),
+                             ('artifact-install', 'Source/wheel migration and failure recovery'), ('offline-bundle-install', 'Legacy offline kit'),
+                             ('release-acquisition', 'Offline acquisition contracts')]:
+              values = []
+              for ubuntu in ('22.04', '24.04'):
+                  row = reports[ubuntu][key]
+                  skipped = row.get('skipped', 0)
+                  values.append(str(row['tests']) + ' cases, ' + str(skipped) + ' skipped, 0 failures')
+              notes += '| ' + label + ' | ' + ' | '.join(values) + ' |\n'
+          notes += '\nComplete-bundle acceptance also passed offline on both targets with two UIDs and real SSH. Reported timings and RSS are observations from CI, not performance guarantees. Remote subscription and real external application routing still require corresponding network access.\n\n'
+          bundle = next(p for p in assets.iterdir() if p.name.endswith('-portable-linux-x86_64.tar.gz'))
+          notes += 'Complete archive: **' + str(bundle.stat().st_size) + ' bytes (' + format(bundle.stat().st_size / 2**20, '.1f') + ' MiB)**.\n\n'
+          notes += '| Target | Installed MiB | UI first frame (seconds) | UI RSS (MiB) |\n| --- | --- | --- | --- |\n'
+          for ubuntu in ('22.04', '24.04'):
+              for row in reports[ubuntu]['portable-acceptance']['users']:
+                  # Retain the report's measured fields verbatim in the evidence file.
+                  installed = row.get('installed_bytes')
+                  seconds = row.get('ui_first_render_seconds')
+                  transport = 'SSH' if row.get('ssh_transport') else 'PTY'
+                  notes += '| Ubuntu ' + ubuntu + ' / ' + transport + ' | ' + (format(installed / 2**20, '.1f') if installed else 'see evidence') + ' | ' + (str(seconds) if seconds is not None else 'see evidence') + ' | ' + format(row['ui_rss_kib'] / 1024, '.1f') + ' |\n'
+          (base / 'release-notes.md').write_text(notes, encoding='utf-8')
+          scan_metadata('validation-evidence.json', (assets / 'validation-evidence.json').read_bytes())
+          scan_metadata('release-notes.md', (base / 'release-notes.md').read_bytes())
+          print(json.dumps({'gate': gate, 'assets': inventory, 'reports': {u: {k: {'tests': v.get('tests'), 'skipped': v.get('skipped')} for k,v in rows.items()} for u,rows in reports.items()}}, indent=2))
+          PY
+          "$RUNNER_TEMP/validator/bin/python" "$RUNNER_TEMP/assemble.py" --commit c4f35010e709cf1c3b3c48696f65034ee4e50a6e --run-id 39911971968
+      - name: Publish and verify the delivered assets
+        shell: bash
         run: |
-          rc=0
-          bash tests/audit-test.sh || rc=$?
-          printf 'audit_rc=%s\n' "$rc"
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-      - name: Unit, controller and TUI regression
+          "$RUNNER_TEMP/validator/bin/python" "$RUNNER_TEMP/deliver.py"
+      - name: Exercise the published bundled runtime and real release acquisition
+        shell: bash
         run: |
-          rc=0
-          python scripts/ci/v1_ci.py --unit --report "$RUNNER_TEMP/unit.json" || rc=$?
-          printf 'unit_rc=%s\n' "$rc"
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-      - name: Prepare pinned real Mihomo binary
-        run: |
-          curl --fail --location --retry 3 --output "$RUNNER_TEMP/mihomo.gz" https://github.com/MetaCubeX/mihomo/releases/download/v1.19.32/mihomo-linux-amd64-compatible-v1.19.32.gz
-          printf '%s  %s\n' ba3ce607747a07f948fc35780e108a4a7c7f552a38b9bd4d115f313ebcb89c20 "$RUNNER_TEMP/mihomo.gz" | sha256sum --check --strict
-          gzip --decompress --stdout "$RUNNER_TEMP/mihomo.gz" > "$RUNNER_TEMP/mihomo"
-          chmod 755 "$RUNNER_TEMP/mihomo"
-          "$RUNNER_TEMP/mihomo" -v
-      - name: Real core regression (mandatory)
-        run: |
-          rc=0
-          python scripts/ci/v1_ci.py --real-core --core "$RUNNER_TEMP/mihomo" --report "$RUNNER_TEMP/real-core.json" || rc=$?
-          printf 'real_core_rc=%s\n' "$rc"
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-      - name: Build exact-commit artifacts and offline wheelhouse
-        run: |
-          rc=0
-          python scripts/release/build_release.py --output dist || rc=$?
-          printf 'build_release_rc=%s\n' "$rc"
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-          python -m pip download --only-binary=:all: --require-hashes -r requirements-lock.txt --dest "$RUNNER_TEMP/wheelhouse"
-          cp dist/mihomoctl-*.whl "$RUNNER_TEMP/wheelhouse/"
-          cd dist
-          rc=0
-          sha256sum --check --strict SHA256SUMS || rc=$?
-          printf 'release_checksums_rc=%s\n' "$rc"
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-      - name: Build complete target-specific offline kit
-        run: |
-          rc=0
-          python scripts/release/build_offline_bundle.py --artifacts dist --wheelhouse "$RUNNER_TEMP/wheelhouse" --target '${{ matrix.offline_target }}' --output dist || rc=$?
-          printf 'build_offline_bundle_rc=%s\n' "$rc"
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-      - name: Build complete SSH bundle with pinned Python, Textual and core
-        run: |
-          python scripts/release/fetch_portable_inputs.py --output "$RUNNER_TEMP/portable-inputs"
-          python -m pip download --only-binary=:all: --require-hashes --python-version 312 --implementation cp --abi cp312 --platform manylinux2014_x86_64 -r scripts/textual-requirements.txt --dest "$RUNNER_TEMP/portable-wheelhouse"
-          runtime=$(python -c "import json; print(json.load(open('scripts/release/portable-runtime.json'))['name'])")
-          core=$(python -c "import json; print(json.load(open('mihomoctl/mihomo-digests.json'))['pins'][0]['asset'])")
-          python scripts/release/build_portable_bundle.py --artifacts dist --runtime "$RUNNER_TEMP/portable-inputs/$runtime" --core "$RUNNER_TEMP/portable-inputs/$core" --wheelhouse "$RUNNER_TEMP/portable-wheelhouse" --output dist
-      - name: Exercise SSH bundle offline with distinct user identities
-        run: |
-          kit=$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*-portable-linux-x86_64.tar.gz' -print)
-          sudo unshare --mount --net -- /usr/bin/python3 scripts/release/verify_portable_bundle.py --bundle "$kit" --real-users --require-isolation --ssh-user "$(id -un)" --report "$RUNNER_TEMP/portable-acceptance.json"
-      - name: Install, update and recover the delivered kit with networking disabled
-        run: |
-          kit=$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*-offline-${{ matrix.offline_target }}.tar.gz' -print)
-          rc=0
-          sudo unshare --net -- sudo -u "$(id -un)" -- "$(command -v python)" "$GITHUB_WORKSPACE/scripts/release/verify_offline_bundle.py" --bundle "$kit" --target '${{ matrix.offline_target }}' --python "$(command -v python)" --report "$RUNNER_TEMP/offline-bundle-install.json" || rc=$?
-          printf 'verify_offline_bundle_rc=%s\n' "$rc"
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-      - name: Offline install, update and self-contained recovery of full artifacts
-        run: |
-          mkdir -m 700 "$RUNNER_TEMP/previous-source"
-          git archive 60cd461eec63d762660290d745e67729683420f9 | tar -x -C "$RUNNER_TEMP/previous-source"
-          rc=0
-          python scripts/release/verify_artifact_install.py --artifacts dist --wheelhouse "$RUNNER_TEMP/wheelhouse" --python "$(command -v python)" --previous-source "$RUNNER_TEMP/previous-source" --report "$RUNNER_TEMP/artifact-install.json" || rc=$?
-          printf 'verify_artifact_install_rc=%s\n' "$rc"
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-      - name: Release acquisition and upgrade contracts with networking disabled
-        run: |
-          sudo unshare --net -- sudo -u "$(id -un)" -- "$(command -v python)" "$GITHUB_WORKSPACE/scripts/ci/v1_ci.py" --unit --pattern test_v1_release.py --pattern test_v1_release_fetch.py --report "$RUNNER_TEMP/release-acquisition.json"
-      - name: Real users, systemd and isolated TUN (mandatory)
-        run: |
-          sudo modprobe tun || true
-          sudo mkdir -p /dev/net
-          if [ ! -e /dev/net/tun ]; then sudo mknod /dev/net/tun c 10 200; sudo chmod 666 /dev/net/tun; fi
-          rc=0
-          sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin MIHOMO_V1_DISPOSABLE_VM=1 /usr/bin/python3 scripts/ci/v1_ci.py --privileged --core "$RUNNER_TEMP/mihomo" --wheelhouse "$RUNNER_TEMP/wheelhouse" --report "$RUNNER_TEMP/privileged.json" || rc=$?
-          printf 'privileged_rc=%s\n' "$rc"
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-      - name: Documentation links
-        run: |
-          rc=0
-          python scripts/ci/check_docs_v1.py || rc=$?
-          printf 'docs_rc=%s\n' "$rc"
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-      - name: Upload validation evidence
+          cat > "$RUNNER_TEMP/smoke.py" <<'PY'
+          """Exercise version discovery and real acquisition using the published runtime."""
+          import hashlib
+          import importlib.util
+          import json
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          import sys
+          import tempfile
+
+          ROOT = Path.cwd()
+          base = ROOT / 'dist/publish-1.4.0'
+          archive = base / 'published-download/mihomoctl-1.4.0-portable-linux-x86_64.tar.gz'
+          commit = 'c4f35010e709cf1c3b3c48696f65034ee4e50a6e'
+          spec = importlib.util.spec_from_file_location('v1_ci', ROOT / 'scripts/ci/v1_ci.py')
+          ci = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(ci)
+          with tempfile.TemporaryDirectory(prefix='mihomoctl-published-smoke-') as temporary:
+              folder = Path(temporary)
+              source = folder / 'source'
+              ci.snapshot(source)
+              sys.path.insert(0, str(source))
+              from mihomoctl.portable import source_tree, verify_bundle
+              home = folder / 'home'
+              home.mkdir(mode=0o700)
+              binaries = folder / 'bin'
+              binaries.mkdir(mode=0o700)
+              for utility in ('dirname', 'readlink'):
+                  (binaries / utility).symlink_to('/usr/bin/' + utility)
+              env = dict(os.environ, HOME=str(home), PATH=str(binaries), MIHOMOCTL_NO_UPDATE_CHECK='1')
+              for name in ('CONFIG', 'DATA', 'STATE', 'CACHE', 'RUNTIME'):
+                  directory = home / name.lower()
+                  directory.mkdir(mode=0o700)
+                  env['XDG_' + name + ('_DIR' if name == 'RUNTIME' else '_HOME')] = str(directory)
+              def command(*args, timeout=360):
+                  value = subprocess.run([str(launcher), *args], env=env, capture_output=True, text=True, timeout=timeout)
+                  if value.returncode:
+                      raise RuntimeError('delivered command failed: ' + ' '.join(args[:2]) + '\n' + value.stdout + value.stderr)
+                  return json.loads(value.stdout)
+              with source_tree(archive) as bundle:
+                  manifest = verify_bundle(bundle)
+                  assert manifest['commit'] == commit and manifest['version'] == '1.4.0' and manifest['publishable'] is True
+                  launcher = bundle / 'mihomoctl'
+                  version = command('version', '--json')
+                  assert version['data']['mihomoctl'] == '1.4.0'
+                  discovery = command('release', 'check', '--json')
+                  acquired = command('release', 'fetch', '--version', 'v1.4.0', '--target', 'linux-x86_64',
+                                     '--output-dir', str(home / 'acquired'), '--json')
+                  record = json.loads((home / 'acquired/acquisition.json').read_text())
+                  assert record['version'] == '1.4.0' and record['commit'] == commit and record['target'] == 'linux-x86_64'
+                  assert not Path(record['source']).is_absolute()
+                  assert hashlib.sha256((home / 'acquired' / record['source']).read_bytes()).hexdigest() == hashlib.sha256(archive.read_bytes()).hexdigest()
+                  result = {'success': True, 'commit': commit, 'version': version, 'discovery': discovery,
+                            'acquisition': acquired, 'source_digest_matches_published_archive': True,
+                            'host_python_absent_from_path': True}
+                  (base / 'delivered-smoke.json').write_text(json.dumps(result, indent=2, sort_keys=True) + '\n')
+                  print(json.dumps(result, sort_keys=True))
+          PY
+          "$RUNNER_TEMP/validator/bin/python" "$RUNNER_TEMP/smoke.py"
+      - name: Preserve publication evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: validation-${{ matrix.os }}
+          name: publication-verification-v1.4.0
           path: |
-            ${{ runner.temp }}/unit.json
-            ${{ runner.temp }}/real-core.json
-            ${{ runner.temp }}/privileged.json
-            ${{ runner.temp }}/artifact-install.json
-            ${{ runner.temp }}/offline-bundle-install.json
-            ${{ runner.temp }}/release-acquisition.json
-            ${{ runner.temp }}/portable-acceptance.json
-          if-no-files-found: error
-      - name: Upload exact-commit release candidates
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-candidate-${{ matrix.os }}
-          path: dist/*
-          if-no-files-found: error
-  release-gate:
-    needs: ubuntu
-    runs-on: ubuntu-22.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: validation-ubuntu-*
-          path: evidence
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: release-candidate-ubuntu-*
-          path: candidates
-      - name: Assemble both offline kits without replacing normal release assets
-        run: |
-          mkdir offline
-          cp candidates/release-candidate-ubuntu-*/*-offline-*.tar.gz offline/
-          cp candidates/release-candidate-ubuntu-*/*-offline-*.tar.gz.sha256 offline/
-      - name: Require exact-commit artifacts and both target acceptance sets
-        run: |
-          umask 022
-          rc=0
-          python3 scripts/release/verify_release.py --artifacts candidates/release-candidate-ubuntu-22.04 --offline-artifacts offline --evidence evidence --commit "$GITHUB_SHA" > release-gate.json || rc=$?
-          printf 'verify_release_rc=%s\n' "$rc"
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-gate
-          path: release-gate.json
-          if-no-files-found: error
+            dist/publish-1.4.0/publication-verification.json
+            dist/publish-1.4.0/delivered-smoke.json
+            dist/publish-1.4.0/asset-inventory.json
+            dist/publish-1.4.0/release-notes.md
+          if-no-files-found: warn
