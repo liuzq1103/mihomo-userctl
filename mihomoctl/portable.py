@@ -48,6 +48,7 @@ def is_bundle(source):
 def source_tree(source):
     from .installation import InstallationError
     from .release_artifacts import safe_member
+    from .trust import require_private_dir
     source = Path(source).absolute()
     if source.is_dir():
         yield source
@@ -68,9 +69,12 @@ def source_tree(source):
                 roots.add(parts[0])
                 target = destination / entry.name
                 if entry.isdir():
-                    target.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    require_private_dir(target, create=True)
                 else:
-                    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    # Archives may omit directory entries. mkdir(parents=True)
+                    # applies mode only to the final component, leaving implicit
+                    # ancestors writable with a shared-server umask such as 0002.
+                    require_private_dir(target.parent, create=True)
                     with archive.extractfile(entry) as stream, target.open('xb') as output:
                         shutil.copyfileobj(stream, output)
                     target.chmod(0o700 if entry.mode & 0o111 else 0o600)

@@ -118,6 +118,19 @@ class FetchTests(unittest.TestCase):
             self.fetch('linux-x86_64')
         self.assertFalse((self.base / 'output').exists())
 
+    def test_complete_portable_acquisition_with_implicit_directories_and_shared_umask(self):
+        # portable_asset deliberately has files only, with no directory entries.
+        asset = self.portable_asset()
+        previous = os.umask(0o002)
+        try:
+            result = self.fetch('linux-x86_64')
+            current = os.umask(0o002)
+            self.assertEqual(current, 0o002, 'acquisition must preserve the caller umask')
+        finally:
+            os.umask(previous)
+        self.assertEqual(Path(result['source']).read_bytes(), asset.read_bytes())
+        self.assertEqual(Path(result['output_dir']).stat().st_mode & 0o777, 0o700)
+
     def test_portable_latest_keeps_acquisition_contract_without_host_python(self):
         self.portable_asset()
         def update(scope, source, **options):

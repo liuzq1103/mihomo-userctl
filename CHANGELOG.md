@@ -8,6 +8,7 @@
 - Add network-isolated two-UID and real SSH/PTY acceptance on both supported Ubuntu targets, including Unicode/search/resize, authentication, selection persistence and package/startup/memory measurements.
 - Retry conflicts on managed auto-assigned ports without stopping foreign processes. Preserve selected nodes across restarts.
 - Refuse manager replacement while another console is open, recover interrupted operations before new work, and retry committed cleanup durably.
+- Keep every implicit extraction directory private even with a shared-server umask; publish SSH evidence after restoring the test account home.
 - Parse subscription payloads in memory, discard cancelled previews and expire abandoned previews after 24 hours on the next UI/subscription operation.
 - Preserve business CLI and JSON envelopes; interactive no-command calls now open the UI. `rollback` remains a compatibility error reporting `historical-rollback-disabled`.
 - Update Chinese/English installation, console, subscription, troubleshooting, update and release documentation; distinguish complete bundles from legacy Python kits and historical release records.
