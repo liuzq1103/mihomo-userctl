@@ -43,6 +43,12 @@ class Service:
         return {"results": [{"name": n, "delay_ms": 32} for n in nodes]}
     def latency(self, node):
         return {"name": node, "delay_ms": 32}
+    def subscription_input(self, value, kind='url', policy='simple'):
+        return self.subscription_preview(value, url=kind=='url', policy=policy)
+    def subscription_save_and_start(self, identifier, digest):
+        self.subscription_apply(identifier, digest)
+        self.shell('restart')
+        return {'state': 'ready', 'action': 'restart', 'overall': 'PASS'}
 
 
 class TextualTests(unittest.IsolatedAsyncioTestCase):
@@ -155,34 +161,24 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
             async with app.run_test(size=size) as pilot:
                 await pilot.click("#nav-profiles")
                 await self.settle(pilot, app, "subscriptions")
+                app.query_one("#source-kind", Select).value = "file"
+                await pilot.pause()
                 app.query_one("#source-path", Input).value = "/private/provider.yaml"
                 await pilot.pause()
                 self.assertGreaterEqual(app.query_one("#body", RichLog).region.height, 2)
                 await pilot.click("#subscription-preview")
                 await self.settle(pilot, app, "operation")
-                self.assertEqual(service.calls, [("preview", "/private/provider.yaml", False, "auto")])
+                self.assertEqual(service.calls, [("preview", "/private/provider.yaml", False, "simple")])
                 self.assertEqual(app.preview["groups"], 2)
                 await pilot.click("#subscription-save")
                 await pilot.pause()
                 self.assertEqual(len(service.calls), 1)
                 await pilot.click("#yes")
-                for _ in range(100):
-                    if app.pending_restart: break
-                    await pilot.pause(.02)
-                self.assertTrue(app.pending_restart)
-                self.assertTrue(app.query_one("#restore-backup").display)
-                await pilot.click("#service-restart")
-                await pilot.pause()
-                await pilot.click("#yes")
-                for _ in range(100):
-                    if not app.pending_restart: break
-                    await pilot.pause(.02)
+                await self.wait_for(pilot, lambda: app.page == 'proxies', 'saved subscription opens nodes')
                 self.assertFalse(app.pending_restart)
-                self.assertEqual(service.calls[-1], ("service", "restart"))
-                # M1: the receipt is gone, so recovery must disappear with it.
-                await pilot.pause()
-                self.assertIsNone(app.last_backup)
-                self.assertFalse(app.query_one("#restore-backup").display)
+                self.assertEqual(service.calls[-1], ('service', 'restart'))
+                self.assertEqual(len(app.query('#restore-backup')), 0)
+                self.assertEqual(app.query_one('#source-path', Input).value, '')
 
     async def test_missing_controller_home_offers_setup_and_automatic_group_is_read_only(self):
         class Missing(Service):
@@ -222,8 +218,10 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.click("#nav-profiles")
             await self.settle(pilot, app, "subscriptions")
-            self.assertEqual(app.source_policy, "auto")
-            self.assertEqual(app.query_one("#source-policy", Select).value, "auto")
+            self.assertEqual(app.source_policy, "simple")
+            self.assertEqual(app.query_one("#source-policy", Select).value, "simple")
+            app.query_one('#source-kind', Select).value = 'file'
+            await pilot.pause()
             app.query_one("#source-path", Input).value = "/private/nodes.yaml"
             await pilot.pause()
             await pilot.click("#subscription-preview")
@@ -231,8 +229,8 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
             # Console.tick applies it. Wait for that UI completion before
             # reading the preview or changing the selectors for the next one.
             await self.wait_for(pilot, lambda: app.preview is not None, "provider preview published")
-            self.assertEqual(service.calls, [("preview", "/private/nodes.yaml", False, "auto")])
-            self.assertEqual(app.preview["policy"], "auto")
+            self.assertEqual(service.calls, [("preview", "/private/nodes.yaml", False, "simple")])
+            self.assertEqual(app.preview["policy"], "simple")
             self.assertFalse(app.query_one("#source-policy", Select).disabled)
             # Switching the policy invalidates the review; it never downgrades it.
             app.query_one("#source-policy", Select).value = "nodes"
@@ -252,12 +250,14 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
             app.query_one("#source-kind", Select).value = "url"
             await pilot.pause()
             self.assertIsNone(app.preview)
+            app.query_one('#source-path', Input).value = 'https://example.invalid/subscription'
+            await pilot.pause()
             await self.wait_for(pilot, lambda: not app.query_one("#subscription-preview").has_class("-active"),
                                 "preview button ready after source change")
             await pilot.click("#subscription-preview")
             await self.wait_for(pilot, lambda: app.preview is not None, "url preview published")
             self.assertEqual(len(service.calls), 3)
-            self.assertEqual(service.calls[2], ("preview", "/private/nodes.yaml", True, "nodes"))
+            self.assertEqual(service.calls[2], ("preview", "https://example.invalid/subscription", True, "nodes"))
             self.assertEqual(app.preview["policy"], "nodes")
 
     async def test_piped_nodes_policy_seeds_the_selector_and_keeps_the_review(self):
@@ -290,6 +290,8 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.click("#nav-profiles")
             await self.settle(pilot, app, "subscriptions")
+            app.query_one("#source-kind", Select).value = "file"
+            await pilot.pause()
             app.query_one("#source-path", Input).value = "/private/provider.yaml"
             await pilot.pause()
             await pilot.click("#subscription-preview")
@@ -309,7 +311,7 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.screen_stack[-1].accept, "确认")
             self.assertIn("57 条本地规则", app.screen_stack[-1].message)
             await pilot.press("escape")
-            self.assertEqual(service.calls, [("preview", "/private/provider.yaml", False, "auto")])
+            self.assertEqual(service.calls, [("preview", "/private/provider.yaml", False, "simple")])
 
     async def test_more_button_blanks_navigation_so_the_current_page_is_repickable(self):
         app = Console(Service())

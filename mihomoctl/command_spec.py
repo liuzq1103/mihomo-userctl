@@ -46,10 +46,11 @@ NATIVE = {
     'health': PROFILE + [arg('--egress-url')], 'doctor': [],
     'migrate': [arg('--dry-run', action='store_true'), arg('--apply', action='store_true'),
                 arg('--remove-loader', action='store_true'), arg('--no-import', action='store_true'), arg('--core')],
+    'reset': [arg('--dry-run', action='store_true'), arg('--apply', action='store_true'), arg('--core')],
     'rollback': [arg('backup')],
     'release': {'check': [], 'fetch': [arg('--output-dir', required=True),
                                       arg('--version', type=core_version),
-                                      arg('--target', choices=('ubuntu22.04-x86_64-py310',
+                                      arg('--target', choices=('linux-x86_64', 'ubuntu22.04-x86_64-py310',
                                                                'ubuntu24.04-x86_64-py312'))]},
     'update': [arg('source', nargs='?'), arg('--dry-run', action='store_true'),
                arg('--latest', action='store_true'),
@@ -97,7 +98,7 @@ ALIASES = ('profiles','export','dashboard')
 
 
 def options(parser, rows, context=''):
-    grouped = ('--dry-run','--apply') if context == 'migrate' else ('--output','--reveal') if context == 'env export' else ('--extras','--no-extras') if context == 'update' else ()
+    grouped = ('--dry-run','--apply') if context in ('migrate', 'reset') else ('--output','--reveal') if context == 'env export' else ('--extras','--no-extras') if context == 'update' else ()
     group = parser.add_mutually_exclusive_group(required=context != 'update') if grouped else None
     for name, kwargs in rows:
         (group if name in grouped else parser).add_argument(name, **kwargs)
@@ -163,6 +164,7 @@ COMMAND_GROUPS = {
     },
     "Service and configuration": {
         "init": "Initialize a user-scoped runtime configuration.",
+        "reset": "Restore the managed runtime to its initial defaults.",
         "logs": "Read managed runtime logs.",
         "config": "Validate the active or specified configuration.",
         "service": "Manage the owned systemd service.",
@@ -199,7 +201,7 @@ COMMAND_GROUPS = {
         "version": "Show the installed CLI version.",
         "update": "Preview or install a reviewed release.",
         "release": "Check or fetch release artifacts.",
-        "rollback": "Restore a recorded operation backup.",
+        "rollback": "Historical rollback is not supported.",
         "migrate": "Preview or apply migration from the legacy layout.",
     },
 }

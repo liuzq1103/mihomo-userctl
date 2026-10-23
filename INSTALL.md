@@ -1,87 +1,75 @@
-# Install mihomoctl 1.3.0
+# Install mihomoctl 1.4.0
 
-<!-- stable-version: 1.3.0 -->
-Linux, Bash and Python 3.10+ are required. The controller needs PyYAML 6.0.1+. Mihomo itself is separate from the controller archive. Complete new setup includes the explicit core and initialization steps below, with no runtime start by default; the installer itself remains controller-only. Default scope is user; no sudo, shell startup file writes (.bashrc, .zshrc, profile) or service actions are performed. [中文初始化教程](docs/zh-CN/setup.md) · [English setup](docs/en/setup.md).
+<!-- stable-version: 1.4.0 -->
 
-## Verify and install the release
+The complete SSH bundle supports Ubuntu 22.04/24.04 x86_64 and includes Python, Textual, all dependencies and the pinned Mihomo core. No system Python, virtual environment, pip, sudo or port forwarding is required. Each Linux account owns a separate proxy instance.
 
-Before installation writes, inspect existing manager/core paths and decide network access. Preserve an existing manager. For complete new setup, reuse a trusted local core or allow the explicit fixed-version download below. Strict offline use requires a verified compatible core and dependencies in advance; report missing materials before installing only the controller. Copy shared/NAS packages and the entire required wheelhouse into an owned private directory before using them.
+Use the complete bundle from the [v1.4.0 release](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.4.0). Source archives and legacy wheelhouse kits do not include an interpreter. Development builds marked `publishable: false` are not release artifacts.
 
-Obtain mihomoctl-1.3.0.tar.gz (or .zip), SHA256SUMS and build-receipt.json from [v1.3.0](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.3.0). Check that the receipt identifies the tagged commit and the release gate is verified: true. Compare the downloaded digest against a checksum obtained through a trusted independent channel; a colocated checksum alone is not publisher authentication.
+## Download, verify and run
 
-In a private working directory containing the downloaded archive and SHA256SUMS:
+Obtain `mihomoctl-1.4.0-portable-linux-x86_64.tar.gz` and its `.sha256` sidecar through a trusted release channel. Verify the digest against an independently trusted release record before running code. A colocated checksum alone does not authenticate a publisher. Transfer the whole archive to the server if it cannot access GitHub.
 
 ```bash
 umask 077
-sha256sum --ignore-missing --check --strict SHA256SUMS
-tar -xzf mihomoctl-1.3.0.tar.gz
-cd mihomoctl-1.3.0
-python3 -m venv "$HOME/.local/share/mihomoctl-python"
-"$HOME/.local/share/mihomoctl-python/bin/python" -m pip install --require-hashes --only-binary=:all: -r requirements-lock.txt
-bash install.sh --user --source "$PWD" --python "$HOME/.local/share/mihomoctl-python/bin/python"
+curl --fail --location --remote-name https://github.com/liuzq1103/mihomo-userctl/releases/download/v1.4.0/mihomoctl-1.4.0-portable-linux-x86_64.tar.gz
+curl --fail --location --remote-name https://github.com/liuzq1103/mihomo-userctl/releases/download/v1.4.0/mihomoctl-1.4.0-portable-linux-x86_64.tar.gz.sha256
+sha256sum --check --strict mihomoctl-1.4.0-portable-linux-x86_64.tar.gz.sha256
+tar -xzf mihomoctl-1.4.0-portable-linux-x86_64.tar.gz
+cd mihomoctl-1.4.0-portable-linux-x86_64
+./mihomoctl
+```
+
+Keep the extracted directory intact while running from it. The relative launcher uses its own interpreter; moving the complete directory is supported. Use the first-run terminal form to paste an HTTPS subscription URL or select a private YAML file, preview the import, then confirm saving and starting. Select a group and node from the node page. Subscription access still requires connectivity to the subscription endpoint and any referenced providers.
+
+## Optional user installation
+
+```bash
+./install.sh --user
 export PATH="$HOME/.local/bin:$PATH"
-mihomoctl version
-python3 scripts/bootstrap.py verify --user
+mihomoctl
 ```
 
-The dependency installation is the explicit online step. Reuse an existing trusted Python environment if appropriate; do not recreate an existing venv without review. For offline use, download the complete target-specific kit and verify its .sha256 and inner SHA256SUMS; read [offline installation](docs/en/offline-install.md). Alternatively pass an independently verified dependency directory through install.sh --wheelhouse and an explicit --python.
+The installer copies the complete program into private user storage, after which the original extraction can be removed. It never downloads dependencies, initializes a manager, starts a service, or writes shell startup files. First-run setup and starting happen explicitly in the terminal UI. Existing managers are preserved. The core is only prepared for a new manager; a manager update never replaces an active core.
 
-All extracted code and parent directories must be owned by you/root and not group/other writable. Do not use shared writable checkouts. The installer verifies the precise source/runtime inventory and dependency versions. A wheel installation still requires its matching release-manifest.json and complete dependencies; follow the delivered kit README rather than assembling an incomplete wheel directory.
-
-## Upgrade existing v1.0.x installations
-
-Use the verified **v1.3.0 installer above**, not the old installed updater: the old version expects retired Bash version markers. The new installer preserves configuration, credentials, subscriptions, caches and cores, reports a private backup path and does not restart anything. Verify version and installation after upgrading. Keep the backup for self-contained rollback:
+## Terminal compatibility and proxy use
 
 ```bash
-python3 /absolute/backup/bootstrap.py rollback /absolute/backup
+mihomoctl tui --engine plain
+mihomoctl --help
+mihomoctl exec -- curl --head https://example.com
+mihomoctl exec -- codex
 ```
 
-Do not bypass version/trust gates or add legacy version shims. See [upgrade and rollback](docs/en/update.md).
+The complete bundle defaults to Textual. The plain menu is available for limited terminals. Interactive invocation without a command opens the UI; JSON and noninteractive invocation never open it. Exiting the UI leaves the user's process backend running. No systemd installation is required.
 
-## Complete new setup: core and initialization
-
-Inspect existing managers and trusted cores before installation. Preserve an existing manager without reinitializing or proactively installing a replacement core. Without a manager, reuse a trusted core; if none exists and networking is allowed, default on Linux x86_64 to the project's fixed tested version (not an upstream latest claim):
+## Update and recovery policy
 
 ```bash
-export PATH="$HOME/.local/bin:$PATH"
-mihomoctl core install --version v1.19.32
-mihomoctl init --core "${XDG_DATA_HOME:-$HOME/.local/share}/mihomoctl/cores/v1.19.32/mihomo"
-mihomoctl config validate
+mihomoctl update /absolute/path/to/verified-portable-bundle.tar.gz --dry-run
+mihomoctl update /absolute/path/to/verified-portable-bundle.tar.gz
 ```
 
-Run this branch only for a new manager with no trusted existing core. For a supplied core, instead run init once with its absolute trusted path, followed by config validate. The built-in core digest covers only x86_64/amd64-compatible; arm64/armv7 need a checked corresponding asset SHA256 or trusted local core. Strict offline use requires the core beforehand: neither source nor offline dependency kits include it. Local packages allow an explicit subsequent core download unless strict offline use was requested. Report missing materials before writes. Initial download needs direct access or an already working trusted proxy, not this installation's uninitialized/stopped exec.
+An existing Python installation can migrate using the new bundle's `./install.sh`; it does not need to understand the new archive format. Use `--allow-same-version` only for an intentional reinstall. Source and wheel installs remain advanced compatibility paths and require a prepared trusted Python/dependency environment.
 
-Verify controller installation, core version and initialized configuration separately. Leave runtime health and remote routing UNVERIFIED while stopped. When ready to start explicitly:
+Close all mihomoctl interfaces for this account before installing, updating or uninstalling; an open interface causes `installation-console-open` before the program is switched. The core can keep running.
 
-```bash
-mihomoctl start
-mihomoctl profile list
-mihomoctl health check
-```
+Only the current program, core and configuration are kept. Successful operations delete old managed versions, temporary recovery data and completed historical backups. There is no historical rollback; `mihomoctl rollback BACKUP` reports `historical-rollback-disabled`.
 
-Already initialized managers do not need init again. On an existing manager, core install activates the replacement and may stop/restart a running core; it is not a harmless preparation step. See [setup](docs/en/setup.md) and the [copyable local agent prompt](docs/en/agent-local-install-prompt.md) ([中文](docs/zh-CN/agent-local-install-prompt.md)). Follow [subscriptions](docs/en/subscriptions.md), [rules](docs/en/rules.md) and [client verification](docs/en/first-run.md). Default MATCH,DIRECT does not establish remote routing. For third-party installers, proxy the entire installation shell and subsequent downloads; follow [download, review and execute](docs/en/first-run.md#install-a-third-party-cli-through-the-proxy).
+Temporary journals exist only while an operation is unfinished. Failure restores the previous files and affected runtime before cleanup. An interrupted transaction is recovered under the user lock on the next operation or UI launch. If recovery fails or an unrelated manual edit is detected, necessary temporary material remains for diagnosis; it is not offered as a history feature. Foreign files and manually supplied interpreters are outside automatic cleanup.
 
-System installation requires an administrator's explicit leading --system selection; it is never inferred from UID 0. TUN is system-only. User installs work without systemd. Third-party service restarts remain operator actions.
+## Package formats and licenses
 
-## Uninstall code only
+| Asset | Intended use | Target preparation |
+| --- | --- | --- |
+| `*-portable-linux-x86_64.tar.gz` | Recommended SSH installation; Ubuntu 22.04/24.04 x86_64 | No Python or package installation |
+| `*-offline-ubuntu*-py*.tar.gz` | Legacy offline installation with a wheelhouse | Matching trusted system Python; separately prepared core |
+| Source `.tar.gz` / `.zip`, wheel `.whl` | Advanced source/Python installation | Python 3.10+, dependencies and core |
 
-From the verified release tree, `bash uninstall.sh --user` removes managed code/launcher with a recovery backup. It does not delete user data or the Mihomo core, and does not stop running processes. Explicitly stop your managed runtime first when appropriate. [安全边界](docs/zh-CN/security.md) · [Safety boundaries](docs/en/security.md).
+The complete bundle's `licenses.json` lists components and notice files, including Mihomo's GPL-3.0 notice at `core/LICENSE` and upstream source links at `core/SOURCE.txt`. The manager's MIT license does not replace component licenses. Untested distributions and other architectures need separate validation and artifacts.
 
-## Acquisition from an installed 1.2.0 or newer CLI
+## Isolation
 
-`mihomoctl release check` explicitly observes the official stable release.
-`mihomoctl update --latest` obtains and verifies a fixed release before invoking
-the same offline installer. It retains private backups, version/trust/dependency
-gates and self-contained rollback; no runtime is restarted. Explicit network
-failures return 2 (UNVERIFIED). Local `mihomoctl update SOURCE` never uses the network.
+Configuration, subscription URLs, credentials, caches and logs live in each account's private XDG directories. The generated proxy and controller listen on authenticated loopback ports. Automatically assigned ports are retried on conflict; other users' processes are never stopped. Install/update/uninstall do not edit `.bashrc`, `.zshrc` or `profile`, nor manage third-party applications.
 
-Use `mihomoctl release fetch --output-dir DIR --target ubuntu22.04-x86_64-py310`
-on a connected Linux/WSL machine to obtain a complete portable kit. The other
-target is `ubuntu24.04-x86_64-py312`. Transfer the whole directory to the target;
-the acquisition record contains relative paths. Follow [offline installation](docs/en/offline-install.md).
-Without `--target`, fetch obtains the normal release and does not fetch dependencies.
-
-The downloader trusts official HTTPS and checks tag/receipt/gate/source consistency;
-colocated hashes and receipts are not independent publisher signatures. Existing
-v1.0.0–v1.1.1 installations still need the verified new installer above. A passive
-notification is an additional discovery channel, never a prerequisite for upgrading.
+See [中文终端教程](docs/zh-CN/console.md), [English console guide](docs/en/console.md), [subscription configuration](docs/en/subscriptions.md), and [release operations](docs/en/operations/release.md).

@@ -1,13 +1,19 @@
-# 发布运维与验收
+# 发布验收
 
-在专用分支实施。私有本地文件不得进入 Git 或精确发布清单。当前运行时位于 mihomoctl/；legacy/v0.9/ 仅保存历史源码。发布工具位于 scripts/release/，检查工具位于 scripts/ci/。
+版本权威为 pyproject.toml。运行 `python scripts/release/version.py --check` 以及 `python scripts/ci/generate_interfaces.py --check`，保留精确逐文件 inventory。
 
-版本权威是 pyproject.toml。修改后执行 `python scripts/release/version.py --sync`，审阅更新最新 Changelog 以及 README.md、README.en.md、INSTALL.md 的 stable-version 标记，再执行 `python scripts/release/version.py --check`。历史版本不改写。生成的命令参考和补全必须通过 `python scripts/ci/generate_interfaces.py --check`。
+先用 `scripts/release/build_release.py` 从精确提交构建源码和 wheel。维护者通过 `scripts/release/fetch_portable_inputs.py` 下载仓库固定摘要的运行时和核心，并准备 CPython 3.12 / manylinux2014_x86_64 的完整 Textual wheelhouse。`scripts/release/build_portable_bundle.py` 只读取这些本地输入，产出完整目录包与 SHA256；许可证及核心源码链接随包提供。运行时版本在 portable-runtime.json 中固定。
 
-CI 必须同时通过 Ubuntu 22.04/Python 3.10 和 Ubuntu 24.04/Python 3.12：完整单元、Controller 和 TUI 回归，文档与秘密门禁，固定核心真实测试，真实用户/systemd/隔离 TUN，精确提交的源码与 wheel 安装、更新、自包含回滚，以及两种套件的断网离线验收。另须从真实 v1.0.3 安装升级并回滚，检查用户数据完整。必需套件跳过不能认定成功。
+CI 在 Ubuntu 22.04 与 24.04 中运行完整回归、核心测试、旧格式安装与迁移，以及完整包断网验收。`scripts/release/verify_portable_bundle.py --real-users --require-isolation --ssh-user USER` 必须在 `unshare --mount --net` 的一次性命名空间以 root 启动；USER 为已有普通账号，内部用两个不同 UID 测试并发实例、权限和认证、节点选择持久化、真实 SSH/PTY 中文输入、键盘及缩放、界面打开时拒绝升级、无系统 Python 的安装/更新及无历史残留，并记录包大小、安装占用、启动耗时和界面 RSS。测试不创建系统账号或修改现有服务。
 
-`python scripts/release/build_release.py` 从选定 Git 提交读取版本，交叉核验运行时、manifest、文档及 wheel 元数据，严格执行逐文件清单，生成源码包、wheel、SHA256SUMS 和绑定提交的 receipt。--worktree 输出仅用于开发，不能发布。`python scripts/release/verify_release.py --help` 列出证据输入；最终提交门禁必须返回 verified: true。
+release gate 必须同时检查两个系统的完整包报告及一致的完整包 SHA256。`--worktree` 产物标记 publishable:false，仅供开发，不可发布。正式发布前保留旧业务和安全回归，历史回滚断言已替换为当前版本保留和失败恢复断言。
 
-通过 PR 合并；main 最终提交取得完整门禁后才能创建下一次发行标签，不移动或替换已经发布的标签。核对新标签提交，再核验标签 CI，只上传该提交的源码 tar.gz/zip、wheel、两种离线套件、摘要、receipt 与门禁证据。当前 v1.0.x 使用核验后的 v1.3.0 安装器升级。未观察真实 Codex 请求时仍记录 UNVERIFIED，不能用 CI 代理探测推断。
+## 发布已验收的提交
 
-文档修复同样经过 PR、审查与 CI，但不要求发布新版本。更新 main 不会改写用户已下载包内的文档；继续遵守源码/归档信任校验，并参考当前 [本地安装 prompt](../agent-local-install-prompt.md) 和 [离线包布局](../offline-install.md)。未来套件 README 须说明控制层包内容、显式核心/初始化步骤、严格离线前提及默认不启动。
+1. 审阅全部中英文当前文档，为旧版说明标注历史版本。修改 pyproject.toml，执行 `python scripts/release/version.py --sync`，更新 Changelog、稳定版本标记，并检查版本、文档、生成参考及精确文件清单。组件许可文件必须随实现一起提交。
+2. 推送已审阅的提交，要求 `.github/workflows/test.yml` 的全部任务及 `release-gate` 成功。两个 Ubuntu 任务必须验收同一提交。不要使用工作区开发包，也不要用验收后本地重建的文件替换产物。
+3. 下载两个 `release-candidate-ubuntu-*`、两个 `validation-ubuntu-*` 和 `release-gate` 产物。源码、wheel 和完整包采用 Ubuntu 22.04 的候选；各 Ubuntu 离线套件取对应目标的候选。核对 build receipt 的普通产物摘要、套件与摘要配对、门禁的提交/版本及完整资产清单，拒绝重复、缺失或不一致文件。
+4. 将两个验收目录中原样的 JSON 报告汇总为 `validation-evidence.json`，与 `release-gate.json` 及门禁列出的全部资产一起发布。标签必须指向已验收的完整提交。发布说明写明不保留历史版本/备份、旧安装迁移方式、目标系统及组件许可；全部必检项通过后才标记为最新稳定版。
+5. 查询公开发布和标签，重新下载交付的摘要、元数据与完整包，与门禁产物比较，并检查版本发现。记录发布链接与 CI 链接，不覆盖旧版本的标签或资产。
+
+完整包使用独立 `.tar.gz.sha256`；`SHA256SUMS` 仅涵盖普通源码和 wheel 资产，各旧式离线套件也有独立摘要。build receipt 绑定源码/wheel 摘要与提交，release gate 记录通过验收的资产名称。同一渠道的元数据及摘要不等于独立签名。

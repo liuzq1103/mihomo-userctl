@@ -2,7 +2,7 @@
 
 Owns the mihomoctl CLI installation lifecycle: offline wheel/source
 packaging into immutable generations, atomic pointer switching, locking,
-private permissions, safe path checks and self-contained backup rollback.
+private permissions, safe path checks and temporary failure recovery.
 
 Hard product rules (architecture-v1 / ADR 0002):
 
@@ -13,8 +13,8 @@ Hard product rules (architecture-v1 / ADR 0002):
   ``Scope(system=True)`` *and* euid 0; root never loads user-writable code
   (interpreter and generation trees must be root-owned and not
   group/other-writable).
-- An existing Mihomo core is never adopted, replaced or removed by the
-  installer; cores live under the scope data root and are untouched here.
+- An active Mihomo core is never replaced by a manager update. Superseded
+  managed binaries are removed only with matching ownership receipts/digests.
 - Old protocol (format/update_protocol 1) sources are refused before any
   write, with migration guidance.
 
@@ -48,6 +48,9 @@ import sys
 import tarfile
 import tempfile
 import time
+# A portable update may retire this interpreter's stdlib tree. Preload
+# diagnostic formatting before final filesystem cleanup can fail.
+import traceback
 import uuid
 import zipfile
 from contextlib import contextmanager
@@ -83,7 +86,7 @@ WHEEL_DIR_FILES = re.compile(r"(\.whl|SHA256SUMS|build-receipt\.json|release-man
 # is refused.  paseo.json is local agent-tooling configuration, untracked.
 IGNORED_SOURCE_ENTRIES = frozenset({".git", "__pycache__", ".pytest_cache", ".mypy_cache",
                                     ".ruff_cache", "dist", "build", ".venv", "node_modules",
-                                    ".egg-info", ".idea", ".vscode", "paseo.json"})
+                                    ".egg-info", ".idea", ".vscode", "paseo.json", ".rel-stage-path", "rel-staging"})
 PRIVATE_BASENAMES = frozenset({"credentials.yaml", "client.env", "proxy.env", ".env", "secrets.json"})
 PRIVATE_NAME_PARTS = ("MainServer",)
 
@@ -1344,7 +1347,7 @@ def _make_readonly(generation):
         elif path.is_dir():
             os.chmod(path, 0o555)
         else:
-            os.chmod(path, 0o444)
+            os.chmod(path, 0o555 if path.stat().st_mode & 0o111 else 0o444)
     os.chmod(generation / "bin" / CONSOLE_SCRIPT, 0o555)
 
 
@@ -1401,17 +1404,82 @@ def _switch_current(paths, target_or_none):
     sync_dir(paths.install_root)
 
 
-def _pending_backup(paths):
+def _pending_backup(paths, locked=False):
     if paths.pending.exists():
-        try:
-            pending = _read_private_json(paths.pending)
-        except MihomoctlError:
-            pending = {"backup": "unreadable"}
-        raise InstallationError(
-            "interrupted-installation-rollback-required",
-            "pending operation references backup %s" % pending.get("backup"),
-            "run: ./install.sh --rollback '%s' (or scripts/bootstrap.py rollback)"
-            % pending.get("backup"))
+        if locked:
+            recover_pending(paths.scope)
+        else:
+            with locks.operation_lock(paths.scope):
+                pass  # Acquiring the lock recovers an interrupted operation.
+
+
+def recover_pending(scope):
+    """Internal crash recovery, called only while holding the operation lock."""
+    paths = InstallPaths(scope)
+    if not paths.pending.exists():
+        return
+    pending = _read_private_json(paths.pending)
+    backup = Path(pending.get('backup', ''))
+    if backup.parent != paths.backups_root or backup.is_symlink():
+        raise InstallationError('installation-recovery-invalid')
+    if pending.get('committed') is True:
+        if pending.get('kind') not in ('install', 'uninstall'):
+            raise InstallationError('installation-recovery-invalid')
+        if pending['kind'] == 'install':
+            verify_installed(scope)
+        elif paths.install_root.exists():
+            raise InstallationError('installation-recovery-invalid')
+        with locks.idle_generations(scope, include_active=False):
+            finish_committed(scope, backup, pending['kind'])
+        return
+    transaction = _read_private_json(backup / 'transaction.json')
+    result = backup / 'result.json'
+    if result.exists() and _read_private_json(result).get('committed') is True:
+        if transaction.get('kind') == 'install':
+            verify_installed(scope)
+        with locks.idle_generations(scope, include_active=False):
+            finish_committed(scope, backup, transaction['kind'])
+        return
+    _recover_backup(scope, backup, lock=False)
+    if backup.exists():
+        _rmtree_rw(backup)
+
+
+def finish_committed(scope, backup, kind):
+    """Keep a durable cleanup marker even after its recovery tree is removed."""
+    paths = InstallPaths(scope)
+    _write_private_json(paths.pending, {'kind': kind, 'backup': str(backup), 'committed': True})
+    discard_history(scope, data=kind == 'install', pending_backup=backup)
+    if backup.exists():
+        _rmtree_rw(backup)
+    paths.pending.unlink(missing_ok=True)
+    sync_dir(paths.pending.parent)
+
+
+def discard_history(scope, data=True, pending_backup=None):
+    """Remove only authenticated managed history, after a durable commit."""
+    # Finish all lazy imports and data cleanup before removing the generation
+    # that may contain the interpreter and modules executing this update.
+    if data:
+        from .retention import discard_config_history, discard_core_history
+        discard_config_history(scope)
+        discard_core_history(scope)
+    paths = InstallPaths(scope)
+    if paths.backups_root.exists() and (not paths.pending.exists() or pending_backup is not None):
+        require_private_dir(paths.backups_root)
+        for backup in paths.backups_root.iterdir():
+            if backup == pending_backup:
+                continue
+            if not re.fullmatch(r'(install|uninstall)-\d{8}-\d{6}-[a-f0-9]{8}', backup.name):
+                continue
+            require_private_dir(backup)
+            record = _read_private_json(backup / 'transaction.json')
+            if record.get('install_root') == str(paths.install_root) and record.get('scope') == scope.name:
+                _rmtree_rw(backup)
+    # Last: the interpreter running this update may live in the old generation.
+    active = current_target(paths)
+    if active:
+        prune_generations(scope, keep=0, lock=False)
 
 
 def _backup_dir(paths, kind):
@@ -1449,6 +1517,11 @@ def install(scope, source, *, wheelhouse=None, manifest_path=None, python=None,
     ``wheelhouse`` when given).  Never writes shell startup files, never
     starts services, never requires network or a proxy, and never touches
     an existing Mihomo core."""
+    from .portable import is_bundle, install_bundle
+    if is_bundle(source):
+        return install_bundle(scope, source, dry_run=dry_run,
+                              allow_same_version=allow_same_version,
+                              allow_downgrade=allow_downgrade)
     scope.require_mutation()
     if scope.system and os.geteuid() != 0:
         raise PermissionScopeError("scope-violation", "system installation requires root and --system")
@@ -1529,9 +1602,19 @@ def _nulllock():
     yield
 
 
+def _idle_installation(function):
+    from functools import wraps
+    @wraps(function)
+    def guarded(scope, *args, **kwargs):
+        with locks.idle_generations(scope):
+            return function(scope, *args, **kwargs)
+    return guarded
+
+
+@_idle_installation
 def _install_locked(scope, paths, source_obj, interpreter, wheelhouse, *, smoke, extras=(),
                     inherited=False, previous_record=None):
-    _pending_backup(paths)
+    _pending_backup(paths, locked=True)
     _require_install_dir(paths.install_root, scope, create=True, code="installation-failed")
     _require_install_dir(paths.generations, scope, create=True, code="installation-failed")
     require_private_dir(paths.backups_root, create=True, code="installation-failed")
@@ -1545,7 +1628,15 @@ def _install_locked(scope, paths, source_obj, interpreter, wheelhouse, *, smoke,
     generation.mkdir(mode=0o700)
     backup = _backup_dir(paths, "install")
     switched = False
+    committed = False
     try:
+        transaction = {"kind": "install", "scope": scope.name,
+                       "install_root": str(paths.install_root), "bin_link": str(paths.bin_link),
+                       "generation": generation.name, "previous": previous,
+                       "previous_bin": os.readlink(paths.bin_link) if paths.bin_link.is_symlink() else None,
+                       "backup": str(backup)}
+        _write_private_json(backup / 'transaction.json', transaction)
+        _write_private_json(paths.pending, {'kind': 'install', 'backup': str(backup)})
         lib = generation / "lib"
         lib.mkdir(mode=0o755)
         (generation / "bin").mkdir(mode=0o755)
@@ -1574,16 +1665,8 @@ def _install_locked(scope, paths, source_obj, interpreter, wheelhouse, *, smoke,
                   "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         _write_private_json(generation / "record.json", record)
 
-        transaction = {"kind": "install", "scope": scope.name,
-                       "install_root": str(paths.install_root), "bin_link": str(paths.bin_link),
-                       "generation": generation.name, "previous": previous,
-                       "previous_bin": os.readlink(paths.bin_link) if paths.bin_link.is_symlink() else None,
-                       "backup": str(backup)}
-        _write_private_json(backup / "transaction.json", transaction)
-        _write_recovery(backup)
-        if previous:
-            shutil.copytree(paths.install_root / previous, backup / "previous-generation", symlinks=False)
-        _write_private_json(paths.pending, {"kind": "install", "backup": str(backup)})
+        # The previous generation stays in place until acceptance; no duplicate
+        # recovery package or permanent copy of the interpreter is needed.
         sync_dir(paths.generations)
 
         _switch_current(paths, "generations/" + generation.name)
@@ -1596,25 +1679,31 @@ def _install_locked(scope, paths, source_obj, interpreter, wheelhouse, *, smoke,
                 activate()
             except BaseException as exc:
                 raise InstallationError(code, "activation failed",
-                                        "run: ./install.sh --rollback '%s'" % backup) from exc
+                                        "retry with the reviewed installer to recover") from exc
         _write_private_json(backup / "result.json",
                             {"kind": "install", "generation": generation.name,
-                             "version": record["version"], "replaced": previous})
-        paths.pending.unlink(missing_ok=True)
-        sync_dir(paths.install_root)
+                             "version": record["version"], "replaced": previous, "committed": True})
+        committed = True
+        finish_committed(scope, backup, 'install')
         return {"version": record["version"], "generation": generation.name,
                 "install_root": str(paths.install_root), "bin_link": str(paths.bin_link),
-                "backup": str(backup), "python": str(interpreter), "replaced": previous,
+                "python": str(interpreter), "replaced": previous,
                 "source_kind": source_obj.kind,
                 **{key: staged[key] for key in ("extras", "extra_packages", "extras_carried_forward", "warnings")},
                 "notes": ["no shell startup files were modified", "no services were started"],
                 }
     except BaseException as failure:
+        if committed:
+            raise InstallationError('installation-committed-cleanup-pending',
+                'the new version is installed; cleanup will retry on the next operation') from failure
         if switched:
             try:
-                rollback(scope, backup, lock=False)
+                _recover_backup(scope, backup, lock=False)
+                if backup.exists():
+                    _rmtree_rw(backup)
             except BaseException:
-                raise InstallationError("installation-and-rollback-failed", "activation and recovery failed", "recover with the recorded backup: %s" % backup) from failure
+                raise InstallationError("installation-and-rollback-failed", "activation and recovery failed",
+                                        "temporary recovery material retained; retry the reviewed installer") from failure
             raise InstallationError("installation-failed-rolled-back", "the previous installation was restored") from failure
         if generation.exists():
             _rmtree_rw(generation)
@@ -1639,8 +1728,8 @@ def uninstall(scope, *, dry_run=False, lock=True):
     """Remove the installed CLI code and launcher.
 
     Preserves configuration, credentials, cores, subscriptions and caches;
-    never touches shell startup files or services.  The previous tree is
-    kept as a self-contained backup restorable by :func:`rollback`."""
+    never touches shell startup files or services. Recovery material is
+    temporary and is deleted after the removal commits."""
     scope.require_mutation()
     if scope.system and os.geteuid() != 0:
         raise PermissionScopeError("scope-violation", "system uninstall requires root and --system")
@@ -1666,18 +1755,19 @@ def uninstall(scope, *, dry_run=False, lock=True):
                 "notes": ["configuration, credentials, cores and caches are preserved",
                           "no shell startup files are modified", "no services are stopped"]}
 
-    with (locks.operation_lock(scope) if lock else _nulllock()):
-        _pending_backup(paths)
+    with (locks.operation_lock(scope) if lock else _nulllock()), locks.idle_generations(scope):
+        _pending_backup(paths, locked=True)
         _require_install_dir(paths.install_root, scope, code="installation-failed")
         backup = _backup_dir(paths, "uninstall")
         previous_bin = os.readlink(paths.bin_link) if paths.bin_link.is_symlink() else None
         transaction = {"kind": "uninstall", "scope": scope.name,
                        "install_root": str(paths.install_root), "bin_link": str(paths.bin_link),
-                       "previous_bin": previous_bin, "backup": str(backup), "version": version}
+                       "previous_bin": previous_bin, "backup": str(backup), "version": version,
+                       "original": target,
+                       "retired": str(paths.install_root.with_name('.uninstalled-' + uuid.uuid4().hex[:8]))}
         _write_private_json(backup / "transaction.json", transaction)
         _write_private_json(paths.pending, {"kind": "uninstall", "backup": str(backup)})
 
-        _write_recovery(backup)
         tree = backup / "tree"
         shutil.copytree(paths.install_root, tree, symlinks=True)
         manifest = sorted("%s: %s" % (p.relative_to(tree).as_posix(), digest_file(p))
@@ -1685,7 +1775,7 @@ def uninstall(scope, *, dry_run=False, lock=True):
         (backup / "tree-manifest.txt").write_text("\n".join(manifest) + "\n", encoding="utf-8")
         os.chmod(backup / "tree-manifest.txt", 0o600)
 
-        retired = paths.install_root.with_name(".uninstalled-" + uuid.uuid4().hex[:8])
+        retired = Path(transaction['retired'])
         os.rename(paths.install_root, retired)
         try:
             if paths.bin_link.is_symlink() and os.readlink(paths.bin_link).startswith(str(paths.install_root)):
@@ -1697,22 +1787,26 @@ def uninstall(scope, *, dry_run=False, lock=True):
                 if paths.pending.exists():
                     paths.pending.unlink()
             except BaseException:
-                raise InstallationError("uninstall-and-rollback-failed", "removal and recovery failed", "recover with backup %s" % backup) from exc
+                raise InstallationError("uninstall-and-rollback-failed", "removal and recovery failed",
+                                        "temporary recovery material retained; retry the reviewed installer") from exc
             raise InstallationError("uninstall-failed-rolled-back", "the previous installation was restored") from exc
-        _write_private_json(backup / "result.json", {"kind": "uninstall", "generation": target})
-        paths.pending.unlink(missing_ok=True)
-        sync_dir(paths.install_root.parent)
+        _write_private_json(backup / "result.json", {"kind": "uninstall", "generation": target, "committed": True})
+        finish_committed(scope, backup, 'uninstall')
         notes = ["configuration, credentials, cores and caches were preserved",
                  "no shell startup files were modified", "no services were stopped"]
         legacy = _old_installation_conflict(scope, paths)
         if legacy:
             notes.append("legacy 0.9.x files remain at ~/.local/share/mihomo-userctl; "
                          "use mihomoctl migrate to review them")
-        return {"backup": str(backup), "version": version,
+        return {"version": version,
                 "bin_link": str(paths.bin_link), "problems": problems, "notes": notes}
 
 
 def rollback(scope, backup, *, dry_run=False, lock=True):
+    raise InstallationError('historical-rollback-disabled', 'historical rollback is not supported')
+
+
+def _recover_backup(scope, backup, *, dry_run=False, lock=True):
     """Restore the state recorded in a self-contained backup directory."""
     scope.require_mutation()
     backup = Path(backup).absolute()
@@ -1739,10 +1833,8 @@ def rollback(scope, backup, *, dry_run=False, lock=True):
             pending = _read_private_json(paths.pending)
             if pending.get("backup") != str(backup):
                 raise InstallationError(
-                    "stale-backup", "a newer interrupted operation references %s"
-                    % pending.get("backup"),
-                    "roll back that operation first: ./install.sh --rollback '%s'"
-                    % pending.get("backup"))
+                    "stale-backup", "a newer interrupted operation requires recovery",
+                    "retry the reviewed installer to recover the unfinished operation")
         if kind == "install":
             _rollback_install(scope, paths, transaction, backup, done)
         else:
@@ -1788,8 +1880,9 @@ def _rollback_install(scope, paths, transaction, backup, done):
 
 def _rollback_uninstall(scope, paths, transaction, backup, done):
     if paths.install_root.exists():
-        if done:
+        if done or transaction.get('original') == current_target(paths):
             verify_installed(scope)
+            _cleanup_retired(paths, transaction)
             return
         raise InstallationError("stale-backup",
                                 "a new installation exists at %s" % paths.install_root)
@@ -1804,6 +1897,18 @@ def _rollback_uninstall(scope, paths, transaction, backup, done):
         raise InstallationError("backup-tree-inconsistent", "no active generation after restore")
     _ensure_launcher(paths)
     verify_installed(scope)
+    _cleanup_retired(paths, transaction)
+
+
+def _cleanup_retired(paths, transaction):
+    if transaction.get('retired') is None:
+        return
+    retired = Path(transaction['retired'])
+    if retired.parent != paths.install_root.parent or not re.fullmatch(r'\.uninstalled-[a-f0-9]{8}', retired.name):
+        raise InstallationError('installation-recovery-invalid')
+    if retired.exists() or retired.is_symlink():
+        require_trusted_dir(retired)
+        _rmtree_rw(retired)
 
 
 def prune_generations(scope, keep=3, *, lock=True):
@@ -1829,6 +1934,10 @@ def prune_generations(scope, keep=3, *, lock=True):
         removed = []
         for name in others[keep:]:
             _rmtree_rw(_generation_dir(paths, name))
+            lease = scope.runtime_root / ('generation-' + name + '.lock')
+            if lease.exists() or lease.is_symlink():
+                require_private_file(lease)
+                lease.unlink()
             removed.append(name)
         return removed
 

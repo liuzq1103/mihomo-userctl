@@ -50,7 +50,7 @@ class PublishGateTests(unittest.TestCase):
                 "commit": self.commit, "publishable_acceptance": True, "success": True,
                 "tests": 4, "skipped": 0, "artifact_sha256": hashes,
                 "previous_upgrade": {"result": "PASS", "previous_version": "1.0.3", "version": "1.0.0",
-                                     "self_contained_rollback": True, "protected_files_unchanged": True}})
+                                     "no_history": True, "protected_files_unchanged": True}})
             target = "ubuntu" + ubuntu + "-x86_64-py" + ("310" if ubuntu == "22.04" else "312")
             payload = {"release/" + name: (self.artifacts / name).read_bytes()
                        for name in (*hashes, "SHA256SUMS", "build-receipt.json")}
@@ -180,6 +180,39 @@ class PublishGateTests(unittest.TestCase):
         sidecar.unlink()
         with self.assertRaisesRegex(verify_release.GateError, "offline-bundle-invalid"):
             self.verify()
+
+    def test_portable_gate_requires_two_distinct_users_and_matching_offline_evidence(self):
+        archive = self.artifacts / 'mihomoctl-1.0.0-portable-linux-x86_64.tar.gz'
+        archive.write_bytes(b'fixture archive identity')
+        checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+        archive.with_name(archive.name + '.sha256').write_text(checksum + '  ' + archive.name + '\n')
+        for ubuntu in ('22.04', '24.04'):
+            self.save(self.report_path(ubuntu, 'portable-acceptance'), {
+                'success': True, 'network_isolated': True, 'real_uids': True,
+                'publishable': True, 'os': 'ubuntu', 'ubuntu': ubuntu,
+                'commit': self.commit, 'version': '1.0.0', 'bundle_sha256': checksum,
+                'users': [{'uid': uid, 'controller_port': 30000 + uid,
+                           'core_sha256': 'c' * 64, 'no_history': True,
+                           'authentication_rejected': True, 'system_python_absent_from_path': True,
+                           'ssh_transport': uid == 1002, 'active_ui_update_refused': True,
+                           'terminal_unicode_resize_search': True,
+                           'extraction_umask_0002': True,
+                           'ui_rss_kib': 40000} for uid in (1001, 1002)]})
+        def verify():
+            return verify_release.verify(self.artifacts, self.evidence, self.commit,
+                                         portable_artifacts=self.artifacts)
+        self.assertIn(archive.name, verify()['assets'])
+        path = self.report_path('24.04', 'portable-acceptance')
+        original = json.loads(path.read_text())
+        for key, value in (('bundle_sha256', 'd' * 64), ('network_isolated', False)):
+            self.save(path, dict(original, **{key: value}))
+            with self.assertRaisesRegex(verify_release.GateError, 'portable-acceptance'):
+                verify()
+        repeated = json.loads(json.dumps(original))
+        repeated['users'][1]['uid'] = repeated['users'][0]['uid']
+        self.save(path, repeated)
+        with self.assertRaisesRegex(verify_release.GateError, 'portable-acceptance'):
+            verify()
 
 
 @unittest.skipUnless(sys.platform == "linux", "production package targets Linux")

@@ -1,9 +1,38 @@
 # Changelog
 
+## [1.4.0] - 2026-10-23
+
+- Ship a relocatable Linux x86_64 bundle with pinned Python, Textual, dependencies and Mihomo; no target venv or pip setup.
+- Open the terminal UI on interactive invocation and provide private subscription URL input, simple node routing and confirmed save/start onboarding.
+- Keep only current code/core/configuration. Historical rollback is disabled; recover unfinished transactions automatically and remove temporary recovery data after completion.
+- Add network-isolated two-UID and real SSH/PTY acceptance on both supported Ubuntu targets, including Unicode/search/resize, authentication, selection persistence and package/startup/memory measurements.
+- Retry conflicts on managed auto-assigned ports without stopping foreign processes. Preserve selected nodes across restarts.
+- Refuse manager replacement while another console is open, recover interrupted operations before new work, and retry committed cleanup durably.
+- Parse subscription payloads in memory, discard cancelled previews and expire abandoned previews after 24 hours on the next UI/subscription operation.
+- Preserve business CLI and JSON envelopes; interactive no-command calls now open the UI. `rollback` remains a compatibility error reporting `historical-rollback-disabled`.
+- Update Chinese/English installation, console, subscription, troubleshooting, update and release documentation; distinguish complete bundles from legacy Python kits and historical release records.
+
+This release intentionally removes historical program/core/configuration backups. Temporary recovery material exists only for unfinished operations; recovery failures preserve necessary material and report an error.
+
+
 ## [1.3.0] - 2026-10-22
 
 ### Added
 
+- `mihomoctl reset --dry-run | --apply` returns the managed runtime to the
+  configuration `init` produces. The core configuration was previously only
+  ever generated once, by `init`, which itself refuses to run over an existing
+  manager; every later change (subscriptions, rules, probe settings, TUN) was
+  a top-level key replacement on top of it, and the only undo was a
+  single-level, in-memory `restore()` reachable from the Textual UI alone.
+  `reset` previews and applies from one removal list: it stops the runtime,
+  backs up and removes the manager configuration, the active core
+  configuration, every private credential file and the leftover
+  `.before-policy-*` backups and restart receipt, then republishes the same
+  default shape with fresh ports and secrets. The Mihomo core binary, the
+  subscription previews and the logs are preserved; the replaced credentials
+  stay in the `reset-*` transaction journal. `reset --core PATH` re-initializes
+  from a different core. Documented in `docs/{en,zh-CN}/setup.md`.
 - Textual is now installed privately, in the user's own generation directory,
   like PyYAML already was. `bash install.sh --user --python PYTHON
   --wheelhouse DIR --extras tui` stages `textual==8.2.8` and its transitive

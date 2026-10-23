@@ -451,7 +451,7 @@ class SubscriptionTests(unittest.TestCase):
         with patch.dict(os.environ, {"MIHOMO_CORE_BIN": "/fake/core"}), patch.object(transaction.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
             result = self.service.apply(plan["id"], plan["sha256"])
         self.assertEqual(result["state"], "restart-required")
-        self.assertEqual(Path(result["backup"]).read_text(), self.original)
+        self.assertNotIn("backup", result)
         import yaml
         before, after = yaml.safe_load(self.original), yaml.safe_load(self.config.read_text())
         before.pop("proxies"); after.pop("proxies")
@@ -509,7 +509,7 @@ class SubscriptionTests(unittest.TestCase):
             with self.assertRaisesRegex(ControlError, "original-restored"):
                 self.service.apply(plan["id"], plan["sha256"])
         self.assertEqual(self.config.read_text(), self.original)
-        self.assertEqual(len(list(self.root.glob("*.before-policy-*"))), 1)
+        self.assertEqual(len(list(self.root.glob("*.before-policy-*"))), 0)
 
     def test_crlf_bytes_are_preserved_in_backup_and_unmodified_sections(self):
         original = self.original.replace("\n", "\r\n").encode()
@@ -517,7 +517,7 @@ class SubscriptionTests(unittest.TestCase):
         plan = self.service.preview(source_file=self.source)
         with patch.dict(os.environ, {"MIHOMO_CORE_BIN": "/fake/core"}), patch.object(transaction.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
             result = self.service.apply(plan["id"], plan["sha256"])
-        self.assertEqual(Path(result["backup"]).read_bytes(), original)
+        self.assertNotIn("backup", result)
         self.assertIn(b"mixed-port: 17890\r\nsecret: unchanged-secret\r\n", self.config.read_bytes())
 
 

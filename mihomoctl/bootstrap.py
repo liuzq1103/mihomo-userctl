@@ -138,8 +138,6 @@ def main(argv=None):
         parser.error("--user and --system are mutually exclusive")
     try:
         if args.command == "rollback":
-            # The scope is recorded inside the backup; honor it over flags.
-            transaction = json.loads((args.backup / "transaction.json").read_text(encoding="utf-8"))
             scope = Scope(system=bool(args.system))
             result = installation.rollback(scope, args.backup, dry_run=args.dry_run)
         else:

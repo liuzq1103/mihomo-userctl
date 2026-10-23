@@ -12,32 +12,28 @@ It supplies no subscription service and cannot force clients to honor proxy vari
 
 ## Requirements and stable version
 
-<!-- stable-version: 1.3.0 -->
-Current stable version: **1.3.0**. Requires Linux, Python 3.10+, PyYAML 6.0.1+, and Bash for the installer. Supply Mihomo separately or install it explicitly. Textual is optional; a plain terminal menu is available by default. On Windows, run inside Linux/WSL.
+<!-- stable-version: 1.4.0 -->
+Current stable version: **1.4.0**. The new complete bundle targets Ubuntu 22.04/24.04 x86_64 and includes Python, Textual, dependencies and a pinned core. Separate Linux accounts own independent instances. No venv, pip, UI installation or port forwarding is needed. Download the complete bundle and checksum from the [v1.4.0 release](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.4.0). Source archives and legacy wheelhouse kits still need a prepared Python environment.
 
 ## Quick Start
 
-Complete new setup defaults to controller, trusted core and initialization, without starting. Follow [INSTALL.md](INSTALL.md) for the controller. Without a trusted core, use fixed tested v1.19.32 from [setup](docs/en/setup.md) (built-in digest covers x86_64 only). Preserve an existing manager without reinitializing; with no manager and a trusted core:
+Verify and extract the complete bundle as described in [INSTALL.md](INSTALL.md), then run:
 
 ```bash
-export PATH="$HOME/.local/bin:$PATH"
-mihomoctl init --core /absolute/path/to/mihomo
-mihomoctl config validate
+./mihomoctl
 ```
 
-Initialization is now complete. When ready to run, explicitly execute:
+Paste an HTTPS subscription into the terminal form, review it, confirm saving and starting, then search, measure and select a node. Existing managers are preserved. Optionally run `./install.sh --user`, then use `mihomoctl` directly. Use `mihomoctl tui --engine plain` for a basic terminal.
 
 ```bash
-mihomoctl start
-mihomoctl health check
-mihomoctl exec -- curl --fail --head https://example.com
+mihomoctl exec -- codex
 ```
 
-The initial routing rule is `MATCH,DIRECT`: this checks the local proxy path, not remote-node routing. Continue with subscriptions and rules.
+Software preparation can be offline; subscriptions and referenced resources must remain reachable. Successful operations retain no previous versions or configuration backups. Historical rollback is disabled.
 
 ## Initialize and start Mihomo
 
-`init` creates private configuration and an authenticated loopback listener. It neither downloads a core nor starts a service. Import existing configuration with `init --config`, then explicitly `start`; explicitly `restart` after changes. See [setup](docs/en/setup.md) for fixed-version core installation and XDG paths.
+The advanced CLI command `init` creates private configuration and an authenticated loopback listener. It neither downloads a core nor starts a service. Import existing configuration with `init --config`, then explicitly `start`; explicitly `restart` after changes. To go back to the initial state, preview with `mihomoctl reset --dry-run` and then run `mihomoctl reset --apply`: it keeps the core binary and the subscription previews, and resets only configuration and credentials. See [setup](docs/en/setup.md) for fixed-version core installation and XDG paths.
 
 ## Configure subscriptions
 
@@ -103,13 +99,13 @@ Default user/process scope; no self-elevation, sudo, shell startup file edits (.
 
 ## License and affiliation
 
-[MIT License](LICENSE). This independent, unofficial manager is not affiliated with Mihomo, OpenAI/Codex or Paseo.
+The manager is licensed under [MIT](LICENSE). The complete bundle also includes Python, dependencies and Mihomo (GPL-3.0) under their respective licenses; its `licenses.json` lists components and notice files, and `core/LICENSE` and `core/SOURCE.txt` provide the core license and upstream source links. This independent, unofficial manager is not affiliated with Mihomo, OpenAI/Codex or Paseo.
 
 ## Discover and acquire releases
 
 ```bash
 mihomoctl release check
-mihomoctl release fetch --output-dir "$HOME/releases/mihomoctl-kit" --target ubuntu22.04-x86_64-py310
+mihomoctl release fetch --output-dir "$HOME/releases/mihomoctl-kit" --target linux-x86_64
 mihomoctl update --latest
 ```
 
@@ -121,4 +117,4 @@ An observation never establishes that an installed version is the latest.
 
 Existing v1.0.0–v1.1.1 users must still use the verified new installer described
 in [INSTALL.md](INSTALL.md); old binaries cannot gain notifications themselves.
-See [upgrade and rollback](docs/en/update.md) for portable offline acquisition.
+See [update and failed-operation recovery](docs/en/update.md) for portable offline acquisition.

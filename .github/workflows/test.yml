@@ -40,7 +40,7 @@ jobs:
       - name: Prepare build and optional UI dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y shellcheck python3-venv iproute2 dbus-user-session
+          sudo apt-get install -y shellcheck python3-venv iproute2 dbus-user-session openssh-server
           /usr/bin/python3 -m venv /tmp/mihomoctl-v1-ci-python
           source /tmp/mihomoctl-v1-ci-python/bin/activate
           echo /tmp/mihomoctl-v1-ci-python/bin >> "$GITHUB_PATH"
@@ -116,6 +116,17 @@ jobs:
           python scripts/release/build_offline_bundle.py --artifacts dist --wheelhouse "$RUNNER_TEMP/wheelhouse" --target '${{ matrix.offline_target }}' --output dist || rc=$?
           printf 'build_offline_bundle_rc=%s\n' "$rc"
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+      - name: Build complete SSH bundle with pinned Python, Textual and core
+        run: |
+          python scripts/release/fetch_portable_inputs.py --output "$RUNNER_TEMP/portable-inputs"
+          python -m pip download --only-binary=:all: --require-hashes --python-version 312 --implementation cp --abi cp312 --platform manylinux2014_x86_64 -r scripts/textual-requirements.txt --dest "$RUNNER_TEMP/portable-wheelhouse"
+          runtime=$(python -c "import json; print(json.load(open('scripts/release/portable-runtime.json'))['name'])")
+          core=$(python -c "import json; print(json.load(open('mihomoctl/mihomo-digests.json'))['pins'][0]['asset'])")
+          python scripts/release/build_portable_bundle.py --artifacts dist --runtime "$RUNNER_TEMP/portable-inputs/$runtime" --core "$RUNNER_TEMP/portable-inputs/$core" --wheelhouse "$RUNNER_TEMP/portable-wheelhouse" --output dist
+      - name: Exercise SSH bundle offline with distinct user identities
+        run: |
+          kit=$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*-portable-linux-x86_64.tar.gz' -print)
+          sudo unshare --mount --net -- /usr/bin/python3 scripts/release/verify_portable_bundle.py --bundle "$kit" --real-users --require-isolation --ssh-user "$(id -un)" --report "$RUNNER_TEMP/portable-acceptance.json"
       - name: Install, update and recover the delivered kit with networking disabled
         run: |
           kit=$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*-offline-${{ matrix.offline_target }}.tar.gz' -print)
@@ -161,6 +172,7 @@ jobs:
             ${{ runner.temp }}/artifact-install.json
             ${{ runner.temp }}/offline-bundle-install.json
             ${{ runner.temp }}/release-acquisition.json
+            ${{ runner.temp }}/portable-acceptance.json
           if-no-files-found: error
       - name: Upload exact-commit release candidates
         uses: actions/upload-artifact@v4

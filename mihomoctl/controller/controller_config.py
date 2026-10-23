@@ -39,14 +39,22 @@ def private(path, directory=False):
 def read_config(path):
     if not path.exists() and not path.is_symlink():
         raise ControlError("config-missing")
+    private(path)
+    if path.stat().st_size > LIMIT:
+        raise ControlError("config-too-large")
+    return parse_config(path.read_bytes())
+
+
+def parse_config(content):
+    """Use the same strict parser for a private file or an in-memory download."""
     try:
         import yaml
     except ImportError:
         raise ControlError("controller-requires-PyYAML-see-control-plane-guide") from None
-    private(path)
-    if path.stat().st_size > LIMIT:
-        raise ControlError("config-too-large")
-    text = path.read_bytes().decode("utf-8")
+    try:
+        text = content.decode('utf-8') if isinstance(content, bytes) else content
+    except UnicodeError:
+        raise ControlError('config-yaml-invalid') from None
     try:
         # Reject ambiguous merges, aliases and duplicate keys before any edit.
         if any(isinstance(t, (yaml.tokens.AnchorToken, yaml.tokens.AliasToken, yaml.tokens.DocumentEndToken)) for t in yaml.scan(text)):

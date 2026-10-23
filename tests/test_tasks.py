@@ -71,15 +71,16 @@ rules: ["RULE-SET,Sites,出口", "MATCH,出口"]
         self.assertNotEqual(port, 25000)
         self.assertGreaterEqual(len(token), 32)
         self.assertNotIn("external-ui", data)
-        self.assertEqual(Path(result["backup"]).read_bytes(), self.original)
+        self.assertNotIn("backup", result)
         initialized = self.config.read_bytes()
         self.assertEqual(dashboard.initialize(self.config, str(self.root))["state"], "unchanged")
         self.assertEqual(self.config.read_bytes(), initialized)
         self.assertEqual(self.run.call_count, 1)
         service = ConsoleService(self.config, str(self.root))
         self.assertTrue(service.pending_restart)
-        service.restore()
-        self.assertEqual(self.config.read_bytes(), self.original)
+        with self.assertRaisesRegex(ControlError, "historical-rollback-disabled"):
+            service.restore()
+        self.assertEqual(self.config.read_bytes(), initialized)
 
     def test_initialize_backfills_store_selected_on_a_configured_controller(self):
         """An already initialized controller keeps its address and secret but
@@ -320,7 +321,7 @@ rules: ["RULE-SET,Sites,出口", "MATCH,出口"]
         service.initialize()
         self.write(self.config, self.config.read_text() + '# manual edit\n')
         before = self.config.read_bytes()
-        with self.assertRaisesRegex(ControlError, "restore-cancelled"):
+        with self.assertRaisesRegex(ControlError, "historical-rollback-disabled"):
             service.restore()
         self.assertEqual(self.config.read_bytes(), before)
 

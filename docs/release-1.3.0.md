@@ -1,5 +1,7 @@
 # 1.3.0 release notes / 发布说明
 
+> Historical release record / 历史发布记录。Applies only to this version; current installation and retention policy: [INSTALL.md](../INSTALL.md). 仅描述本版本，不作为当前安装或回滚指南。
+
 Textual is now installed privately, in your own generation directory, exactly as
 PyYAML already was. `bash install.sh --user --python PYTHON --wheelhouse DIR
 --extras tui` stages `textual==8.2.8` and its dependencies into the read-only

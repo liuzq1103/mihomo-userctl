@@ -150,6 +150,14 @@ def bridge_forward(args, values, json_mode=False):
 
 
 def run_bridge(scope, args, json_mode=False):
+    if args and args[0] == 'tui':
+        from .locks import console_generation_lease
+        with console_generation_lease(scope):
+            return _run_bridge(scope, args, json_mode)
+    return _run_bridge(scope, args, json_mode)
+
+
+def _run_bridge(scope, args, json_mode=False):
     """Run one legacy controller command.  JSON mode captures output and
     re-emits it under the mihomoctl/v1 envelope; TUI passes through."""
     controller = _import_controller()
@@ -160,6 +168,21 @@ def run_bridge(scope, args, json_mode=False):
             args[0] == 'controller' and args[1:] in (['setup'], ['initialize'], ['token']):
         scope.require_mutation()
     passthrough = args and args[0] == "tui"
+    if passthrough:
+        config = scope.config_root / 'mihomo/config.yaml'
+        try:
+            if scope.manager_path.exists():
+                config = Path(load_manager(scope).core.config)
+        except MihomoctlError:
+            pass  # The interface reports invalid existing state without replacing it.
+        forward = bridge_forward(args, {'config': str(config), 'home': str(scope.core_home)})
+        try:
+            code = controller.main(forward, app=app)
+        except controller.ControlError as error:
+            failure = BridgeError(error.code)
+            failure.exit_code = getattr(error, 'rc', 2)
+            raise failure from None
+        return {'passthrough': True}, None if code in (None, 0) else BridgeError('controller-exit')
     with bridge_environment(scope) as values:
         token = runtime_application.set(app)
         forward = bridge_forward(args, values, json_mode)

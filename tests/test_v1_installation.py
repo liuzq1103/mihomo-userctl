@@ -629,7 +629,7 @@ class UserInstallTests(InstallationTestBase):
         second = self.install(allow_same_version=True)
         self.assertEqual(second["replaced"], "generations/" + first["generation"])
         self.assertEqual(self.run_cli("--version").stdout.strip(), "mihomoctl 1.0.0")
-        self.assertEqual(len(list(self.paths.generations.iterdir())), 2)
+        self.assertEqual(len(list(self.paths.generations.iterdir())), 1)
 
     def test_update_to_newer_version_and_retention(self):
         first = self.install()
@@ -637,7 +637,85 @@ class UserInstallTests(InstallationTestBase):
         result = self.install(source=newer)
         self.assertEqual(result["replaced"], "generations/" + first["generation"])
         self.assertEqual(self.run_cli("--version").stdout.strip(), "mihomoctl 1.1.0")
-        self.assertTrue((self.paths.generations / first["generation"]).is_dir())
+        self.assertFalse((self.paths.generations / first["generation"]).is_dir())
+
+    def test_update_preserves_an_open_console_until_it_is_closed(self):
+        import fcntl
+        from mihomoctl import locks
+        from mihomoctl.errors import LockError
+        first = self.install()
+        newer = write_source(self.base / 'newer', version='1.1.0')
+        fd = locks._generation_fd(self.scope, first['generation'])
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            with self.assertRaisesRegex(LockError, 'installation-console-open'):
+                self.install(source=newer)
+            self.assertEqual(installation.verify_installed(self.scope)['version'], '1.0.0')
+        finally:
+            os.close(fd)
+        self.install(source=newer)
+        self.assertEqual(installation.verify_installed(self.scope)['version'], '1.1.0')
+
+    def test_committed_cleanup_recovers_after_its_recovery_directory_is_gone(self):
+        result = self.install()
+        recovery = installation._backup_dir(self.paths, 'install')
+        installation._write_private_json(self.paths.pending, {
+            'kind': 'install', 'backup': str(recovery), 'committed': True})
+        shutil.rmtree(recovery)
+        from mihomoctl.locks import operation_lock
+        with operation_lock(self.scope):
+            pass
+        self.assertFalse(self.paths.pending.exists())
+        self.assertEqual(installation.verify_installed(self.scope)['generation'], result['generation'])
+
+    def test_install_process_interruption_recovers_before_the_next_mutation(self):
+        first = self.install()
+        newer = write_source(self.base / 'newer', version='1.1.0')
+        from mihomoctl.locks import operation_lock
+        for phase in ('stage', 'switch'):
+            child = os.fork()
+            if child == 0:
+                if phase == 'stage':
+                    installation.stage_payload = lambda *args, **kwargs: os._exit(77)
+                else:
+                    original = installation._switch_current
+                    def interrupt(*args, **kwargs):
+                        original(*args, **kwargs)
+                        os._exit(77)
+                    installation._switch_current = interrupt
+                self.install(source=newer)
+                os._exit(99)
+            _, status = os.waitpid(child, 0)
+            self.assertEqual(os.waitstatus_to_exitcode(status), 77)
+            with operation_lock(self.scope):
+                pass
+            self.assertEqual(installation.verify_installed(self.scope)['generation'], first['generation'])
+            self.assertFalse(self.paths.pending.exists())
+            self.assertEqual(len(list(self.paths.generations.iterdir())), 1)
+            self.assertEqual(list(self.paths.backups_root.iterdir()), [])
+
+    def test_uninstall_process_interruption_restores_and_removes_retired_tree(self):
+        first = self.install()
+        child = os.fork()
+        if child == 0:
+            original = installation.os.rename
+            def interrupt(source, destination, *args, **kwargs):
+                result = original(source, destination, *args, **kwargs)
+                if Path(source) == self.paths.install_root:
+                    os._exit(78)
+                return result
+            installation.os.rename = interrupt
+            installation.uninstall(self.scope)
+            os._exit(99)
+        _, status = os.waitpid(child, 0)
+        self.assertEqual(os.waitstatus_to_exitcode(status), 78)
+        from mihomoctl.locks import operation_lock
+        with operation_lock(self.scope):
+            pass
+        self.assertEqual(installation.verify_installed(self.scope)['generation'], first['generation'])
+        self.assertEqual(list(self.paths.install_root.parent.glob('.uninstalled-*')), [])
+        self.assertFalse(self.paths.pending.exists())
+        self.assertEqual(list(self.paths.backups_root.iterdir()), [])
 
     def test_downgrade_requires_opt_in(self):
         self.install()
@@ -859,50 +937,27 @@ class ArchiveSourceTests(InstallationTestBase):
 
 @linux_only
 class RollbackTests(InstallationTestBase):
-    def test_rollback_update_restores_previous_generation(self):
+    def test_successful_update_keeps_only_current_and_has_no_recovery_copy(self):
         first = self.install()
-        newer = write_source(self.base / "source-1.1.0", version="1.1.0")
-        second = self.install(source=newer)
-        before = self.snapshot_home()
-        installation.rollback(self.scope, second["backup"])
-        self.assertEqual(installation.current_target(self.paths),
-                         "generations/" + first["generation"])
-        self.assertEqual(self.run_cli("--version").stdout.strip(), "mihomoctl 1.0.0")
-        installation.verify_installed(self.scope)
-        self.assertFalse((self.paths.generations / second["generation"]).is_dir())
-        self.assert_no_outside_changes(before)
+        second = self.install(source=write_source(self.base / 'new', version='1.0.1'))
+        self.assertNotIn('backup', second)
+        self.assertFalse((self.paths.generations / first['generation']).exists())
+        self.assertEqual(list(self.paths.backups_root.iterdir()), [])
+        self.assertEqual(self.run_cli('--version').stdout.strip(), 'mihomoctl 1.0.1')
 
-    def test_rollback_first_install_removes_everything(self):
-        result = self.install()
-        before = self.snapshot_home()
-        installation.rollback(self.scope, result["backup"])
-        self.assertFalse(self.paths.bin_link.is_symlink())
-        self.assertFalse(self.paths.install_root.exists())
-        self.assertIsNone(installation.current_record(self.scope))
-        self.assert_no_outside_changes(before)
-
-    def test_rollback_is_idempotent(self):
-        result = self.install()
-        installation.rollback(self.scope, result["backup"])
-        outcome = installation.rollback(self.scope, result["backup"])
-        self.assertTrue(outcome["restored"])
-
-    def test_stale_backup_refused_after_later_install(self):
+    def test_historical_rollback_fails_without_reading_a_supplied_path(self):
         self.install()
-        second = self.install(source=write_source(self.base / "s2", version="1.0.1"))
-        self.install(source=write_source(self.base / "s3", version="1.0.2"))
-        with self.assertRaisesRegex(installation.InstallationError, "stale-backup"):
-            installation.rollback(self.scope, second["backup"])
+        before = self.snapshot_home()
+        with self.assertRaisesRegex(installation.InstallationError, 'historical-rollback-disabled'):
+            installation.rollback(self.scope, self.base / 'does-not-exist')
+        self.assertEqual(before, self.snapshot_home())
 
-    def test_pending_operation_blocks_new_ones_and_names_backup(self):
-        result = self.install()
-        installation._write_private_json(self.paths.pending,
-                                         {"kind": "install", "backup": result["backup"]})
-        with self.assertRaisesRegex(installation.InstallationError, "interrupted-installation"):
-            self.install(source=write_source(self.base / "s2", version="1.0.1"))
-        with self.assertRaisesRegex(installation.InstallationError, "interrupted-installation"):
-            installation.uninstall(self.scope)
-        installation.rollback(self.scope, result["backup"])
+    def test_invalid_interrupted_operation_is_preserved_for_diagnosis(self):
+        self.install()
+        installation._write_private_json(self.paths.pending, {'kind': 'install', 'backup': '/foreign'})
+        with self.assertRaisesRegex(installation.InstallationError, 'installation-recovery-invalid'):
+            self.install(source=write_source(self.base / 'new', version='1.0.1'))
+        self.assertTrue(self.paths.pending.exists())
 
 
 @linux_only
@@ -919,7 +974,8 @@ class UninstallTests(InstallationTestBase):
         outcome = installation.uninstall(self.scope)
         self.assertFalse(self.paths.install_root.exists())
         self.assertFalse(self.paths.bin_link.is_symlink())
-        self.assertTrue((Path(outcome["backup"]) / "tree").is_dir())
+        self.assertNotIn("backup", outcome)
+        self.assertEqual(list(self.paths.backups_root.iterdir()), [])
         self.assertEqual(core.read_bytes(), b"\x7fELF-fake-core")  # never adopted or removed
         self.assertIn("version: 1", (config / "manager.yaml").read_text())
         self.assert_shell_untouched(before)
@@ -928,9 +984,10 @@ class UninstallTests(InstallationTestBase):
     def test_uninstall_rollback_restores_working_install(self):
         self.install()
         outcome = installation.uninstall(self.scope)
-        installation.rollback(self.scope, outcome["backup"])
-        installation.verify_installed(self.scope)
-        self.assertEqual(self.run_cli("--version").stdout.strip(), "mihomoctl 1.0.0")
+        self.assertNotIn('backup', outcome)
+        with self.assertRaisesRegex(installation.InstallationError, 'historical-rollback-disabled'):
+            installation.rollback(self.scope, self.paths.backups_root)
+        self.assertFalse(self.paths.install_root.exists())
 
     def test_uninstall_without_installation_fails(self):
         with self.assertRaisesRegex(installation.InstallationError, "not-installed"):
@@ -938,10 +995,10 @@ class UninstallTests(InstallationTestBase):
 
     def test_uninstall_rollback_refused_after_reinstall(self):
         self.install()
-        outcome = installation.uninstall(self.scope)
+        installation.uninstall(self.scope)
         self.install()
-        with self.assertRaisesRegex(installation.InstallationError, "stale-backup"):
-            installation.rollback(self.scope, outcome["backup"])
+        self.assertEqual(list(self.paths.backups_root.iterdir()), [])
+        installation.verify_installed(self.scope)
 
 
 @linux_only
@@ -967,7 +1024,8 @@ class PruneTests(InstallationTestBase):
             source = write_source(self.base / ("s-" + version), version=version)
             generations.append(self.install(source=source)["generation"])
         removed = installation.prune_generations(self.scope, keep=1)
-        self.assertIn(generations[0], removed)
+        self.assertEqual(removed, [])
+        self.assertEqual([p.name for p in self.paths.generations.iterdir()], [generations[-1]])
         self.assertNotIn(generations[-1], removed)
         installation.verify_installed(self.scope)
         self.assertEqual(self.run_cli("--version").stdout.strip(), "mihomoctl 1.0.3")
@@ -1029,28 +1087,16 @@ class BootstrapScriptTests(InstallationTestBase):
 
     def test_self_contained_backup_rollback_without_source_tree(self):
         result = self.install()
-        backup = Path(result["backup"])
-        self.assertTrue((backup / "bootstrap.py").is_file())
         shutil.rmtree(self.source)
-        probe = subprocess.run([sys.executable, str(backup / "bootstrap.py"),
-                                "rollback", str(backup)],
-                               capture_output=True, text=True, timeout=120,
-                               env=dict(os.environ, PYTHONPATH=""))
-        self.assertEqual(probe.returncode, 0, probe.stderr)
-        self.assertFalse(self.paths.install_root.exists())
+        self.assertNotIn('backup', result)
+        self.assertEqual(self.run_cli('--version').returncode, 0)
+        self.assertEqual(list(self.paths.backups_root.iterdir()), [])
 
     def test_self_contained_uninstall_backup_rollback(self):
         self.install()
         outcome = installation.uninstall(self.scope)
-        backup = Path(outcome["backup"])
-        self.assertTrue((backup / "bootstrap.py").is_file())
-        probe = subprocess.run([sys.executable, str(backup / "bootstrap.py"),
-                                "rollback", str(backup)],
-                               capture_output=True, text=True, timeout=120,
-                               env=dict(os.environ, PYTHONPATH=""))
-        self.assertEqual(probe.returncode, 0, probe.stderr)
-        installation.verify_installed(self.scope)
-        self.assertEqual(self.run_cli("--version").stdout.strip(), "mihomoctl 1.0.0")
+        self.assertNotIn('backup', outcome)
+        self.assertEqual(list(self.paths.backups_root.iterdir()), [])
 
     def test_uninstall_sh_end_to_end(self):
         self.install()
@@ -1078,12 +1124,12 @@ class InstallerSecurityRegressionTests(InstallationTestBase):
             self.assertEqual(self.run_cli("--version").stdout.strip(), "mihomoctl 1.0.0")
             installation.verify_installed(self.scope)
             for path in [self.paths.bin_dir, *self.paths.install_root.rglob("*"),
-                         *Path(first["backup"]).rglob("*")]:
+                         *self.paths.backups_root.rglob("*")]:
                 if not path.is_symlink():
                     self.assertFalse(path.stat().st_mode & 0o022, str(path))
             removed = installation.uninstall(self.scope)
-            installation.rollback(self.scope, removed["backup"])
-            installation.verify_installed(self.scope)
+            self.assertNotIn("backup", removed)
+            self.assertFalse(self.paths.install_root.exists())
         finally:
             os.umask(original)
 
@@ -1139,11 +1185,9 @@ class InstallerSecurityRegressionTests(InstallationTestBase):
 
     def test_restore_previous_generation_after_gc(self):
         first = self.install()
-        second = self.install(source=write_source(self.base / "new-source", version="1.0.1"))
-        installation.prune_generations(self.scope, keep=0)
-        self.assertFalse((self.paths.generations / first["generation"]).exists())
-        installation.rollback(self.scope, second["backup"])
-        self.assertEqual(self.run_cli("--version").stdout.strip(), "mihomoctl 1.0.0")
+        self.install(source=write_source(self.base / 'new-source', version='1.0.1'))
+        self.assertFalse((self.paths.generations / first['generation']).exists())
+        self.assertEqual(self.run_cli('--version').stdout.strip(), 'mihomoctl 1.0.1')
 
     def test_failed_finalization_restores_previous_generation(self):
         first = self.install()
@@ -1225,12 +1269,12 @@ class RealProjectPackagingTests(InstallationTestBase):
                                      python=sys.executable, allow_same_version=True)
         self.assertNotEqual(first["generation"], second["generation"])
         self.assertEqual(self.run_cli("version").returncode, 0)
-        installation.rollback(self.scope, second["backup"])
-        self.assertEqual(installation.current_record(self.scope)["generation"], first["generation"])
+        self.assertNotIn("backup", second)
+        self.assertEqual(installation.current_record(self.scope)["generation"], second["generation"])
         outcome = installation.uninstall(self.scope)
         self.assertFalse(self.paths.bin_link.exists())
-        installation.rollback(self.scope, outcome["backup"])
-        self.assertEqual(self.run_cli("version").returncode, 0)
+        self.assertNotIn("backup", outcome)
+        self.assertFalse(self.paths.install_root.exists())
         self.assert_shell_untouched(before)
         self.assert_no_outside_changes(before)
 

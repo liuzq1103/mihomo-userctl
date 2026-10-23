@@ -1,5 +1,7 @@
 # 1.2.0 release notes / 发布说明
 
+> Historical release record / 历史发布记录。Applies only to this version; current installation and retention policy: [INSTALL.md](../INSTALL.md). 仅描述本版本，不作为当前安装或回滚指南。
+
 Adds official stable-release discovery, verified acquisition and one-command
 upgrades: `mihomoctl release check`, `mihomoctl release fetch --output-dir DIR`,
 and `mihomoctl update --latest`.

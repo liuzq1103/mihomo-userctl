@@ -62,8 +62,8 @@ def validate_candidate(config, home_dir, updated):
         candidate.unlink(missing_ok=True)
 
 
-def apply_policy(config, original, updated, home_dir=None):
-    if original == updated:
+def apply_policy(config, original, updated, home_dir=None, after_write=None, activate=False):
+    if original == updated and after_write is None and not activate:
         return {"state": "unchanged", "service": "unchanged"}
     app = runtime_application.get()
     if app is not None:
@@ -72,27 +72,33 @@ def apply_policy(config, original, updated, home_dir=None):
         from mihomoctl.yamlutil import strict_load
         app.scope.require_mutation()
         assert_security_envelope(strict_load(original), strict_load(updated))
-        backup = config.with_name(config.name + '.before-policy-' + secrets.token_hex(8))
         def action(tx):
             validate_candidate(config, home_dir, updated)
             private(config)
             if config.read_text(encoding='utf-8') != original:
                 raise ControlError('config-changed-during-policy-edit')
-            tx.write_text(backup, original)
+            if activate:
+                manager, endpoints, controller, _profile, _cfg = app.resolve()
+                tx.runtime = {'was_running': bool(app._backend(manager, endpoints, controller).status().get('running'))}
+                tx._persist()
             tx.write_text(config, updated, mode=0o640 if app.system else 0o600)
-            receipt = {'state': 'restart-required', 'backup': str(backup), 'service': 'unchanged',
-                       'sha256': hashlib.sha256(updated.encode()).hexdigest(),
-                       'backup_sha256': hashlib.sha256(original.encode()).hexdigest()}
+            if after_write is not None:
+                after_write(tx)
+            receipt = {'state': 'restart-required', 'service': 'unchanged',
+                       'sha256': hashlib.sha256(updated.encode()).hexdigest()}
             import json
             tx.write_text(config.with_name(config.name + '.userctl-state.json'), json.dumps(receipt))
+            if activate:
+                action = 'restart' if tx.runtime['was_running'] else 'start'
+                app.lifecycle(action, _locked=True, _transaction=tx)
+                tx.delete(config.with_name(config.name + '.userctl-state.json'))
+                receipt.update(state='ready', action=action, overall='PASS')
             return receipt
-        return run_transaction(app.scope, 'policy-apply', action)
+        return run_transaction(app.scope, 'policy-activate' if activate else 'policy-apply', action)
     validate_candidate(config, home_dir, updated)
     private(config)
     if config.read_bytes().decode("utf-8") != original:
         raise ControlError("config-changed-during-policy-edit")
-    backup = config.with_name(config.name + ".before-policy-" + secrets.token_hex(8))
-    files.atomic_bytes(backup, original.encode())
     try:
         files.atomic_bytes(config, updated.encode())
     except OSError:
@@ -105,10 +111,9 @@ def apply_policy(config, original, updated, home_dir=None):
         except OSError:
             raise ControlError("config-write-failed-rollback-incomplete-use-private-backup") from None
         raise ControlError("config-write-failed-original-restored") from None
-    result = {"state": "restart-required", "backup": str(backup), "service": "unchanged"}
+    result = {"state": "restart-required", "service": "unchanged"}
     # A receipt survives closing the TUI before restarting. It contains no credentials.
-    receipt = dict(result, sha256=hashlib.sha256(updated.encode()).hexdigest(),
-                   backup_sha256=hashlib.sha256(original.encode()).hexdigest())
+    receipt = dict(result, sha256=hashlib.sha256(updated.encode()).hexdigest())
     try:
         files.write_json(config.with_name(config.name + ".userctl-state.json"), receipt)
     except OSError:
@@ -127,12 +132,7 @@ def pending_state(config):
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise ControlError("configuration-receipt-invalid")
-    backup = Path(value.get("backup", ""))
-    if backup.parent != config.parent or not backup.name.startswith(config.name + ".before-policy-"):
-        raise ControlError("configuration-receipt-invalid")
     private(config)
-    private(backup)
-    if (hashlib.sha256(config.read_bytes()).hexdigest() != value.get("sha256") or
-            hashlib.sha256(backup.read_bytes()).hexdigest() != value.get("backup_sha256")):
+    if hashlib.sha256(config.read_bytes()).hexdigest() != value.get("sha256"):
         return {}
-    return value
+    return {key: item for key, item in value.items() if key not in ('backup', 'backup_sha256')}

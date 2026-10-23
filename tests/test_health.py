@@ -243,7 +243,7 @@ rules: ["MATCH,Entry"]
             with patch.object(tx, "validate_candidate"):
                 saved = service.health_check(apply=True)
             self.assertEqual(saved["state"], "restart-required")
-            self.assertEqual(Path(saved["backup"]).read_bytes(), self.original.encode())
+            self.assertNotIn('backup', saved)
             with self.assertRaisesRegex(ControlError, "preview-required"):
                 service.health_check(apply=True)
             with patch("mihomoctl.controller.controller_service.subprocess.run", return_value=subprocess.CompletedProcess([], 0, stdout=b"")) as run:

@@ -6,6 +6,6 @@ exec requires confirmed local health and fails closed; direct clears eight stand
 
 exec does not change the parent shell or an outer pipeline's right-hand environment. Explicitly proxy the whole third-party installation shell; prefer [downloading and reviewing before execution](first-run.md#install-a-third-party-cli-through-the-proxy). pipefail reports failure but cannot authenticate scripts or prevent streamed execution. HTTP 200 HTML can still be an error response.
 
-Rules checks are read-only. Subscription apply validates original-config digest, candidate SHA256, allowed fields and core validation before activation, with backup/rollback. Node JS overrides execute trusted local code; Node vm is not a sandbox. Do not run untrusted scripts.
+Rules checks are read-only. Subscription apply validates original-config digest, candidate SHA256, allowed fields and core validation before activation, with temporary failure recovery; successful operations retain no history. Node JS overrides execute trusted local code; Node vm is not a sandbox. Do not run untrusted scripts.
 
 Update/uninstall preserve user configuration, credentials, subscriptions, cache and core. Code paths must be owned by you/root and not group/other writable. Release inventory is an exact per-file allowlist; scripts and legacy code are not wheel runtime. Report security issues through [SECURITY.md](../../SECURITY.md).

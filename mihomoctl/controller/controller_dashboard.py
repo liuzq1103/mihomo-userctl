@@ -182,11 +182,9 @@ def setup(args, config):
         private(config)
         if config.read_bytes().decode("utf-8") != text:
             raise ControlError("config-changed-during-setup")
-        backup = config.with_name(config.name + ".before-controller-" + secrets.token_hex(8))
-        files.atomic_bytes(backup, text.encode())
         files.atomic_bytes(config, updated)
         committed = True
-        return {"endpoint": "127.0.0.1:" + str(port), "backup": str(backup),
+        return {"endpoint": "127.0.0.1:" + str(port),
                 "state": "restart-required", "service": "unchanged", "ui": "external" if args.archive else "bundled"}
     finally:
         if candidate is not None:
@@ -238,10 +236,8 @@ def _managed_setup(app, args, config):
             validate_candidate(config, app.scope.core_home, updated)
             if config.read_text(encoding='utf-8') != text:
                 raise ControlError('config-changed-during-setup')
-            backup = config.with_name(config.name + '.before-controller-' + secrets.token_hex(8))
-            tx.write_text(backup, text)
             tx.write_text(config, updated, mode=0o640 if app.system else 0o600)
-            return {'endpoint': '127.0.0.1:' + str(port), 'backup': str(backup), 'state': 'restart-required',
+            return {'endpoint': '127.0.0.1:' + str(port), 'state': 'restart-required',
                     'service': 'unchanged', 'ui': 'external' if args.archive else 'bundled'}
         return run_transaction(app.scope, 'controller-dashboard-setup', action)
     finally:

@@ -28,6 +28,27 @@ from .yamlutil import strict_load
 UNIT_NAME = "mihomoctl.service"
 
 
+def _publish_runtime(tx, scope, plan):
+    """Write a planned runtime. The caller owns the transaction, so both
+    ``initialize`` and ``reset`` publish through the same journal."""
+    from .credentials import _yaml_str
+    from .trust import require_private_dir
+
+    tx.write_text(plan['credentials'],
+                  "username: %s\npassword: %s\n" % (
+                      _yaml_str(plan['username']), _yaml_str(plan['password'])),
+                  mode=0o600)
+    tx.write_text(plan['config'], plan['config_text'],
+                  mode=0o640 if scope.system else 0o600)
+    tx.write_text(scope.manager_path, render_manager(plan['manager']), mode=0o600)
+    if plan.get('auto_ports'):
+        tx.write_text(scope.state_root / 'managed-ports.json', json.dumps(plan['auto_ports']))
+    require_private_dir(scope.core_home, create=True)
+    if scope.system:
+        from .lifecycle.systemd import _prepare_system_paths
+        _prepare_system_paths(scope, plan['manager'])
+
+
 class Application:
     def __init__(self, system=False, config_dir=None):
         self.scope = Scope(system=system, config_dir=config_dir)
@@ -130,7 +151,7 @@ class Application:
         """Checks list; each Check carries name/status/evidence/detail."""
         return self._health_result(profile, egress_url)[1]
 
-    def lifecycle(self, action):
+    def lifecycle(self, action, _locked=False, _transaction=None):
         """Lifecycle result data dict (includes ``overall``)."""
         if action not in ("start", "stop", "restart"):
             raise UsageError("lifecycle-unknown", repr(action))
@@ -141,11 +162,17 @@ class Application:
             return overall == env.PASS, "; ".join(
                 "%s=%s" % (c.name, c.status) for c in checks if c.status != env.PASS)
 
-        with operation_lock(self.scope):
+        from contextlib import nullcontext
+        with (nullcontext() if _locked else operation_lock(self.scope)):
             manager, endpoints, controller, profile, _cfg = self.resolve()
             backend = self._backend(manager, endpoints, controller)
             if action == "start":
-                backend.start(health_check=local_health)
+                try:
+                    backend.start(health_check=local_health)
+                except MihomoctlError as error:
+                    if error.code not in ('port-conflict', 'start-not-verified'):
+                        raise
+                    self._retry_managed_ports(error, local_health, _transaction)
             elif action == "stop":
                 backend.stop()
             else:
@@ -154,6 +181,50 @@ class Application:
         if action == 'stop' and not result.get('runtime', {}).get('running'):
             result['overall'] = env.PASS
         return result
+
+    def _retry_managed_ports(self, original_error, health_check, transaction=None):
+        """Retry only our generated user/process listener pair, under the lock."""
+        from .trust import require_private_file
+        from .transaction import Transaction
+        from .controller.controller_config import patch_config, read_config
+        marker = self.scope.state_root / 'managed-ports.json'
+        if self.system or not marker.exists():
+            raise original_error
+        require_private_file(marker)
+        expected = json.loads(marker.read_text())
+        manager, endpoints, controller, _profile, _cfg = self.resolve()
+        if (manager.core.backend != 'process' or len(endpoints) != 1 or not controller
+                or endpoints[0].name != 'proxy' or endpoints[0].address != '127.0.0.1'
+                or controller.address != '127.0.0.1' or endpoints[0].port != expected.get('proxy')
+                or controller.port != expected.get('controller')):
+            raise original_error
+        error = original_error
+        for _attempt in range(3):
+            proxy_port, controller_port = ports.free_port(), ports.free_port()
+            while proxy_port == controller_port:
+                controller_port = ports.free_port()
+            path = Path(manager.core.config)
+            original, data, tree = read_config(path)
+            listeners = [dict(row) for row in data['listeners']]
+            listeners[0]['port'] = proxy_port
+            updated = patch_config(original, tree, {'listeners': listeners,
+                                  'external-controller': '127.0.0.1:%d' % controller_port})
+            tx = transaction or Transaction(self.scope, 'port-retry')
+            try:
+                tx.write_text(path, updated)
+                tx.write_text(marker, json.dumps({'proxy': proxy_port, 'controller': controller_port}))
+                manager, endpoints, controller, _profile, _cfg = self.resolve()
+                self._backend(manager, endpoints, controller).start(health_check=health_check)
+                if transaction is None:
+                    tx.commit()
+                return
+            except BaseException as candidate_error:
+                if transaction is None and not tx.finished:
+                    tx.rollback()
+                if not isinstance(candidate_error, MihomoctlError) or candidate_error.code not in ('port-conflict', 'start-not-verified'):
+                    raise
+                error = candidate_error
+        raise error
 
     def profiles(self):
         manager = self.load_manager()
@@ -300,19 +371,133 @@ class Application:
     # ------------------------------------------------------------------
     def initialize(self, core, port=None, config_file=None, allow_non_loopback=(),
                    profile_name="default"):
+        self.scope.require_mutation()
+        if self.scope.manager_path.exists():
+            raise UsageError("already-initialized",
+                             "%s exists; migration is explicit (mihomoctl migrate)" % self.scope.manager_path)
+        plan = self._plan_runtime(core=core, port=port, config_file=config_file,
+                                  allow_non_loopback=allow_non_loopback,
+                                  profile_name=profile_name)
+        from .transaction import run_transaction
+        run_transaction(self.scope, "init",
+                        lambda tx: _publish_runtime(tx, self.scope, plan))
+        return plan['result']
+
+    # ------------------------------------------------------------------
+    # reset (explicit return to the initial defaults)
+    # ------------------------------------------------------------------
+    def _reset_targets(self, manager):
+        """Every path reset would drop.
+
+        Read-only: the same list backs ``reset --dry-run`` and the applied
+        transaction, so the preview can never drift from what is removed.
+        The manager configuration, the managed core configuration and the
+        surviving profile's credentials are replaced instead of dropped —
+        publishing over them backs up the prior content on its own.
+        """
+        scope = self.scope
+        config_path = Path(manager.core.config) if manager.core.config else (
+            scope.config_root / "mihomo" / "config.yaml")
+        dropped = []
+        # Backups and the restart receipt live beside the managed
+        # configuration; only drop them while they are still managed files.
+        if config_path.parent == scope.config_root / "mihomo":
+            dropped.extend(sorted(p for p in config_path.parent.glob(config_path.name + ".before-policy-*")))
+            receipt = config_path.with_name(config_path.name + ".userctl-state.json")
+            if receipt.exists():
+                dropped.append(receipt)
+        if manager.core.config and Path(manager.core.config) != config_path:
+            dropped.append(Path(manager.core.config))
+        republished = scope.credentials_dir / (manager.default_profile + ".yaml")
+        for name in sorted(p.name for p in scope.credentials_dir.glob("*")):
+            if scope.credentials_dir / name != republished:
+                dropped.append(scope.credentials_dir / name)
+        if manager.tun.enabled and scope.tun_receipt.exists():
+            dropped.append(scope.tun_receipt)
+        return sorted({str(path) for path in dropped})
+
+    def reset_preview(self):
+        """What ``reset --apply`` would remove and replace. Writes nothing."""
+        manager = self._require_manager()
+        return {"state": "preview", "scope": self.scope.name,
+                "core": manager.core.binary,
+                "removed": self._reset_targets(manager),
+                "replaced": [str(self.scope.manager_path),
+                              str(self.scope.config_root / "mihomo" / "config.yaml"),
+                              str(self.scope.credentials_dir / (manager.default_profile + ".yaml"))],
+                "preserved": [str(self.scope.cores_root), str(self.scope.backups_root),
+                              str(self.scope.logs_dir)]}
+
+    def reset(self, core=None):
+        """Restore the managed runtime to the shape ``init`` produces.
+
+        The manager configuration, the active core configuration, every
+        private credential file and the stale policy backups are dropped
+        and the default configuration is published again.  The Mihomo
+        core binary, the subscription previews and the logs are kept.
+
+        A running runtime is stopped first — and a runtime that cannot be
+        resolved at all is only reported, because recovering from an
+        unreadable configuration is exactly what reset is for.
+        """
+        scope = self.scope
+        scope.require_mutation()
+        manager = self._require_manager()
+        binary = core or manager.core.binary
+        if not binary:
+            raise ConfigError("core-required", "no core binary recorded; pass --core")
+        # Plan first: it validates the freshly composed default configuration
+        # with the core, so a reset never publishes something unstartable.
+        plan = self._plan_runtime(core=binary, allow_non_loopback=(),
+                                  profile_name=manager.default_profile)
+        result = {"state": "restart-required", "service": "unchanged", "scope": scope.name,
+                  "removed": self._reset_targets(manager),
+                  "port": plan['result']['port'],
+                  "controller_port": plan['result']['controller_port'],
+                  "manager": str(scope.manager_path), "config": plan['result']['config'],
+                  "credentials": plan['result']['credentials'], "core": {"binary": str(binary)}}
+        warnings = []
+        try:
+            self.lifecycle('stop')
+        except MihomoctlError as exc:
+            warnings.append(exc.render())
+        from .transaction import run_transaction
+        dropped = [Path(path) for path in result["removed"]]
+
+        def action(tx):
+            for path in dropped:
+                tx.delete(path)
+            _publish_runtime(tx, scope, plan)
+            return result
+
+        published = run_transaction(scope, "reset", action)
+        if warnings:
+            published['warning'] = "; ".join(warnings)
+        return published
+
+    def _require_manager(self):
+        if not self.scope.manager_path.exists():
+            raise StateError("not-initialized",
+                             "%s does not exist; there is nothing to reset" % self.scope.manager_path)
+        return self.load_manager()
+
+    def _plan_runtime(self, core=None, port=None, config_file=None, allow_non_loopback=(),
+                      profile_name="default"):
+        """Compute every value needed to publish a managed runtime.
+
+        Performs no write: ``initialize`` and ``reset`` both commit the
+        result inside their own transaction.
+        """
         import secrets
 
         from .config import CoreSettings, Profile, compose_core_config
-        from .credentials import _yaml_str, generate
+        from .credentials import generate
         from .lifecycle import ports as ports_mod, runner
-        from .transaction import run_transaction
         from .trust import require_executable_file
 
         scope = self.scope
-        scope.require_mutation()
-        if scope.manager_path.exists():
-            raise UsageError("already-initialized",
-                             "%s exists; migration is explicit (mihomoctl migrate)" % scope.manager_path)
+        if core is None:
+            raise ConfigError("core-required", "no core binary to initialize with")
         require_executable_file(core, as_root=scope.system)
         if port is None:
             port = ports_mod.free_port()
@@ -391,37 +576,24 @@ class Application:
 
         creds_path = scope.credentials_dir / (profile_name + ".yaml")
         config_path = scope.config_root / "mihomo" / "config.yaml"
-
-        def action(tx):
-            tx.write_text(creds_path,
-                          "username: %s\npassword: %s\n" % (
-                              _yaml_str(username), _yaml_str(password)),
-                          mode=0o600)
-            mode = 0o640 if scope.system else 0o600
-            tx.write_text(config_path, config_text, mode=mode)
-            profile = Profile(name=profile_name, http_listener=http_listener,
-                              socks_listener=socks_listener, credentials_file=str(creds_path))
-            manager_obj = Manager(core=CoreSettings(binary=str(core), config=str(config_path),
-                                                    backend="systemd" if scope.system else "process"),
-                                  default_profile=profile_name,
-                                  profiles={profile_name: profile})
-            if allow_non_loopback:
-                manager_obj.allow_non_loopback = tuple(allow_non_loopback)
-            tx.write_text(scope.manager_path, render_manager(manager_obj), mode=0o600)
-            from .trust import require_private_dir
-            require_private_dir(scope.core_home, create=True)
-            if scope.system:
-                from .lifecycle.systemd import _prepare_system_paths
-                _prepare_system_paths(scope, manager_obj)
-            return None
-
-        run_transaction(scope, "init", action)
-        return {"port": port, "port_is_candidate": candidate,
-                "controller_port": controller_port,
-                "listener": listener, "backend": "systemd" if scope.system else "process",
-                "manager": str(scope.manager_path), "config": str(config_path),
-                "credentials": str(creds_path),
-                "core": {"binary": str(core), "adopted": True}}
+        profile = Profile(name=profile_name, http_listener=http_listener,
+                          socks_listener=socks_listener, credentials_file=str(creds_path))
+        manager_obj = Manager(core=CoreSettings(binary=str(core), config=str(config_path),
+                                                backend="systemd" if scope.system else "process"),
+                              default_profile=profile_name,
+                              profiles={profile_name: profile})
+        if allow_non_loopback:
+            manager_obj.allow_non_loopback = tuple(allow_non_loopback)
+        return {"config_text": config_text, "username": username, "password": password,
+                "credentials": creds_path, "config": config_path, "manager": manager_obj,
+                "auto_ports": {'proxy': port, 'controller': controller_port} if candidate and config_file is None else None,
+                "result": {"port": port, "port_is_candidate": candidate,
+                           "controller_port": controller_port,
+                           "listener": listener,
+                           "backend": "systemd" if scope.system else "process",
+                           "manager": str(scope.manager_path), "config": str(config_path),
+                           "credentials": str(creds_path),
+                           "core": {"binary": str(core), "adopted": True}}}
 
 
 def _expected_uid(scope):

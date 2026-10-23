@@ -206,6 +206,8 @@ def install(scope, version, sha256=None, dry_run=False, force=False):
                                        "installed_at": int(time.time())})
             tx = Transaction(scope, "core-install")
             _publish_and_activate(scope, tx, manager, destination, core=core, receipt=receipt)
+            from .retention import cleanup_after_commit
+            cleanup_after_commit(scope, core=True)
         return {"version": version, "binary": str(destination), "sha256": digest,
                 "provenance": provenance, "activated": manager is not None}
 
@@ -278,6 +280,9 @@ def _publish_and_activate(scope, tx, manager, binary, core=None, receipt=None):
         old_backend = app._backend(manager, endpoints, controller)
         was_running = bool(old_backend.status().get("running"))
     unit = systemd.unit_path(scope)
+    if manager is not None:
+        tx.runtime = {'was_running': was_running}
+        tx._persist()
     try:
         if manager and manager.core.backend == "systemd" and unit.exists():
             if unit.is_symlink() or not unit.read_text(encoding="utf-8").startswith(systemd.UNIT_MARKER + "\n"):
@@ -303,13 +308,18 @@ def _publish_and_activate(scope, tx, manager, binary, core=None, receipt=None):
                     envelope.combine_checks(app.health()) == envelope.PASS, "local health gate"))
         tx.commit()
     except BaseException as original:
+        if tx.finished:
+            raise
         if attempted_start and new_backend is not None:
             try:
                 new_backend.stop()
             except Exception:
                 # Restore files first; failure to restore runtime below is reported separately.
                 pass
-        tx.rollback()
+        # Keep recovery material until the original runtime is healthy again.
+        # A later invocation must be able to finish recovery after another
+        # failure or interruption during this restart.
+        tx.rollback(finish=not stopped)
         if stopped:
             try:
                 if manager.core.backend == "systemd":
@@ -322,6 +332,8 @@ def _publish_and_activate(scope, tx, manager, binary, core=None, receipt=None):
             except Exception as recovery:
                 raise RollbackFailedError("core-runtime-rollback-failed",
                                           "previous files restored but runtime recovery failed") from original
+            tx.finished = True
+            tx._cleanup()
         raise
 
 
