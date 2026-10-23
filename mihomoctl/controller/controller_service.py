@@ -210,6 +210,8 @@ class ConsoleService:
         self.app = app
         self._connection_key = secrets.token_bytes(32)
         self.pending_restart = False
+        import threading
+        self.network_cancel = threading.Event()
         self.backup = None
         try:
             from .controller_transaction import pending_state
@@ -221,6 +223,10 @@ class ConsoleService:
             self.backup = receipt.get("backup")
         except (ControlError, files.InstallError, OSError, ValueError, TypeError):
             pass
+        try:
+            self.subscription_cleanup()
+        except (ControlError, files.InstallError, OSError, ValueError):
+            pass  # Preserve startup access; the affected operation reports its own error.
 
     def application(self):
         """Return the injected Application or state plainly that there is none."""
@@ -252,27 +258,8 @@ class ConsoleService:
             self.backup = result.get("backup")
         return result
 
-    @application_context
     def restore(self):
-        if not self.backup:
-            raise ControlError("configuration-backup-unavailable")
-        try:
-            from .controller_config import read_config
-            from .controller_transaction import apply_policy
-        except ImportError:
-            from controller_config import read_config
-            from controller_transaction import apply_policy
-        with self.legacy_lock():
-            try:
-                from .controller_transaction import pending_state
-            except ImportError:
-                from controller_transaction import pending_state
-            receipt = pending_state(self.config)
-            if not receipt or receipt.get("backup") != self.backup:
-                raise ControlError("configuration-changed-restore-cancelled")
-            original, _, _ = read_config(self.config)
-            restored, _, _ = read_config(Path(self.backup))
-            return self.saved(apply_policy(self.config, original, restored, self.home_dir))
+        raise ControlError('historical-rollback-disabled')
 
     @application_context
     def client(self):
@@ -997,16 +984,100 @@ class ConsoleService:
 
     @application_context
     def subscription_preview(self, path, url=False, policy="auto"):
+        if policy == 'simple':
+            if url:
+                from .controller_config import private
+                source = private(Path(path).expanduser().absolute())
+                if source.stat().st_size > LIMIT:
+                    raise ControlError('subscription-size-invalid')
+                try:
+                    value = source.read_text(encoding='utf-8').strip()
+                except UnicodeError:
+                    raise ControlError('subscription-url-invalid') from None
+            else:
+                value = path
+            return self.subscription_input(value, kind='url' if url else 'file', policy='simple')
         try:
             from .controller_subscriptions import Subscriptions
         except ImportError:
             from controller_subscriptions import Subscriptions
         return Subscriptions(self.config, self.home_dir).preview(policy=policy, **{"url_file" if url else "source_file": path})
 
+    def prepare(self):
+        if self.app is None:
+            raise ControlError('runtime-application-unavailable')
+        from mihomoctl.onboarding import prepare
+        try:
+            result = prepare(self.app)
+        except MihomoctlError as error:
+            raise ControlError(error.code, error.exit_code) from None
+        self.config = Path(result['config'])
+        self.home_dir = str(self.app.scope.core_home)
+        return {'state': 'ready', 'message': '请粘贴订阅 URL 或选择 YAML 文件，预览后保存并启动。'}
+
     @application_context
-    def subscription_apply(self, identifier, digest):
+    def subscription_input(self, value, kind='url', policy='simple'):
+        """Private URL input is never passed to a subprocess or a command line."""
+        from .controller_subscriptions import Subscriptions, download
+        from mihomoctl.onboarding import guided_shape
+        self.prepare()
+        if kind == 'url':
+            self.network_cancel.clear()
+            raw = download(value.strip(), cancelled=self.network_cancel)
+            source_url = value.strip()
+        else:
+            from .controller_config import private
+            path = private(Path(value).expanduser().absolute())
+            if path.stat().st_size > LIMIT:
+                raise ControlError('subscription-size-invalid')
+            raw, source_url = path.read_bytes(), None
+        from .controller_config import read_config
+        _, current, _ = read_config(self.config)
+        simple = policy == 'simple' and guided_shape(current)
+        result = Subscriptions(self.config, self.home_dir).preview(
+            raw=raw, policy='provider' if simple else ('nodes' if policy == 'simple' else policy),
+            guided=simple)
+        self._subscription_source = (result['id'], source_url)
+        result['guided'] = simple
+        return result
+
+    def subscription_save_and_start(self, identifier, digest):
+        result = self.subscription_apply(identifier, digest, activate=True)
+        self.pending_restart = False
+        return result
+
+    @application_context
+    def subscription_discard(self, identifier):
         try:
             from .controller_subscriptions import Subscriptions
         except ImportError:
             from controller_subscriptions import Subscriptions
-        return self.saved(Subscriptions(self.config, self.home_dir).apply(identifier, digest))
+        Subscriptions(self.config, self.home_dir).discard(identifier)
+        source = getattr(self, '_subscription_source', None)
+        if source and source[0] == identifier:
+            self._subscription_source = None
+
+    @application_context
+    def subscription_cleanup(self):
+        if self.app is not None and not isinstance(getattr(getattr(self.app, 'scope', None), 'state_root', None), Path):
+            return  # Read-only service adapters need not implement storage.
+        try:
+            from .controller_subscriptions import Subscriptions
+        except ImportError:
+            from controller_subscriptions import Subscriptions
+        subscriptions = Subscriptions(self.config, self.home_dir)
+        if subscriptions.root.exists():
+            subscriptions.directory()
+
+    @application_context
+    def subscription_apply(self, identifier, digest, activate=False):
+        try:
+            from .controller_subscriptions import Subscriptions
+        except ImportError:
+            from controller_subscriptions import Subscriptions
+        source = getattr(self, '_subscription_source', None)
+        source_url = (source[1] or '') if source and source[0] == identifier else None
+        result = self.saved(Subscriptions(self.config, self.home_dir).apply(identifier, digest, source_url=source_url, activate=activate))
+        if source and source[0] == identifier:
+            self._subscription_source = None
+        return result

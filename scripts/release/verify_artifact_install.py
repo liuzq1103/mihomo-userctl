@@ -196,25 +196,21 @@ def verify_case(kind, artifacts, wheelhouse, python, version):
         updated = update["data"]
         if updated["generation"] == first["generation"]:
             raise VerificationError("update-did-not-switch-generation")
-        recovery = Path(updated["backup"]) / "bootstrap.py"
-        source.rename(source.with_name(source.name + "-retired"))
-        invoke([python, "-I", recovery, "rollback", updated["backup"]], env, "rollback-update")
+        install_root = Path(first['install_root'])
+        if len(list((install_root / 'generations').iterdir())) != 1 or 'backup' in updated:
+            raise VerificationError('history-retained-after-update')
+        source.rename(source.with_name(source.name + '-retired'))
         version_check(launcher, env, version)
-        installed = Path(first["install_root"]) / "current" / "lib" / "mihomoctl" / "bootstrap.py"
-        invoke([python, "-I", installed, "verify"], env, "verify-rollback")
-        removed = invoke([python, "-I", installed, "uninstall"], env, "uninstall")
-        if launcher.exists() or launcher.is_symlink():
-            raise VerificationError("launcher-remains-after-uninstall")
-        invoke([python, "-I", Path(removed["backup"]) / "bootstrap.py", "rollback",
-                removed["backup"]], env, "restore-uninstalled")
-        version_check(launcher, env, version)
-        invoke([python, "-I", installed, "verify"], env, "verify-restored")
+        installed = install_root / 'current' / 'lib' / 'mihomoctl' / 'bootstrap.py'
+        removed = invoke([python, '-I', installed, 'uninstall'], env, 'uninstall')
+        if launcher.exists() or launcher.is_symlink() or 'backup' in removed:
+            raise VerificationError('uninstall-left-code-or-backup')
         for path, original in protected.items():
             if path.read_bytes() != original:
                 raise VerificationError("protected-existing-file-changed")
         return {"kind": kind, "result": "PASS", "version": version,
-                "source_removed_recovery": True, "protected_files_unchanged": True,
-                "generation_switched": True, "uninstall_restored": True}
+                "source_removed_runtime": True, "protected_files_unchanged": True,
+                "generation_switched": True, "no_history": True}
 
 
 @private_creation_mask()
@@ -251,13 +247,14 @@ def verify_previous_upgrade(previous, artifacts, wheelhouse, python, version):
         version_check(launcher, env, version)
         invoke([python, '-I', source / 'scripts/bootstrap.py', 'verify'], env, 'verify-upgraded')
         source.rename(base / 'retired-new-source')
-        invoke([python, '-I', Path(new['backup']) / 'bootstrap.py', 'rollback', new['backup']], env, 'previous-rollback')
-        version_check(launcher, env, previous_version)
+        if 'backup' in new or len(list((Path(new['install_root']) / 'generations').iterdir())) != 1:
+            raise VerificationError('previous-upgrade-retained-history')
+        version_check(launcher, env, version)
         for path, original in protected.items():
             if path.read_bytes() != original:
                 raise VerificationError('previous-upgrade-user-data-changed')
         return {'kind': 'v1.0.x-upgrade', 'result': 'PASS', 'previous_version': previous_version,
-                'version': version, 'self_contained_rollback': True, 'protected_files_unchanged': True}
+                'version': version, 'no_history': True, 'protected_files_unchanged': True}
 
 
 def main(argv=None):

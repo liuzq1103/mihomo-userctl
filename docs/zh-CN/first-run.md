@@ -4,7 +4,7 @@
 
 1. 运行态：`mihomoctl status` 应显示预期核心、配置、运行态和 listener。启动失败先用 `mihomoctl logs --lines 50` 检查。
 2. 本地认证代理：`mihomoctl health check` 检查本地运行时、controller 和 listener；`mihomoctl env show` 默认脱敏。通过 `mihomoctl exec -- curl --fail --head https://example.com` 发出真实 HTTPS 请求，验证注入的代理环境可用。请求成功仍可能是 DIRECT。
-3. 目标路由：核查活动核心的 mode、rules、provider 顺序及组内选择。新 init 默认 `MATCH,DIRECT`。先用 `mihomoctl groups`、`mihomoctl nodes` 查看，再用 `mihomoctl select Proxy NODE_NAME` 选择真实远端节点；只选节点不会改变命中的 DIRECT 规则。目标规则须在 fallback 前匹配并指向该组；NO_PROXY 也可能完全绕过代理。
+3. 目标路由：核查活动核心的 mode、rules、provider 顺序及组内选择。高级 CLI 的 `init` 默认为 `MATCH,DIRECT`；新用户终端向导的简单订阅导入建立 `MATCH,Proxy`。已有自定义路由在明确修改前保留。先用 `mihomoctl groups`、`mihomoctl nodes` 查看，再用 `mihomoctl select Proxy NODE_NAME` 选择真实远端节点；只选节点不会改变命中的 DIRECT 规则。目标规则须在 fallback 前匹配并指向该组；NO_PROXY 也可能完全绕过代理。
 4. 真实客户端：用 exec 启动 Codex，触发真实请求，对照时间、目标和 Controller 连接链。`mihomoctl connections --details` 会显示私有目标和规则，仅在本地审阅，不发布原始输出。成功的客户端操作及对应远端连接链，只能证明该次已观察的请求。
 
 Codex 必须已独立安装并能在 PATH 找到：

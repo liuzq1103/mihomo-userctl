@@ -1,5 +1,5 @@
-# 快速安装入口
+# 快速安装
 
-完整新装按 [安装与初始化](setup.md) 完成控制器、可信核心与初始化，默认不启动。缺少核心时，新装 x86_64 使用固定测试版本 v1.19.32；其他架构及严格离线条件见教程。已有 manager 保留，不重复 init。
+阅读 [完整包安装说明](../../INSTALL.md)，核验并解压完整包，运行 `./mihomoctl`。可用 `./install.sh --user` 安装后通过 `mihomoctl` 启动终端向导。
 
-本地包交给 OpenCode/Codex 时复制 [完整安装 prompt](agent-local-install-prompt.md)。随后显式启动、配置订阅/规则并按 [首次运行](first-run.md) 验证；第三方脚本安装需让整个 Shell 继承代理。
+无需单独安装 Python 或 Textual，无需创建 venv、使用 Web 或端口转发。每人独立账号，按向导导入订阅、确认启动并选择节点。获取订阅仍需网络。成功操作不保留旧版本或备份。

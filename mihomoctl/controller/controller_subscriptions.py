@@ -14,13 +14,13 @@ from urllib.parse import urlsplit
 
 try:
     from .controller_types import ControlError, LIMIT, label
-    from .controller_config import private, read_config, patch_config
+    from .controller_config import private, read_config, parse_config, patch_config
     from .controller_transaction import apply_policy, validate_candidate
     from .controller_health import probe_overwrites
     from . import files
 except ImportError:
     from controller_types import ControlError, LIMIT, label
-    from controller_config import private, read_config, patch_config
+    from controller_config import private, read_config, parse_config, patch_config
     from controller_transaction import apply_policy, validate_candidate
     from controller_health import probe_overwrites
     import files
@@ -93,13 +93,15 @@ def provider_policy(incoming):
     return changes
 
 
-def download(url):
+def download(url, cancelled=None):
     """TLS verification, direct transport, no redirects or error-body disclosure."""
     parts = urlsplit(url)
     if (parts.scheme != "https" or not parts.hostname or parts.username or parts.password
             or parts.fragment or any(ord(char) < 33 or ord(char) == 127 for char in url)):
         raise ControlError("subscription-requires-https-url-without-userinfo", 1)
     try:
+        if cancelled is not None and cancelled.is_set():
+            raise ControlError('subscription-download-cancelled')
         connection = http.client.HTTPSConnection(parts.hostname, parts.port or 443,
                                                  timeout=15, context=ssl.create_default_context())
         try:
@@ -110,6 +112,8 @@ def download(url):
                 raise ControlError("subscription-download-rejected", 1)
             deadline, chunks, size = time.monotonic() + 15, [], 0
             while size <= LIMIT:
+                if cancelled is not None and cancelled.is_set():
+                    raise ControlError('subscription-download-cancelled')
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise ControlError("subscription-download-timeout", 1)
@@ -145,6 +149,27 @@ class Subscriptions:
         files.safe_path(self.root, True)
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         private(self.root, True)
+        with files.locked(self.data_home):
+            now = time.time()
+            for path in self.root.iterdir():
+                if re.fullmatch(r'[a-f0-9]{32}\.(raw\.yaml|candidate\.yaml|json)', path.name):
+                    try:
+                        private(path)
+                    except (ControlError, files.InstallError, OSError):
+                        continue  # Foreign/drifted files are never automatic cleanup targets.
+                    if now - path.stat().st_mtime > 24 * 60 * 60:
+                        path.unlink()
+
+    def discard(self, identifier):
+        if not re.fullmatch(r'[a-f0-9]{32}', identifier or ''):
+            raise ControlError('subscription-plan-invalid')
+        self.directory()
+        with files.locked(self.data_home):
+            for suffix in ('.json', '.candidate.yaml', '.raw.yaml'):
+                path = self.root / (identifier + suffix)
+                if path.exists() or path.is_symlink():
+                    private(path)
+                    path.unlink()
 
     def check_provider_paths(self, changes):
         home = Path(self.home_dir or str(Path(self.data_home) / "mihomo"))
@@ -188,13 +213,15 @@ class Subscriptions:
                         raise ControlError("subscription-provider-cache-path-unsafe", 1)
                     used.add(resolved)
 
-    def preview(self, source_file=None, url_file=None, stdin=False, policy="auto"):
+    def preview(self, source_file=None, url_file=None, stdin=False, policy="auto", raw=None, guided=False):
         requested_policy = policy
         if policy not in ("auto", "nodes", "provider"):
             raise ControlError("subscription-policy-invalid", 1)
-        if sum(bool(value) for value in (source_file, url_file, stdin)) != 1:
+        if sum(bool(value) for value in (source_file, url_file, stdin)) + (raw is not None) != 1:
             raise ControlError("choose-one-private-subscription-source")
-        if stdin:
+        if raw is not None:
+            pass
+        elif stdin:
             raw = sys.stdin.buffer.read(LIMIT + 1)
         else:
             path = private(Path(url_file or source_file).absolute())
@@ -210,11 +237,9 @@ class Subscriptions:
             raise ControlError("subscription-size-invalid", 1)
         self.directory()
         identifier = secrets.token_hex(16)
-        source = self.root / (identifier + ".raw.yaml")
         with files.locked(self.data_home):
-            files.atomic_bytes(source, raw)
             try:
-                _, incoming, _ = read_config(source)
+                _, incoming, _ = parse_config(raw)
                 for key in incoming:
                     label(key)
                 if policy == "auto":
@@ -243,7 +268,13 @@ class Subscriptions:
                 existing_names = set(merged)
                 replaced = len(names.intersection(merged))
                 merged.update({node["name"]: node for node in nodes})
-                changes = provider_policy(incoming) if policy == "provider" else {"proxies": list(merged.values())}
+                if guided:
+                    from mihomoctl.onboarding import guided_shape, guided_policy
+                    if not guided_shape(data):
+                        raise ControlError('existing-routing-preserved-use-advanced')
+                    changes = guided_policy(incoming)
+                else:
+                    changes = provider_policy(incoming) if policy == "provider" else {"proxies": list(merged.values())}
                 if policy == "provider":
                     self.check_provider_paths(changes)
                     validate_candidate(self.config, self.home_dir, patch_config(original, tree, changes))
@@ -256,7 +287,8 @@ class Subscriptions:
                 files.atomic_bytes(self.root / (identifier + ".candidate.yaml"), candidate)
                 files.write_json(self.root / (identifier + ".json"), plan)
             except BaseException:
-                source.unlink(missing_ok=True)
+                for suffix in ('.json', '.candidate.yaml'):
+                    (self.root / (identifier + suffix)).unlink(missing_ok=True)
                 raise
         return {"state": "preview", "id": identifier, "sha256": candidate_hash,
                 "nodes": len(nodes), "added": len(nodes) - replaced, "replaced": replaced,
@@ -274,7 +306,7 @@ class Subscriptions:
                 "groups": len(changes.get("proxy-groups", [])),
                 "rules": len(changes.get("rules", [])), "service": "unchanged"}
 
-    def apply(self, identifier, expected_hash):
+    def apply(self, identifier, expected_hash, source_url=None, activate=False):
         if not re.fullmatch(r"[0-9a-f]{32}", identifier) or not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
             raise ControlError("subscription-plan-invalid", 1)
         self.directory()
@@ -304,5 +336,15 @@ class Subscriptions:
                 self.check_provider_paths(provider_policy(after))
             if {k: v for k, v in before.items() if k not in allowed} != {k: v for k, v in after.items() if k not in allowed}:
                 raise ControlError("subscription-may-only-change-routing-policy" if policy == "provider" else "subscription-may-only-change-proxies", 1)
-            result = apply_policy(self.config, original, candidate.decode("utf-8"), self.home_dir)
+            def save_source(tx):
+                if self.app is not None and source_url is not None:
+                    path = self.app.scope.config_root / 'subscription-url'
+                    if source_url:
+                        tx.write_text(path, source_url + '\n')
+                    else:
+                        tx.delete(path)
+            result = apply_policy(self.config, original, candidate.decode("utf-8"), self.home_dir,
+                                  after_write=save_source if source_url is not None else None, activate=activate)
+            for suffix in ('.json', '.candidate.yaml', '.raw.yaml'):
+                (self.root / (identifier + suffix)).unlink(missing_ok=True)
             return {"id": identifier, "sha256": expected_hash, **result}

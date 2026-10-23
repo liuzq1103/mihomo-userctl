@@ -1,5 +1,9 @@
 # Import a subscription
 
+For the complete bundle, run `mihomoctl` and open Subscriptions. Paste an HTTPS URL into the hidden form or select a local YAML file, review the preview and confirm saving and starting. Simple mode builds a manual `Proxy` group and a default proxy rule for a new configuration; it preserves existing custom routing. Advanced full-policy import can replace groups and rules. See the [terminal guide](console.md).
+
+## Advanced CLI import
+
 Start from a working [initialized runtime](setup.md). Keep subscription YAML or a URL in a private directory (`chmod 700`) and a private file (`chmod 600`). URLs may contain credentials: never put them in argv, screenshots or logs. Only HTTPS URLs are accepted.
 
 ```bash
@@ -18,4 +22,4 @@ mihomoctl config validate
 mihomoctl restart
 ```
 
-Apply verifies the original active-config digest, the candidate SHA256 and the allowed changed fields, validates with the managed core, then backs up and saves. Original-config drift, candidate tampering, forbidden fields or validation failure refuse activation. Start a fresh preview after any configuration change. Review custom rules again after later provider imports, which may replace routing policy. Never hand-edit a saved preview to bypass these gates.
+Apply verifies the original active-config digest, the candidate SHA256 and the allowed changed fields, validates with the managed core, then saves transactionally without retained backups. Original-config drift, candidate tampering, forbidden fields or validation failure refuse activation. Start a fresh preview after any configuration change. Review custom rules again after later provider imports, which may replace routing policy. Never hand-edit a saved preview to bypass these gates.

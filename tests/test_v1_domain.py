@@ -203,6 +203,158 @@ class DomainFiles(unittest.TestCase):
         self.scope.manager_path.chmod(0o600)
         return config_path
 
+    # -- reset ---------------------------------------------------------
+    def _fake_core(self):
+        """A stand-in core binary: validates every candidate like mihomo -t.
+
+        A real path under the private fixture home, because the trust gate
+        refuses a core reached through a symlinked ancestor (/bin -> usr/bin).
+        """
+        core = self.home / 'mihomo'
+        core.write_text('#!/bin/sh\ncat > /dev/null\nexit 0\n', encoding='utf-8')
+        core.chmod(0o700)
+        return str(core)
+
+    def _imported_subscription_state(self):
+        """Post-subscription state: imported nodes, a second profile and the
+        policy backup and restart receipt left behind by an apply."""
+        scope = self.scope
+        config = scope.config_root / 'mihomo' / 'config.yaml'
+        original = config.read_text(encoding='utf-8')
+        config.write_text(original.replace('  - MATCH,DIRECT\n',
+            '  - MATCH,Proxy\nproxies:\n'
+            '  - {name: bought-node, type: http, server: 198.51.100.7, port: 443}\n'),
+            encoding='utf-8')
+        config.chmod(0o600)
+        extra = scope.credentials_dir / 'work.yaml'
+        extra.write_text('username: work\npassword: work-password\n', encoding='utf-8')
+        extra.chmod(0o600)
+        backup = config.with_name(config.name + '.before-policy-deadbeef')
+        backup.write_text(original, encoding='utf-8')
+        backup.chmod(0o600)
+        receipt = config.with_name(config.name + '.userctl-state.json')
+        receipt.write_text('{"state": "restart-required"}\n', encoding='utf-8')
+        receipt.chmod(0o600)
+        return config, original, extra, backup, receipt
+
+    def test_reset_preview_lists_managed_files_and_changes_nothing(self):
+        from mihomoctl.app import Application
+        app = Application()
+        core = self._fake_core()
+        app.initialize(core)
+        config, _original, extra, backup, receipt = self._imported_subscription_state()
+        before = {str(path): path.read_bytes()
+                  for path in sorted(self.home.rglob('*')) if path.is_file()}
+        preview = app.reset_preview()
+        self.assertEqual(preview['state'], 'preview')
+        self.assertEqual(preview['core'], core)
+        self.assertEqual(preview['removed'], sorted(map(str, (extra, backup, receipt))))
+        self.assertEqual(preview['replaced'], [str(self.scope.manager_path), str(config),
+                                                str(self.scope.credentials_dir / 'default.yaml')])
+        self.assertEqual(before, {str(path): path.read_bytes()
+                                  for path in sorted(self.home.rglob('*')) if path.is_file()})
+
+    def test_reset_restores_the_initial_default_configuration(self):
+        from mihomoctl.app import Application
+        from mihomoctl.yamlutil import strict_load
+        app = Application()
+        app.initialize(self._fake_core())
+        scope = self.scope
+        config = scope.config_root / 'mihomo' / 'config.yaml'
+        issued = (scope.credentials_dir / 'default.yaml').read_text(encoding='utf-8')
+        config, _original, extra, backup, receipt = self._imported_subscription_state()
+
+        result = app.reset()
+
+        self.assertEqual(result['state'], 'restart-required')
+        self.assertEqual(result['service'], 'unchanged')
+        self.assertEqual(result['manager'], str(scope.manager_path))
+        restored = config.read_text(encoding='utf-8')
+        self.assertNotIn('bought-node', restored)
+        self.assertIn('  - MATCH,DIRECT\n', restored)
+        self.assertEqual(sorted(strict_load(restored)),
+                         ['external-controller', 'listeners', 'mode', 'profile', 'rules', 'secret'])
+        # Credentials are regenerated: the old secret no longer authenticates.
+        self.assertNotEqual((scope.credentials_dir / 'default.yaml').read_text(encoding='utf-8'), issued)
+        self.assertEqual(sorted(app.load_manager().profiles), ['default'])
+        for path in (extra, backup, receipt):
+            self.assertFalse(path.exists(), path)
+
+    def test_reset_keeps_the_core_subscription_previews_and_logs(self):
+        from mihomoctl.app import Application
+        app = Application()
+        app.initialize(self._fake_core())
+        kept = {}
+        for path in (self.scope.cores_root / 'v1.19.32' / 'mihomo',
+                     self.scope.state_root / 'subscriptions' / 'abc.raw.yaml',
+                     self.scope.logs_dir / 'mihomo.log'):
+            path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+            path.write_text('preserved\n', encoding='utf-8')
+            path.chmod(0o600)
+            kept[path] = 'preserved\n'
+        app.reset()
+        for path, body in kept.items():
+            self.assertEqual(path.read_text(encoding='utf-8'), body, path)
+
+    def test_reset_journals_the_previous_configuration_and_credentials(self):
+        from mihomoctl.app import Application
+        app = Application()
+        app.initialize(self._fake_core())
+        config, _original, extra, _backup, _receipt = self._imported_subscription_state()
+        # The journal must hold the state reset actually replaced.
+        config_body = config.read_bytes()
+        extra_body = extra.read_bytes()
+        manager_body = self.scope.manager_path.read_bytes()
+
+        result = app.reset()
+
+        self.assertEqual(list(self.scope.backups_root.iterdir()), [])
+        self.assertNotIn('backup', result)
+        self.assertFalse(extra.exists())
+        self.assertNotEqual(config.read_bytes(), config_body)
+
+    def test_reset_is_idempotent_and_needs_an_initialized_manager(self):
+        from mihomoctl.app import Application
+        from mihomoctl.errors import StateError
+        with self.assertRaisesRegex(StateError, 'nothing to reset'):
+            Application().reset()
+        app = Application()
+        app.initialize(self._fake_core())
+        self._imported_subscription_state()
+        self.assertNotEqual(app.reset()['removed'], [])
+        self.assertEqual(app.reset()['removed'], [])
+        self.assertEqual(sorted(app.load_manager().profiles), ['default'])
+
+    def test_reset_reports_a_missing_core_instead_of_writing_anything(self):
+        from mihomoctl.app import Application
+        from mihomoctl.errors import ConfigError
+        app = Application()
+        app.initialize(self._fake_core())
+        before = {str(path): path.read_bytes()
+                  for path in sorted(self.home.rglob('*')) if path.is_file()}
+        with self.assertRaisesRegex(ConfigError, 'missing binary'):
+            app.reset(core=str(self.home / 'absent' / 'mihomo'))
+        self.assertEqual(before, {str(path): path.read_bytes()
+                                  for path in sorted(self.home.rglob('*')) if path.is_file()})
+
+    def test_reset_is_dispatched_from_the_cli_for_both_actions(self):
+        from mihomoctl.app import Application
+        from mihomoctl.cli import main
+        Application().initialize(self._fake_core())
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(main(['reset', '--dry-run', '--json']), 0)
+        preview = json.loads(out.getvalue())['data']
+        self.assertEqual(preview['state'], 'preview')
+        self.assertEqual(preview['removed'], [])
+        self.assertTrue(self.scope.manager_path.exists(), 'preview must not publish')
+
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(main(['reset', '--apply', '--json']), 0)
+        applied = json.loads(out.getvalue())['data']
+        self.assertEqual(applied['state'], 'restart-required')
+        self.assertIn('  - MATCH,DIRECT\n',
+                      (self.scope.config_root / 'mihomo' / 'config.yaml').read_text(encoding='utf-8'))
+
     def test_rules_is_dispatched_with_managed_paths_and_never_guessed(self):
         from mihomoctl.cli import main
         from mihomoctl.controller import rules as checker
@@ -922,8 +1074,10 @@ class DomainFiles(unittest.TestCase):
             restore_backup(self.scope, result)
         self.assertEqual(startup.read_bytes(), b'changed after migration')
         startup.write_bytes(b'preserve\r\ntrailer\r\n')
-        self.assertTrue(restore_backup(self.scope, result)['restored'])
-        self.assertEqual(startup.read_bytes(), original)
+        with self.assertRaisesRegex(TransactionError, 'historical-rollback-disabled'):
+            restore_backup(self.scope, result)
+        self.assertEqual(startup.read_bytes(), b'preserve\r\ntrailer\r\n')
+        self.assertFalse(Path(result).exists())
         self.assertEqual(startup.stat().st_mode & 0o777, 0o640)
 
     def test_transaction_refuses_symlink_ancestor_and_restores_metadata(self):
@@ -1012,8 +1166,9 @@ class DomainFiles(unittest.TestCase):
         self.assertEqual(result['loader_removed'], [str(startup)])
         self.assertEqual(startup.read_bytes(), b'prefix\r\nsuffix\r\n')
         self.assertTrue(apply(self.scope, import_config=False)['idempotent'])
-        restore_backup(self.scope, result['backup'])
-        self.assertEqual(startup.read_bytes(), original)
+        self.assertNotIn('backup', result)
+        self.assertEqual(list(self.scope.backups_root.iterdir()), [])
+        self.assertEqual(startup.read_bytes(), b'prefix\r\nsuffix\r\n')
         self.assertEqual(startup.stat().st_mode & 0o777, 0o640)
 
 

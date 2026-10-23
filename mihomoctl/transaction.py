@@ -44,6 +44,22 @@ class Transaction:
         self.backup_root = self.scope.backups_root / self.id
         self.journal = []
         self.finished = False
+        self.runtime = None
+        self._persist()
+
+    def _persist(self, state='pending'):
+        self._ensure(self.backup_root)
+        document = {'id': self.id, 'name': self.name, 'state': state,
+                    'staging': str(self.staging), 'journal': self.journal,
+                    'runtime': self.runtime,
+                    'allow_paths': sorted(map(str, self.allow_paths))}
+        _atomic_write_bytes(self.backup_root / 'journal.json',
+                            (json.dumps(document) + '\n').encode(), 0o600)
+
+    def _cleanup(self):
+        for path in (self.staging, self.backup_root):
+            if path.exists():
+                shutil.rmtree(path)
 
     @staticmethod
     def _ensure(path):
@@ -118,9 +134,10 @@ class Transaction:
         record['created_dirs'] = list(map(str, missing))
         target_mode = mode if mode is not None else int(record.get("mode", oct(0o600)), 8)
         data = staged.read_bytes()
-        self.journal.append(record)
-        _atomic_write_bytes(destination, data, target_mode)
         record['published_sha256'] = hashlib.sha256(data).hexdigest()
+        self.journal.append(record)
+        self._persist()
+        _atomic_write_bytes(destination, data, target_mode)
         if existed and os.geteuid() == 0:
             os.chown(str(destination), record['uid'], record['gid'])
         return destination
@@ -152,6 +169,7 @@ class Transaction:
         self._capture_metadata(record, path)
         record["backup"] = str(self._backup(path, record))
         self.journal.append(record)
+        self._persist()
         path.unlink()
         return True
 
@@ -191,16 +209,12 @@ class Transaction:
 
     # -- completion -----------------------------------------------------
     def commit(self):
-        """Finalize: persist the journal for audit, then clean staging.
-        Backups are retained (GC is an explicit separate operation)."""
-        self._ensure(self.backup_root)
-        document = json.dumps({"id": self.id, "name": self.name,
-                               "at": int(time.time()), "journal": self.journal}, indent=1) + "\n"
-        _atomic_write_bytes(self.backup_root / 'journal.json', document.encode(), 0o600)
+        """Commit durably before removing temporary recovery data."""
+        self._persist('committed')
         self.finished = True
-        shutil.rmtree(str(self.staging), ignore_errors=True)
+        self._cleanup()
 
-    def rollback(self):
+    def rollback(self, finish=True):
         """Restore every journaled path: content AND metadata.  A failure
         to fully restore is a distinct rollback failure."""
         failures = []
@@ -249,12 +263,14 @@ class Transaction:
                         self._restore(path, backup, record)
             except (OSError, ValueError, KeyError) as exc:
                 failures.append("%s (%s)" % (record.get("path", "?"), exc.__class__.__name__))
-        shutil.rmtree(str(self.staging), ignore_errors=True)
-        self.finished = True
         if failures:
             raise RollbackFailedError("rollback-failed",
-                                      "could not restore: %s; backups kept at %s"
-                                      % (sorted(set(failures)), self.backup_root))
+                                      "could not restore: %s; unfinished transaction retained"
+                                      % sorted(set(failures)))
+        self._persist('restored')
+        if finish:
+            self.finished = True
+            self._cleanup()
 
     @staticmethod
     def _restore(path: Path, backup: Path, record):
@@ -319,59 +335,120 @@ def run_transaction(scope, name, action, allow_paths=()):
         except BaseException as exc:
             if not tx.finished:
                 try:
-                    tx.rollback()
+                    restore_failed_operation(tx)
                 except RollbackFailedError as rollback_exc:
                     raise rollback_exc from exc
             raise
+        from .retention import cleanup_after_commit
+        cleanup_after_commit(scope)
         return result
 
 
+def _runtime_backend(tx):
+    from .app import Application
+    app = Application(system=tx.scope.system, config_dir=str(tx.scope.config_root))
+    manager, endpoints, controller, _profile, _cfg = app.resolve()
+    return app, app._backend(manager, endpoints, controller)
+
+
+def restore_failed_operation(tx):
+    """Restore files and any runtime changed by this unfinished operation."""
+    if tx.runtime is not None:
+        _app, backend = _runtime_backend(tx)
+        if backend.status().get('running'):
+            backend.stop()
+    tx.rollback(finish=tx.runtime is None)
+    if tx.runtime is not None:
+        _restore_runtime(tx)
+        tx.finished = True
+        tx._cleanup()
+
+
+def _restore_runtime(tx):
+    if tx.runtime and tx.runtime['was_running']:
+        app, backend = _runtime_backend(tx)
+        if not backend.status().get('running'):
+            app.lifecycle('start', _locked=True)
+
+
 def restore_backup(scope, backup):
-    """Explicit rollback of this scope's file journal, refusing later drift."""
-    from .locks import operation_lock
+    raise TransactionError('historical-rollback-disabled', 'historical rollback is not supported')
+
+
+def recover_transactions(scope):
+    """Recover write-ahead journals under the caller's operation lock."""
     from .trust import require_private_file
-    scope.require_mutation()
-    backup = Path(backup).absolute()
-    if backup.parent != scope.backups_root or backup.is_symlink():
-        raise TransactionError('rollback-backup-untrusted', 'backup must belong to this scope')
-    require_private_dir(backup)
-    journal_file = backup / 'journal.json'
-    require_private_file(journal_file)
-    document = json.loads(journal_file.read_text(encoding='utf-8'))
-    if document.get('name') != 'migrate' or document.get('id') != backup.name:
-        raise TransactionError('rollback-kind-unsupported', 'only explicit migration journals use this rollback entry')
-    shell_paths = {Path.home() / name for name in ('.bashrc', '.zshrc', '.profile')} if not scope.system else set()
-    with operation_lock(scope):
-        tx = Transaction(scope, 'migration-rollback', allow_paths=shell_paths)
-        tx.backup_root = backup
-        try:
-            tx.journal = document.get('journal', [])
-            if not isinstance(tx.journal, list) or not tx.journal:
-                raise TransactionError('rollback-journal-invalid')
-            for record in tx.journal:
-                if not isinstance(record, dict) or record.get('op') != 'publish' or \
-                        record.get('type', 'file') != 'file' or not isinstance(record.get('path'), str):
-                    raise TransactionError('rollback-journal-invalid')
-                path = Path(record['path'])
-                tx._check_destination(path)
-                saved = record.get('backup')
-                if saved:
-                    if Path(saved).parent != backup:
-                        raise TransactionError('rollback-journal-invalid', 'backup member escapes the journal directory')
-                    require_private_file(Path(saved))
-                elif not record.get('created'):
-                    raise TransactionError('rollback-journal-invalid', 'prior contents are missing')
-                for directory in record.get('created_dirs', []):
-                    if not Path(directory).is_absolute() or Path(directory) not in path.parents:
-                        raise TransactionError('rollback-journal-invalid', 'created directory is unrelated to destination')
-            # Compare only the final publication of a repeatedly written path.
+    root = scope.backups_root
+    if not root.exists():
+        return
+    require_private_dir(root)
+    for directory in sorted(root.iterdir()):
+        require_private_dir(directory)
+        journal = directory / 'journal.json'
+        if not journal.exists():
+            raise TransactionError('transaction-recovery-required', 'unfinished transaction has no journal')
+        require_private_file(journal)
+        if journal.stat().st_size > 16 * 1024 * 1024:
+            raise TransactionError('transaction-journal-invalid')
+        document = json.loads(journal.read_text(encoding='utf-8'))
+        if not isinstance(document, dict) or document.get('id') != directory.name:
+            raise TransactionError('transaction-journal-invalid')
+        state = document.get('state')
+        if state is None:  # Completed journals written by the old release.
+            shutil.rmtree(directory)
+            continue
+        if state not in ('pending', 'committed', 'restored'):
+            raise TransactionError('transaction-journal-invalid')
+        tx = Transaction.__new__(Transaction)
+        tx.scope, tx.id, tx.name = scope, directory.name, document.get('name')
+        tx.backup_root, tx.finished = directory, False
+        tx.runtime = document.get('runtime')
+        if tx.runtime is not None and (tx.name not in ('policy-activate', 'core-install', 'core-activate', 'port-retry')
+                or not isinstance(tx.runtime, dict) or type(tx.runtime.get('was_running')) is not bool
+                or set(tx.runtime) != {'was_running'}):
+            raise TransactionError('transaction-journal-invalid')
+        tx.staging = Path(document.get('staging', ''))
+        if (tx.staging.parent != scope.staging_root or tx.staging.is_symlink()
+                or not tx.staging.name.startswith(tx.id + '-')):
+            raise TransactionError('transaction-journal-invalid')
+        # Only migration has ever been authorized to edit these exact files.
+        tx.allow_paths = ({Path.home() / name for name in ('.bashrc', '.zshrc', '.profile')}
+                          if tx.name == 'migrate' and not scope.system else set())
+        tx.journal = document.get('journal')
+        if not isinstance(tx.journal, list):
+            raise TransactionError('transaction-journal-invalid')
+        for record in tx.journal:
+            if not isinstance(record, dict) or record.get('op') not in ('publish', 'delete'):
+                raise TransactionError('transaction-journal-invalid')
+            path = Path(record.get('path', ''))
+            tx._check_destination(path)
+            saved = record.get('backup')
+            if saved:
+                saved = Path(saved)
+                if saved.parent != directory or saved.is_symlink():
+                    raise TransactionError('transaction-journal-invalid')
+                if state == 'pending' and record.get('type') != 'symlink':
+                    require_private_file(saved)
+            for created in record.get('created_dirs', []):
+                if Path(created) not in path.parents:
+                    raise TransactionError('transaction-journal-invalid')
+        if state == 'pending':
+            # Refuse to overwrite an unrelated manual edit made after a crash.
             final = {record['path']: record for record in tx.journal}
             for filename, record in final.items():
                 path = Path(filename)
-                if not path.is_file() or path.is_symlink() or \
-                        hashlib.sha256(path.read_bytes()).hexdigest() != record.get('published_sha256'):
-                    raise TransactionError('rollback-current-drifted', 'a migrated file changed after publication')
-            tx.rollback()
-        finally:
-            shutil.rmtree(str(tx.staging), ignore_errors=True)
-        return {'restored': True, 'backup': str(backup), 'kind': 'migration'}
+                if path.is_file() and not path.is_symlink():
+                    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                    expected = {record.get('published_sha256')}
+                    for step in tx.journal:
+                        if step['path'] == filename and step.get('backup'):
+                            saved = Path(step['backup'])
+                            if saved.is_file():
+                                expected.add(hashlib.sha256(saved.read_bytes()).hexdigest())
+                    if digest not in expected:
+                        raise TransactionError('transaction-current-drifted', 'manual edit preserved; recovery required')
+            restore_failed_operation(tx)
+        else:
+            if state == 'restored':
+                _restore_runtime(tx)
+            tx._cleanup()

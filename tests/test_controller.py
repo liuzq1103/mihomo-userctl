@@ -321,7 +321,7 @@ class ConfigTests(unittest.TestCase):
         with patch.dict(os.environ, {"MIHOMO_CORE_BIN": "/fake/mihomo"}), patch.object(c.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
             result = c.setup(self.args(), self.config)
         self.assertEqual(run.call_args.args[0][1], "-t")
-        self.assertEqual(Path(result["backup"]).read_text(), self.original)
+        self.assertNotIn("backup", result)
         self.assertEqual(result["state"], "restart-required")
         text, data, _ = c.read_config(self.config)
         self.assertIn("# retain comment", text)

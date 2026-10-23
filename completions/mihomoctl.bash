@@ -11,7 +11,7 @@ _mihomoctl_complete() {
     ((command_index++))
   done
   if ((COMP_CWORD == command_index)); then
-    mapfile -t COMPREPLY < <(compgen -W 'init start stop restart status logs config profile env exec direct integration service tun core health doctor migrate rollback release update rules version controller nodes groups select latency connections traffic subscription tui providers provider dns mode health-check manual override ui --user --system --json --help' -- "$current")
+    mapfile -t COMPREPLY < <(compgen -W 'init start stop restart status logs config profile env exec direct integration service tun core health doctor migrate reset rollback release update rules version controller nodes groups select latency connections traffic subscription tui providers provider dns mode health-check manual override ui --user --system --json --help' -- "$current")
     return
   fi
   command=${COMP_WORDS[command_index]}
@@ -101,6 +101,7 @@ _mihomoctl_complete() {
     health) words='check --profile --binding --egress-url --json --help' ;;
     doctor) words='--json --help' ;;
     migrate) words='--dry-run --apply --remove-loader --no-import --core --json --help' ;;
+    reset) words='--dry-run --apply --core --json --help' ;;
     rollback) words='--json --help' ;;
     release)
       if ((COMP_CWORD == command_index+1)); then words='check fetch'

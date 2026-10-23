@@ -84,6 +84,20 @@ class PublicGrammarTests(unittest.TestCase):
                         self.assertIn('usage: mihomoctl', result['data']['help'])
             self.assertEqual(list(Path(folder).iterdir()), [])
 
+    def test_reset_requires_exactly_one_of_preview_or_apply(self):
+        with tempfile.TemporaryDirectory() as folder:
+            environment = dict(os.environ, HOME=folder, XDG_CONFIG_HOME=folder + '/config',
+                               XDG_DATA_HOME=folder + '/data', XDG_STATE_HOME=folder + '/state',
+                               XDG_CACHE_HOME=folder + '/cache', XDG_RUNTIME_DIR=folder + '/runtime')
+            with patch.dict(os.environ, environment, clear=True):
+                # Neither action, both actions, or a value flag with no action.
+                for words in (['reset'], ['reset', '--dry-run', '--apply'],
+                              ['reset', '--core', '/missing/core']):
+                    with self.subTest(words=words), contextlib.redirect_stdout(io.StringIO()) as output:
+                        self.assertEqual(main([*words, '--json']), 2)
+                        self.assertEqual(json.loads(output.getvalue())['errors'][0]['code'], 'usage-error')
+                self.assertEqual(list(Path(folder).iterdir()), [])
+
     def test_real_process_help_and_retired_rejections(self):
         with tempfile.TemporaryDirectory() as folder:
             environment = dict(os.environ, HOME=folder, XDG_CONFIG_HOME=folder + '/config')

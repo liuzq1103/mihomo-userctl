@@ -61,13 +61,21 @@ def plain_console(service, initial_preview=None):
         if not units:
             return
         print("警告：此预览会移除本地的" + "、".join(units) +
-              "；提供商策略按订阅内容整体替换，不自动降级，可用 9 恢复备份回退。")
+              "；提供商策略按订阅内容整体替换，请确认后再保存；不保留历史备份。")
+    from mihomoctl.onboarding import needs_setup
+    if needs_setup(getattr(service, 'app', None)):
+        try:
+            service.prepare()
+            print("首次配置：选择 3 导入订阅，再选择 2 选择节点。")
+        except (ControlError, OSError) as error:
+            print("配置尚未就绪：" + getattr(error, 'code', 'config-unavailable'))
+    print("使用代理：mihomoctl exec -- <命令>")
     if importlib.util.find_spec("textual") is None:
         print("更多功能：Textual 可用户私有安装：" + TUI_INSTALL_COMMAND)
     while True:
         if initial_preview:
             print("已收到标准输入订阅预览；选择 3 审阅并保存。")
-        print("\nMihomo 管理\n1. 运行时状态  2. 选择节点  3. 导入订阅\n4. 初始化控制器  5. 启动  6. 停止  7. 重启生效\n8. 切换模式  9. 恢复备份  10. 探测配置  11. 历史日志\n12. 代理档案与接入  q. 退出")
+        print("\nMihomo 管理\n1. 运行时状态  2. 选择节点  3. 导入订阅\n4. 初始化控制器  5. 启动  6. 停止  7. 重启生效\n8. 切换模式  10. 探测配置  11. 历史日志\n12. 代理档案与接入  q. 退出")
         choice = input("请选择: ").strip().lower()
         try:
             if choice == "q":
@@ -95,17 +103,20 @@ def plain_console(service, initial_preview=None):
                 if initial_preview:
                     plan, initial_preview = initial_preview, None
                 else:
-                    policy = {"1": "auto", "2": "provider", "3": "nodes"}.get(input("导入策略：1 自动判断 2 提供商（节点/分组/规则整体替换） 3 仅合并节点 [1]: ").strip(), "auto")
-                    url = input("来源类型：1 YAML 文件 / 2 私有 URL 文件 [1]: ").strip() == "2"
-                    path = input("私有文件路径（请勿输入订阅 URL）: ").strip()
-                    plan = service.subscription_preview(path, url=url, policy=policy)
+                    import getpass
+                    kind = "file" if input("来源：1 订阅 URL / 2 YAML 文件 [1]: ").strip() == "2" else "url"
+                    value = (getpass.getpass("HTTPS 订阅 URL（隐藏输入）: ") if kind == "url"
+                             else input("YAML 文件路径: "))
+                    plan = service.subscription_input(value.strip(), kind=kind, policy="simple")
                 print("预览：策略 {}；节点 {}，分组 {}，规则 {}；移除节点 {}；忽略设置：{}".format(plan.get("policy", "provider"), plan.get("nodes", 0), plan.get("groups", 0), plan.get("rules", 0), plan.get("removed", 0), ", ".join(plan.get("ignored_fields", []))))
                 clearing_warning(plan)
                 if plan.get("probe_overwrites"):
                     print("订阅会覆盖现有探测设置：" + json.dumps(plan["probe_overwrites"], ensure_ascii=False))
-                if confirm("备份并保存此订阅策略？"):
-                    service.subscription_apply(plan["id"], plan["sha256"])
-                    print("已保存，尚未生效。选择 7 重启生效，或 9 恢复备份。")
+                if confirm("保存订阅并启动或重启当前用户的代理？不保留历史备份。"):
+                    service.subscription_save_and_start(plan["id"], plan["sha256"])
+                    print("已保存并启动。选择 2 搜索、测速和选择节点。")
+                elif getattr(service, 'subscription_discard', None):
+                    service.subscription_discard(plan['id'])
             elif choice == "4" and confirm("创建本机控制器和随机密钥？"):
                 result = service.initialize()
                 print("配置状态：" + result["state"] + "；如有变更，请选择 7 重启。")
@@ -122,15 +133,12 @@ def plain_console(service, initial_preview=None):
                 if mode:
                     service.mode(mode)
                     print("运行模式已切换。")
-            elif choice == "9" and confirm("恢复本次操作前的配置？保存后仍需重启。"):
-                service.restore()
-                print("已恢复，请选择 7 重启。")
             elif choice == "10":
                 print('必须以 group 或 provider 开头：group "组名" 或 provider "名称"；可加 --preset resilient 或 --url / --expected-status / --interval / --timeout / --lazy / --tolerance。')
                 scope, name, options = parse_console(input("探测配置: "))
                 result = service.health_check(scope, name, options)
                 print(json.dumps(result, ensure_ascii=False, indent=2))
-                if result.get("state") == "preview" and confirm("校验、备份并保存探测设置？需单独重启。"):
+                if result.get("state") == "preview" and confirm("校验、保存探测设置？需单独重启。"):
                     service.health_check(apply=True)
                     print("已保存，请选择 7 重启。")
             elif choice == "11":
@@ -163,7 +171,7 @@ def plain_console(service, initial_preview=None):
                         print("  - " + str(limit))
         except (ControlError, files.InstallError, OSError, ValueError, subprocess.TimeoutExpired) as error:
             print("操作未完成：" + error_text(getattr(error, "code", "配置或环境不可用"), getattr(error, "detail", "")))
-            print("检查私有配置与核心是否存在；重启失败可选 9 恢复备份。")
+            print("检查私有配置、订阅连通性与核心是否存在后重试。")
 
 
 def release_notice_lines(notice, width):
@@ -368,7 +376,7 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
                             continue
                         with files.locked(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))):
                             result = apply_policy(config, pending[0], pending[1], home_dir)
-                        detail = ["Backup: " + result.get("backup", "none"), "Exit; run mihomoctl restart when ready."]
+                        detail = ["No historical backup is retained.", "Exit; run mihomoctl restart when ready."]
                         note = "Saved; running policy unchanged until restart."
                         pending = None
                     else:

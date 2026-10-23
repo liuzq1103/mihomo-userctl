@@ -546,6 +546,19 @@ options:
   --json           emit the mihomoctl/v1 JSON envelope
 ```
 
+## reset
+
+```text
+usage: mihomoctl reset [-h] (--dry-run | --apply) [--core CORE] [--json]
+
+options:
+  -h, --help   show this help message and exit
+  --dry-run
+  --apply
+  --core CORE
+  --json       emit the mihomoctl/v1 JSON envelope
+```
+
 ## rollback
 
 ```text
@@ -586,14 +599,14 @@ options:
 ```text
 usage: mihomoctl release fetch [-h] --output-dir OUTPUT_DIR
                                [--version VERSION]
-                               [--target {ubuntu22.04-x86_64-py310,ubuntu24.04-x86_64-py312}]
+                               [--target {linux-x86_64,ubuntu22.04-x86_64-py310,ubuntu24.04-x86_64-py312}]
                                [--json]
 
 options:
   -h, --help            show this help message and exit
   --output-dir OUTPUT_DIR
   --version VERSION
-  --target {ubuntu22.04-x86_64-py310,ubuntu24.04-x86_64-py312}
+  --target {linux-x86_64,ubuntu22.04-x86_64-py310,ubuntu24.04-x86_64-py312}
   --json                emit the mihomoctl/v1 JSON envelope
 ```
 

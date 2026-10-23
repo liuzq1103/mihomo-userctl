@@ -27,7 +27,7 @@ def document(path):
     return value
 
 
-def verify(artifacts, evidence, commit, offline_artifacts=None):
+def verify(artifacts, evidence, commit, offline_artifacts=None, portable_artifacts=None):
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise GateError("expected-full-git-commit")
     receipt = document(artifacts / "build-receipt.json")
@@ -80,7 +80,7 @@ def verify(artifacts, evidence, commit, offline_artifacts=None):
         upgrade = installation.get('previous_upgrade', {})
         if (upgrade.get('result') != 'PASS' or upgrade.get('version') != version
                 or not re.fullmatch(r'1\.0\.\d+', upgrade.get('previous_version', ''))
-                or upgrade.get('self_contained_rollback') is not True
+                or upgrade.get('no_history') is not True
                 or upgrade.get('protected_files_unchanged') is not True):
             raise GateError('previous-version-upgrade-incomplete: ' + ubuntu)
         tested_hashes = installation.get("artifact_sha256")
@@ -141,8 +141,37 @@ def verify(artifacts, evidence, commit, offline_artifacts=None):
         raise GateError("selected-release-assets-were-not-installed")
     if len(core_digests) != 1:
         raise GateError("tested-core-differs-between-acceptance-environments")
+    portable_assets = set()
+    if portable_artifacts is not None:
+        name = 'mihomoctl-' + version + '-portable-linux-x86_64.tar.gz'
+        archive = portable_artifacts / name
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        if (portable_artifacts / (name + '.sha256')).read_text().strip() != digest + '  ' + name:
+            raise GateError('portable-checksum-mismatch')
+        for ubuntu in ('22.04', '24.04'):
+            report = document(evidence / ('validation-ubuntu-' + ubuntu) / 'portable-acceptance.json')
+            users = report.get('users', [])
+            if (report.get('success') is not True or report.get('network_isolated') is not True
+                    or report.get('os') != 'ubuntu' or report.get('ubuntu') != ubuntu
+                    or report.get('real_uids') is not True or report.get('publishable') is not True
+                    or report.get('commit') != commit or report.get('version') != version
+                    or report.get('bundle_sha256') != digest or not isinstance(users, list) or len(users) != 2
+                    or any(not isinstance(row, dict) for row in users)
+                    or any(type(row.get('uid')) is not int or row['uid'] <= 0 for row in users)
+                    or len({row['uid'] for row in users}) != 2
+                    or len({row.get('controller_port') for row in users}) != 2
+                    or any(row.get('core_sha256') not in core_digests for row in users)
+                    or not any(row.get('ssh_transport') is True for row in users)
+                    or any(row.get('no_history') is not True or row.get('authentication_rejected') is not True
+                           or row.get('system_python_absent_from_path') is not True
+                           or row.get('active_ui_update_refused') is not True
+                           or row.get('terminal_unicode_resize_search') is not True
+                           or row.get('extraction_umask_0002') is not True
+                           or row.get('ui_rss_kib', 0) <= 0 for row in report['users'])):
+                raise GateError('portable-acceptance-incomplete: ' + ubuntu)
+        portable_assets = {name, name + '.sha256'}
     return {"commit": commit, "version": version,
-            "assets": sorted(names | set(offline_assets) | {"SHA256SUMS", "build-receipt.json"}),
+            "assets": sorted(names | set(offline_assets) | portable_assets | {"SHA256SUMS", "build-receipt.json"}),
             "ubuntu": ["22.04", "24.04"], "verified": True}
 
 
@@ -153,9 +182,12 @@ def main():
     parser.add_argument("--commit", required=True)
     parser.add_argument("--offline-artifacts", type=Path,
                         help="both target kits and .sha256 sidecars (default: --artifacts)")
+    parser.add_argument('--portable-artifacts', type=Path,
+                        help='complete portable bundle and checksum (default: --artifacts)')
     args = parser.parse_args()
     try:
-        result = verify(args.artifacts, args.evidence, args.commit, args.offline_artifacts)
+        result = verify(args.artifacts, args.evidence, args.commit, args.offline_artifacts,
+                        args.portable_artifacts or args.artifacts)
     except GateError as error:
         print("release blocked: " + str(error))
         return 1

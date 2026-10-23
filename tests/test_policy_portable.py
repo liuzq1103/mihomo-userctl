@@ -86,7 +86,7 @@ class PolicyTests(unittest.TestCase):
         original, updated, _ = c.policy_candidate(self.config, group='Proxy')
         with patch.object(c.shutil, 'which', return_value='/fake/mihomo'), patch.object(c.files, 'atomic_bytes', side_effect=lambda p, b: Path(p).write_bytes(b)), patch.object(c.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)):
             result = c.apply_policy(self.config, original, updated, str(self.root))
-        self.assertEqual(Path(result['backup']).read_text(encoding='utf-8'), original)
+        self.assertNotIn("backup", result)
         self.assertEqual(result['state'], 'restart-required')
         self.assertEqual(self.config.read_text(encoding='utf-8'), updated)
 

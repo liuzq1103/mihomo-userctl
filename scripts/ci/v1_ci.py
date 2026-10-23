@@ -15,7 +15,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-EXCLUDED = {".git", ".aws", ".codex", ".agents", "__pycache__", ".pytest_cache", "dist", "build", ".venv", "paseo.json", "启动速查-codex-paseo.md"}
+EXCLUDED = {".git", ".aws", ".codex", ".agents", "__pycache__", ".pytest_cache", "dist", "build", ".venv", "paseo.json", ".rel-stage-path", "rel-staging", "启动速查-codex-paseo.md"}
 
 
 def snapshot(destination, public=False):

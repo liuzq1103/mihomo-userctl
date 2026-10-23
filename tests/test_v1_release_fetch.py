@@ -1,5 +1,6 @@
 """Acquisition exercises real release validators with a local official-channel fixture."""
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -7,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tarfile
 import unittest
 import zipfile
 from unittest.mock import patch
@@ -77,6 +79,74 @@ class FetchTests(unittest.TestCase):
         self.assertEqual((self.base / 'output').stat().st_mode & 0o777, 0o700)
         with self.assertRaisesRegex(release.ReleaseError, 'release-output-exists'):
             self.fetch()
+
+    def portable_asset(self, commit=None):
+        name = 'mihomoctl-1.0.0-portable-linux-x86_64'
+        payload = {key: b'fixture component' for key in (
+            'runtime/bin/python3', 'bin/mihomoctl', 'mihomoctl', 'install.sh',
+            'lib/mihomoctl/cli.py', 'core/mihomo.gz', 'core/pin.json')}
+        manifest = {'format': 1, 'kind': 'portable', 'version': '1.0.0',
+                    'target': 'linux-x86_64', 'commit': commit or self.commit, 'publishable': True,
+                    'files': {key: {'sha256': hashlib.sha256(body).hexdigest(), 'mode': 0o644}
+                              for key, body in payload.items()}}
+        payload['bundle-manifest.json'] = json.dumps(manifest).encode()
+        path = self.assets / (name + '.tar.gz')
+        with tarfile.open(path, 'w:gz') as archive:
+            for key, body in payload.items():
+                info = tarfile.TarInfo(name + '/' + key)
+                info.size, info.mode = len(body), 0o644
+                archive.addfile(info, io.BytesIO(body))
+        path.with_name(path.name + '.sha256').write_text(
+            hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name + '\n')
+        self.gate['assets'] = sorted(p.name for p in self.assets.iterdir())
+        (self.assets / 'release-gate.json').write_text(json.dumps(self.gate))
+        self.refresh_metadata()
+        return path
+
+    def test_complete_portable_acquisition_checks_inventory_and_publishes_relative_source(self):
+        asset = self.portable_asset()
+        result = self.fetch('linux-x86_64')
+        self.assertIsNone(result['wheelhouse'])
+        self.assertEqual(Path(result['source']).read_bytes(), asset.read_bytes())
+        record = json.loads((self.base / 'output/acquisition.json').read_text())
+        self.assertEqual(record['source'], asset.name)
+        self.assertEqual(record['commit'], self.commit)
+
+    def test_complete_portable_identity_mismatch_never_publishes(self):
+        self.portable_asset(commit='b' * 40)
+        with self.assertRaisesRegex(release.ReleaseError, 'release-bundle-identity-mismatch'):
+            self.fetch('linux-x86_64')
+        self.assertFalse((self.base / 'output').exists())
+
+    def test_complete_portable_acquisition_with_implicit_directories_and_shared_umask(self):
+        # portable_asset deliberately has files only, with no directory entries.
+        asset = self.portable_asset()
+        previous = os.umask(0o002)
+        try:
+            result = self.fetch('linux-x86_64')
+            current = os.umask(0o002)
+            self.assertEqual(current, 0o002, 'acquisition must preserve the caller umask')
+        finally:
+            os.umask(previous)
+        self.assertEqual(Path(result['source']).read_bytes(), asset.read_bytes())
+        self.assertEqual(Path(result['output_dir']).stat().st_mode & 0o777, 0o700)
+
+    def test_portable_latest_keeps_acquisition_contract_without_host_python(self):
+        self.portable_asset()
+        def update(scope, source, **options):
+            self.assertTrue(Path(source).is_file())
+            self.assertEqual(options, {})
+            return {'version': '1.0.0', 'source_kind': 'portable-bundle',
+                    'generation': 'f' * 32, 'python': '/bundled/python', 'replaced': 'generations/previous'}
+        with patch.object(installation, 'current_record', return_value={'source_kind': 'portable-bundle'}), \
+                patch.object(installation, 'verify_installed', return_value={'version': '0.9.0'}), \
+                patch.object(installation, 'resolve_python', side_effect=AssertionError('host Python must not be used')), \
+                patch.object(installation, 'update', side_effect=update):
+            result = release.update_latest(Scope())
+        self.assertTrue(result['changed'])
+        self.assertEqual(result['acquisition']['target'], 'linux-x86_64')
+        self.assertEqual(result['acquisition']['commit'], self.commit)
+        self.assertEqual(result['python'], '/bundled/python')
 
     def test_readable_nonwritable_parent_is_safe_and_not_changed(self):
         self.base.chmod(0o755)
@@ -225,8 +295,9 @@ class FetchTests(unittest.TestCase):
         self.assertEqual(installation.verify_installed(Scope())['version'], '1.0.0')
         self.assertEqual(list((Scope().cache_root / 'release-acquisition').iterdir()), [])
         shutil.rmtree(self.assets)
-        installation.rollback(Scope(), Path(result['backup']))
-        self.assertEqual(installation.verify_installed(Scope())['version'], '0.9.9')
+        self.assertNotIn('backup', result)
+        self.assertEqual(list(installation.InstallPaths(Scope()).backups_root.iterdir()), [])
+        self.assertEqual(installation.verify_installed(Scope())['version'], '1.0.0')
         self.assertIsNone(process.poll())
         self.assertEqual(Path('/proc/%s/stat' % process.pid).read_text().split()[21], identity)
         for path, content in protected.items():

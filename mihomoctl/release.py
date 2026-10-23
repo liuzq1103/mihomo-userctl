@@ -234,6 +234,8 @@ def _fetch(scope, output_dir, version=None, target=None, *, selected=None, timeo
     from .release_artifacts import TARGETS, load_bundle, checked_payload
     from .trust import require_private_dir, require_trusted_dir, _check_ancestors
     scope.require_mutation()
+    if target == 'linux-x86_64':
+        return _fetch_portable(scope, output_dir, version, selected=selected, timeout=timeout)
     if target is not None and target not in TARGETS:
         raise ReleaseError('release-target-unsupported')
     destination = Path(output_dir).expanduser().absolute()
@@ -337,6 +339,16 @@ def update_latest(scope, **options):
     observed = observation(selected, current)
     if not observed['newer_available']:
         return dict(observed, changed=False)
+    if record and record.get('source_kind') == 'portable-bundle':
+        require_private_dir(scope.cache_root, create=True)
+        with tempfile.TemporaryDirectory(prefix='update-', dir=scope.cache_root) as temporary:
+            acquired = fetch(scope, Path(temporary) / 'release', target='linux-x86_64', selected=selected)
+            arguments = {key: value for key, value in options.items()
+                         if key in ('dry_run', 'allow_same_version', 'allow_downgrade')}
+            result = installation.update(scope, acquired['source'], **arguments)
+        return dict(result, acquisition={'version': acquired['version'], 'commit': acquired['commit'],
+                    'target': 'linux-x86_64', 'release_url': acquired['release_url']},
+                    changed=not options.get('dry_run', False))
     python = installation.resolve_python(options.get('python'), system=scope.system)
     target = None if options.get('wheelhouse') else matching_target(python)
     # Acquisition is temporary; a successful update backup is self-contained.
@@ -351,3 +363,43 @@ def update_latest(scope, **options):
     return dict(result, acquisition={'version': acquired['version'], 'commit': acquired['commit'],
                                     'target': target, 'release_url': acquired['release_url']},
                 changed=not options.get('dry_run', False))
+
+
+def _fetch_portable(scope, output_dir, version=None, *, selected=None, timeout=300):
+    from .portable import source_tree, verify_bundle
+    from .release_artifacts import digest
+    from .trust import require_private_dir, require_trusted_dir, _check_ancestors
+    destination = Path(output_dir).expanduser().absolute()
+    if not destination.parent.exists():
+        require_private_dir(destination.parent, create=True)
+    _check_ancestors(destination.parent, 'release-output-untrusted', {0, os.geteuid()})
+    require_trusted_dir(destination.parent)
+    if destination.exists() or destination.is_symlink():
+        raise ReleaseError('release-output-exists')
+    deadline = time.monotonic() + timeout
+    data = selected if selected is not None else metadata(version, min(30, timeout))
+    tag = data['tag_name']
+    commit, assets = tag_commit(tag, deadline), _assets(data)
+    name = 'mihomoctl-' + tag[1:] + '-portable-linux-x86_64.tar.gz'
+    with tempfile.TemporaryDirectory(prefix='.mihomoctl-fetch-', dir=destination.parent) as temporary:
+        stage = Path(temporary) / 'payload'
+        stage.mkdir(mode=0o700)
+        bundle = _asset(data, assets, name, stage, deadline, 256 * 1024 * 1024)
+        checksum = _asset(data, assets, name + '.sha256', stage, deadline, 1024)
+        if checksum.read_text().strip() != digest(bundle) + '  ' + name:
+            raise ReleaseError('release-bundle-digest-mismatch')
+        gate = read_json(_asset(data, assets, 'release-gate.json', stage, deadline, MAX_METADATA))
+        if (gate.get('verified') is not True or gate.get('commit') != commit
+                or gate.get('version') != tag[1:] or gate.get('ubuntu') != ['22.04', '24.04']
+                or not {name, name + '.sha256'} <= set(gate.get('assets', []))):
+            raise ReleaseError('release-gate-mismatch')
+        with source_tree(bundle) as root:
+            manifest = verify_bundle(root)
+            if (manifest.get('commit') != commit or manifest.get('version') != tag[1:]
+                    or manifest.get('publishable') is not True):
+                raise ReleaseError('release-bundle-identity-mismatch')
+        record = {'version': tag[1:], 'commit': commit, 'source': name, 'target': 'linux-x86_64',
+                  'wheelhouse': None, 'release_url': WEB + '/releases/tag/' + tag}
+        (stage / 'acquisition.json').write_text(json.dumps(record) + '\n')
+        _publish(stage, destination)
+    return dict(record, source=str(destination / name), output_dir=str(destination))

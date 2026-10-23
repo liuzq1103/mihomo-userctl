@@ -29,6 +29,27 @@ from .lifecycle import systemd as systemd_backend
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == '_bundle-install':
+        from .portable import bundle_root, install_bundle
+        from .scope import Scope
+        parser = argparse.ArgumentParser(prog='install.sh')
+        parser.add_argument('--user', action='store_true')
+        parser.add_argument('--dry-run', action='store_true')
+        parser.add_argument('--allow-same-version', action='store_true')
+        parser.add_argument('--allow-downgrade', action='store_true')
+        values = parser.parse_args(argv[1:])
+        try:
+            root = bundle_root()
+            if root is None:
+                raise UsageError('bundled-runtime-required', 'run install.sh from a complete bundle')
+            result = install_bundle(Scope(), root, dry_run=values.dry_run,
+                                    allow_same_version=values.allow_same_version,
+                                    allow_downgrade=values.allow_downgrade)
+            print(_kv_text(result))
+            return 0
+        except MihomoctlError as error:
+            print('mihomoctl: ' + error.render(), file=sys.stderr)
+            return error.exit_code
     if "--" in argv:
         split = argv.index("--")
         manager_args, child_argv = argv[:split], argv[split + 1:]
@@ -39,6 +60,8 @@ def main(argv=None):
     command = "mihomoctl"
     try:
         manager_args, system = _extract_scope(manager_args)
+        if not manager_args and not json_mode and sys.stdin.isatty() and sys.stdout.isatty():
+            manager_args = ['tui']
         if not manager_args:
             if not json_mode:
                 from .command_spec import grouped_help
@@ -188,6 +211,8 @@ def dispatch(app, command, args, child_argv, json_mode):
             text = output.getvalue().rstrip()
             return _finish('help', name, env.PASS, {'help': text}, json_mode=json_mode, text=text)
         command_spec.validate(command, args)
+    if command == 'rollback':
+        raise UsageError('historical-rollback-disabled', 'historical rollback is not supported')
     if (command in ('status', 'version', 'doctor') and not json_mode
             and sys.stdin.isatty() and sys.stdout.isatty() and sys.stderr.isatty()):
         from .notifications import prepare
@@ -239,6 +264,8 @@ def dispatch(app, command, args, child_argv, json_mode):
         return cmd_export(app, args, json_mode)
     if command == "migrate":
         return cmd_migrate(app, args, json_mode)
+    if command == "reset":
+        return cmd_reset(app, args, json_mode)
     if command == "profiles":
         return _finish("profiles", name, env.PASS, {"profiles": app.profiles()},
                        json_mode=json_mode, text=_kv_text({"profiles": app.profiles()}))
@@ -837,6 +864,18 @@ def cmd_migrate(app, args, json_mode):
     data = migrate_module.apply(app.scope, remove_loader=True,
                                 import_config=not values.no_import, core=values.core)
     return _finish("migrate-apply", app.scope.name, env.PASS, data,
+                   json_mode=json_mode, text=_kv_text(data))
+
+
+def cmd_reset(app, args, json_mode):
+    parser = _parser("reset")
+    values = parser.parse_args(args)
+    if values.dry_run:
+        data = app.reset_preview()
+        return _finish("reset-preview", app.scope.name, env.PASS, data,
+                       json_mode=json_mode, text=_kv_text(data))
+    data = app.reset(core=values.core)
+    return _finish("reset-apply", app.scope.name, env.PASS, data,
                    json_mode=json_mode, text=_kv_text(data))
 
 

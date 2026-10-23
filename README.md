@@ -12,36 +12,34 @@ mihomoctl 为 Linux 上的 Mihomo 提供用户级运行管理、认证代理环�
 
 ## 系统要求和当前稳定版本
 
-<!-- stable-version: 1.3.0 -->
-当前稳定版本：**1.3.0**。要求 Linux、Python 3.10+、PyYAML 6.0.1+；安装入口需要 Bash。Mihomo 核心另行提供或显式安装。Textual 界面是可选依赖；默认可用纯终端菜单。Windows 请在 Linux/WSL 中运行。
+<!-- stable-version: 1.4.0 -->
+当前稳定版本：**1.4.0**。面向多人共享服务器，每人使用独立 Linux 账号。新增完整发行包内置 Python、Textual、依赖与固定核心，面向 Ubuntu 22.04/24.04 x86_64；无需创建虚拟环境、单独安装界面或使用端口转发。从 [v1.4.0 发布页](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.4.0) 下载完整包及摘要。源码和旧式 wheelhouse 套件仍需自行准备运行环境。
 
 ## 最短 Quick Start
 
-完整新装默认完成控制器、可信核心与初始化，不启动。先按 [INSTALL.md](INSTALL.md) 安装控制层；没有可信核心时，按 [初始化教程](docs/zh-CN/setup.md) 使用固定测试版本 v1.19.32（内置摘要仅覆盖 x86_64）。已有 manager 保留，不重复 init；没有 manager 且已有可信核心时：
+按 [INSTALL.md](INSTALL.md) 核验并解压完整包，然后运行：
 
 ```bash
-export PATH="$HOME/.local/bin:$PATH"
-mihomoctl init --core /absolute/path/to/mihomo
-mihomoctl config validate
+./mihomoctl
 ```
 
-以上完成初始化；需要运行时，再显式执行：
+在终端向导中粘贴订阅 URL，预览后确认保存并启动，再搜索、测速并选择节点。已有配置不会自动重置。可执行 `./install.sh --user` 安装，之后直接运行 `mihomoctl`；无需 Python、venv 或 pip。
+
+完整界面不依赖 Web；终端能力有限时使用 `mihomoctl tui --engine plain`。使用所选代理启动命令：
 
 ```bash
-mihomoctl start
-mihomoctl health check
-mihomoctl exec -- curl --fail --head https://example.com
+mihomoctl exec -- codex
 ```
 
-初始化的默认规则是 `MATCH,DIRECT`：以上验证本地代理通路，不等于使用了远端节点。继续配置订阅与规则。
+软件准备可离线完成，订阅及其引用资源仍需网络可达。成功操作后不保留旧版本或配置备份，历史回滚已停用。
 
 ## 如何初始化并启动 Mihomo
 
-`init` 创建私有配置和带认证的 loopback listener，不下载核心、不启动服务。已有配置可通过 `init --config` 导入。随后显式 `start`；改配置后显式 `restart`。固定版本核心的安装和 XDG 路径见 [安装与初始化教程](docs/zh-CN/setup.md)。
+高级 CLI 的 `init` 创建私有配置和带认证的 loopback listener，不下载核心、不启动服务。已有配置可通过 `init --config` 导入。随后显式 `start`；改配置后显式 `restart`。想推回出厂状态就用显式的 `mihomoctl reset --dry-run` 预览、再 `--apply` 执行，它保留核心二进制和订阅缓存，只重置配置与凭据。固定版本核心的安装和 XDG 路径见 [安装与初始化教程](docs/zh-CN/setup.md)。
 
 ## 如何配置订阅
 
-将订阅保存为仅本人可读的文件，通过 preview 审阅候选，再用 preview ID 和候选 SHA256 apply，最后显式 restart。URL 也通过私有文件传入，禁止把订阅凭据放在参数里。
+普通用户直接在终端界面粘贴订阅 URL，由程序私有保存。脚本调用仍使用私有文件或标准输入，通过 preview/apply 审阅候选；订阅凭据不能放在命令参数里。
 
 ```bash
 mihomoctl subscription preview --source-file "$HOME/private/subscription.yaml" --policy nodes
@@ -103,16 +101,16 @@ Listener 可达、选中节点、外部探测成功都不能单独证明 Codex �
 
 ## 许可证和非官方声明
 
-采用 [MIT License](LICENSE)。这是独立、非官方的 Mihomo 管理工具，与 Mihomo、OpenAI/Codex 或 Paseo 项目无隶属关系。
+管理器采用 [MIT License](LICENSE)。完整包还包含按各自许可证分发的 Python、依赖与 Mihomo（GPL-3.0）。包内 `licenses.json` 列出组件及许可文件，核心许可和源码链接见 `core/LICENSE`、`core/SOURCE.txt`。这是独立、非官方的 Mihomo 管理工具，与 Mihomo、OpenAI/Codex 或 Paseo 项目无隶属关系。
 
 ## 发现和获取新版本
 
 ```bash
 mihomoctl release check
-mihomoctl release fetch --output-dir "$HOME/releases/mihomoctl-kit" --target ubuntu22.04-x86_64-py310
+mihomoctl release fetch --output-dir "$HOME/releases/mihomoctl-kit" --target linux-x86_64
 mihomoctl update --latest
 ```
 
 从 1.2.0 开始，交互式 status、version、doctor 和 TUI 会限频后台查询，后续入口对同一版本只提示一次；失败不影响原命令。JSON、管道和 exec 不触发查询。设置 `MIHOMOCTL_NO_UPDATE_CHECK=1` 可关闭自动检查。通知不会证明当前版本是最新。
 
-v1.0.0–v1.1.1 用户请继续按 [INSTALL.md](INSTALL.md) 使用核验后的新版安装器升级；旧二进制不会自行获得通知功能。获取、跨机器离线安装和回滚见 [升级教程](docs/zh-CN/update.md)。
+v1.0.0–v1.1.1 用户请继续按 [INSTALL.md](INSTALL.md) 使用核验后的新版安装器升级；旧二进制不会自行获得通知功能。获取、跨机器离线安装和失败恢复见 [升级教程](docs/zh-CN/update.md)。

@@ -1,5 +1,5 @@
-# Quick installation entry
+# Quick installation
 
-Follow [setup](setup.md) through controller, trusted core and initialization, leaving the runtime stopped by default. New x86_64 installations missing a core use fixed tested v1.19.32; see the tutorial for other architectures and strict offline prerequisites. Preserve an existing manager without repeating init.
+Follow [complete bundle installation](../../INSTALL.md), verify and extract the archive, and run `./mihomoctl`. Optionally install with `./install.sh --user`, then run `mihomoctl`.
 
-For local packages give OpenCode/Codex the [complete installation prompt](agent-local-install-prompt.md). Explicitly start later, configure subscriptions/rules, and follow [first run](first-run.md). Third-party installers need the entire shell to inherit the proxy environment.
+No separate Python or Textual installation, venv, browser or port forwarding is required. Use a separate account for each user, import a subscription in the terminal wizard, confirm starting and select a node. Subscription access needs connectivity. Successful operations retain no previous versions or backups.

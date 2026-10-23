@@ -195,6 +195,5 @@ def apply(scope, remove_loader=True, import_config=True, core=None):
             tx.write_bytes(path, stripped, mode=mode)
             result['loader_removed'].append(str(path))
             result['idempotent'] = False
-        result['backup'] = str(tx.backup_root)
         return result
     return run_transaction(scope, 'migrate', action, allow_paths=loader_changes)

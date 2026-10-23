@@ -100,7 +100,7 @@ def clearing_warnings(preview):
     if not units:
         return []
     return ["警告：此预览会移除本地的" + "、".join(units) +
-            "；提供商策略按订阅内容整体替换，不自动降级，保存后需用“恢复备份”回退。"]
+            "；提供商策略按订阅内容整体替换，不自动降级，请确认后再保存；不保留历史备份。"]
 
 
 def report_lines(value, prefix="", depth=0):
@@ -262,12 +262,12 @@ class Console(App):
         self.latencies = {}
         self.log_level = "info"
         self.exit_requested = False
-        self.source_kind = "file"
+        self.source_kind = "url"
         # A piped preview already decided the policy (tui --stdin --policy ...).
         # Seed the selector with it so the first Select.Changed is a no-op
         # instead of wiping the review the user just prepared.
         seeded = initial_preview.get("requested_policy", initial_preview.get("policy")) if isinstance(initial_preview, dict) else None
-        self.source_policy = seeded if seeded in ("auto", "provider", "nodes") else "auto"
+        self.source_policy = seeded if seeded in ("auto", "provider", "nodes") else "simple"
         self.source_path = ""
         # Pending work and the guarded backup come from the service receipt, never
         # from a second copy the UI can drift on.
@@ -283,13 +283,13 @@ class Console(App):
             # Widget id stays "nav-profiles" for retained automation; the page it
             # opens is "subscriptions".
             yield Button("订阅", id="nav-profiles")
-            yield Button("接入", id="nav-profile")
+            yield Button("使用代理", id="nav-profile")
             yield Button("更多", id="nav-more")
         yield Select([(PAGE_NAMES[name], name) for name in PAGES], value=self.page, allow_blank=True, id="navigation")
         with Horizontal(id="subscription-source"):
-            yield Select([("YAML 文件", "file"), ("URL 文件", "url")], value="file", allow_blank=False, id="source-kind")
-            yield Select([("自动判断", "auto"), ("提供商策略", "provider"), ("仅合并节点", "nodes")], value=self.source_policy, allow_blank=False, id="source-policy")
-            yield Input(placeholder="私有文件路径（不要输入订阅 URL）", id="source-path")
+            yield Select([("订阅 URL", "url"), ("YAML 文件", "file")], value="url", allow_blank=False, id="source-kind")
+            yield Select([("简单节点选择", "simple"), ("订阅完整策略", "provider"), ("仅合并节点", "nodes"), ("自动判断", "auto")], value=self.source_policy, allow_blank=False, id="source-policy")
+            yield Input(placeholder="粘贴 HTTPS 订阅 URL", password=True, id="source-path")
         with HorizontalScroll(id="toolbar"):
             yield Button("初始化", id="setup-controller")
             yield Button("启动", id="service-start")
@@ -300,15 +300,15 @@ class Console(App):
             yield Button("测速", id="node-latency")
             yield Button("批量测速", id="node-batch")
             yield Button("预览导入", id="subscription-preview")
-            yield Button("保存", id="subscription-save")
-            yield Button("恢复备份", id="restore-backup")
+            yield Button("保存并启动", id="subscription-save")
+
         yield Input(placeholder="搜索（Esc 关闭）", id="search")
         with Horizontal(id="proxies"):
             yield DataTable(id="groups", cursor_type="row")
             yield DataTable(id="nodes", cursor_type="row")
         yield DataTable(id="records", cursor_type="row")
         yield RichLog(id="body", wrap=True, markup=False, max_lines=2000, auto_scroll=False)
-        yield Static("先预览，再保存，最后重启生效；普通 Shell 保持直连", id="hint", markup=False)
+        yield Static("订阅 → 预览 → 保存并启动 → 选择节点；使用代理：mihomoctl exec -- <命令>", id="hint", markup=False)
         yield Input(placeholder="page proxies / start / dns example.com / subscribe FILE", id="command")
         yield Footer()
 
@@ -322,7 +322,12 @@ class Console(App):
         self.query_one("#groups", DataTable).add_columns("分组", "方式", "当前选择")
         self.query_one("#nodes", DataTable).add_columns("节点", "当前", "延迟 ms")
         self._refresh_timer = self.set_interval(.1, self.tick)
-        self.change_page("subscriptions" if self.preview else "overview")
+        from mihomoctl.onboarding import needs_setup
+        setup = needs_setup(getattr(self.service, 'app', None))
+        self.change_page("subscriptions" if self.preview or setup else "overview")
+        if setup:
+            self.schedule("operation", self.service.prepare)
+            self.query_one("#hint", Static).update("首次配置：准备本地核心 → 粘贴订阅 → 预览 → 保存并启动 → 选择节点")
 
     def on_resize(self, event):
         self.set_class(event.size.width < 80 or event.size.height < 24, "compact")
@@ -334,9 +339,12 @@ class Console(App):
             self._refresh_timer.stop()
         self.batch_cancel.set()
         self.store.close()
+        self.clear_preview()
 
     def action_quit_console(self):
         self.batch_cancel.set()
+        if hasattr(self.service, "network_cancel"):
+            self.service.network_cancel.set()
         if "operation" in self.store.pending:
             self.exit_requested = True
             self.query_one("#hint", Static).update("正在取消排队测速；等待当前操作结束后退出")
@@ -351,7 +359,6 @@ class Console(App):
     def apply_action_visibility(self):
         actions = self.page in ("overview", "subscriptions", "profile")
         self.query_one("#service-restart").display = actions
-        self.query_one("#restore-backup").display = actions and bool(self.pending_restart and self.last_backup)
 
     def change_page(self, page):
         """Switch pages, accepting the retained "profiles" name for subscriptions."""
@@ -398,9 +405,13 @@ class Console(App):
         elif event.select.id == "source-kind":
             if event.value in ("file", "url") and event.value != self.source_kind:
                 self.source_kind = event.value
+                source = self.query_one("#source-path", Input)
+                source.password = event.value == "url"
+                source.value = ""
+                source.placeholder = "粘贴 HTTPS 订阅 URL" if event.value == "url" else "YAML 文件路径"
                 self.clear_preview("来源已切换，请重新预览导入。")
         elif event.select.id == "source-policy":
-            if event.value in ("auto", "provider", "nodes") and event.value != self.source_policy:
+            if event.value in ("simple", "auto", "provider", "nodes") and event.value != self.source_policy:
                 self.source_policy = event.value
                 self.clear_preview("导入策略已切换，请重新预览导入。")
 
@@ -436,17 +447,20 @@ class Console(App):
             policy = self.query_one("#source-policy", Select).value or self.source_policy
             if path:
                 self.clear_preview()
-                self.schedule("operation", lambda: self.service.subscription_preview(path, url=url, policy=policy))
+                self.schedule("operation", lambda: self.service.subscription_input(path, kind="url" if url else "file", policy=policy))
             else:
-                self.query_one("#hint", Static).update("请先填写私有 YAML 文件或 URL 文件的路径。")
+                self.query_one("#hint", Static).update("请先粘贴 HTTPS 订阅 URL，或选择 YAML 文件。")
         elif identifier == "subscription-save":
             self.action_save()
-        elif identifier == "restore-backup":
-            self.push_screen(Confirm("恢复上次保存前的配置？恢复后仍需重启。"),
-                             lambda yes: self.schedule("operation", self.service.restore) if yes else None)
 
     def clear_preview(self, message=""):
         """Drop a stale preview and its seeded result so nothing else shows it."""
+        discard = getattr(self.service, 'subscription_discard', None)
+        if self.preview and 'id' in self.preview and discard is not None and 'operation' not in self.store.pending:
+            try:
+                discard(self.preview['id'])
+            except (ControlError, OSError):
+                pass  # A private abandoned preview also has a bounded lifetime.
         self.preview = None
         snapshot = self.store.state.snapshots.get("operation")
         if snapshot is not None and "operation" not in self.store.pending and snapshot.value is self.initial_preview:
@@ -514,6 +528,9 @@ class Console(App):
                     self.store.state.operations.append({key: value for key, value in result.items() if not isinstance(value, (list, dict))})
                     if result.get("state") == "preview":
                         self.preview = result
+                    if result.get("state") == "ready" and result.get("action") in ("start", "restart"):
+                        self.query_one("#source-path", Input).value = ""
+                        self.change_page("proxies")
                     if result.get("action") in ("start", "restart"):
                         self.next_refresh["overview"] = 0
                     if "delay_ms" in result:
@@ -524,12 +541,12 @@ class Console(App):
                     if result.get("state") == "preview":
                         summary = " | ".join(preview_summary(result))
                         cleared = cleared_units(result)
-                        summary += " | 点击保存，确认后重启生效" + ("（会清空本地" + "、".join(cleared) + "）" if cleared else "")
+                        summary += " | 点击保存并启动，确认后生效" + ("（会清空本地" + "、".join(cleared) + "）" if cleared else "")
                     else:
                         summary = " | ".join(line.strip() for line in report_lines(result)[:3])
                     self.query_one("#hint", Static).update(Text(summary))
                 else:
-                    self.query_one("#hint", Static).update(Text("操作未完成：" + snap.error_message + ("；可点击恢复备份，再重启" if self.pending_restart and self.last_backup else "；请检查核心与私有配置")))
+                    self.query_one("#hint", Static).update(Text("操作未完成：" + snap.error_message + "；请检查核心与私有配置"))
             if key == "logs" and not snap.error and not hasattr(self.service, "logs"):
                 self.store.state.logs.append(snap.value)
             if (key == self.page or key in ("operation", "runtime", "traffic", "memory")) and not (self.paused and self.page in ("logs", "connections")):
@@ -609,7 +626,7 @@ class Console(App):
         if error:
             body.write(Text("错误：" + summarize("error", error), style="bold"))
         if self.pending_restart:
-            body.write(Text("待生效：已保存但尚未重启；可在首页重启或恢复备份。", style="bold"))
+            body.write(Text("待生效：已保存但尚未重启；可在首页重启生效。", style="bold"))
         health = self.store.state.snapshots.get("diagnostics")
         if health is not None and isinstance(health.value, dict):
             body.write(Text("\n健康检查结论：" + str(health.value.get("overall", "UNVERIFIED"))))
@@ -744,7 +761,7 @@ class Console(App):
             elif self.page == "subscriptions":
                 body.write(Text("订阅：预览 → 保存 → 重启生效；默认自动判断，可显式选择提供商或节点合并", style="bold"))
                 if self.pending_restart:
-                    body.write(Text("已保存，尚未生效：点击重启生效；失败时可恢复备份。", style="bold"))
+                    body.write(Text("已保存，尚未生效：点击重启生效。", style="bold"))
                 if self.preview:
                     for line in preview_summary(self.preview):
                         body.write(Text(line))
@@ -831,12 +848,12 @@ class Console(App):
             if yes:
                 self.preview = None
                 if "id" in preview:
-                    self.schedule("operation", lambda: self.service.subscription_apply(preview["id"], preview["sha256"]))
+                    self.schedule("operation", lambda: self.service.subscription_save_and_start(preview["id"], preview["sha256"]))
                 elif preview.get("kind") == "health-check":
                     self.schedule("operation", lambda: self.service.health_check(apply=True))
                 else:
                     self.schedule("operation", lambda: self.service.policy(apply=True))
-        message = "校验、备份并保存此预览？保存后需单独重启生效。\n" + "\n".join(report_lines(preview))
+        message = ("保存订阅并启动或重启当前用户的代理？不保留历史备份。\n" if "id" in preview else "校验并保存此预览？保存后需单独重启生效。\n") + "\n".join(report_lines(preview))
         warnings = clearing_warnings(preview)
         if warnings:
             message += "\n\n" + "\n".join(warnings)
@@ -974,7 +991,7 @@ class Console(App):
             self.push_screen(Confirm("\n".join(report_lines(result.value) + warnings), "关闭"))
         elif result and result.error:
             self.push_screen(Confirm("操作未完成：" + result.error + "\n请检查核心、私有配置和控制器设置后重试。" +
-                                     ("\n重启失败时可点击恢复备份，再重启。" if self.pending_restart and self.last_backup else ""), "关闭"))
+                                     "", "关闭"))
 
     def action_cancel(self):
         for identifier in ("search", "command"):
@@ -987,6 +1004,8 @@ class Console(App):
             self.clear_preview("已取消当前预览；重新预览后才能保存。")
             self.render_page()
         self.batch_cancel.set()
+        if hasattr(self.service, "network_cancel"):
+            self.service.network_cancel.set()
 
 
 def run(service, ascii_only=False, theme="dark", initial_preview=None):

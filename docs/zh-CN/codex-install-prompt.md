@@ -1,3 +1,9 @@
-# Codex / OpenCode 安装 prompt
+# 终端安装 Agent 提示词
 
-使用 [完整本地安装 prompt](agent-local-install-prompt.md)，或按 [Agent 安装指引](agent-install-prompt.md) 准备其他来源。默认完成控制器、核心与初始化，不启动；无需在安装结束时另选核心版本。Codex/OpenCode 本身不是 Mihomo 核心，也不包含在控制层套件中。安装第三方 CLI 的代理继承见 [首次运行](first-run.md#通过代理安装第三方-cli)。
+为当前独立 Linux 用户安装 mihomoctl 完整包。先核验来源、摘要、架构与 Ubuntu 兼容性，将包复制到本人私有目录；不要执行共享可写代码。使用完整包的 `./install.sh --user`，不要创建 venv、调用 pip、单独安装 Textual 或要求端口转发。
+
+保留已有 manager 和活动核心。新用户通过 `mihomoctl` 的终端向导准备包内核心、私有输入订阅、预览并由用户确认保存和启动，随后选择节点。不能访问远程订阅时说明原因，支持本地 YAML。不得把 URL 或密钥放进命令参数、日志或报告。
+
+默认用户级进程，无需 sudo/systemd，不修改 Shell 启动文件，不管理第三方服务。只保留当前软件、核心和配置，不保留历史备份或提供历史回滚。未完成事务先恢复，恢复失败保留临时材料并报告。安装完成后运行 version/帮助检查；实际节点连通性须有真实请求证据。
+
+参考 [安装说明](../../INSTALL.md) 和 [终端教程](console.md)。

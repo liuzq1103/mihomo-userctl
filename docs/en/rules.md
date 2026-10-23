@@ -1,6 +1,6 @@
 # Custom rules
 
-Import a [subscription](subscriptions.md) first. Read `core.config` in your private manager.yaml and back up that active configuration before editing it. The current checker requires a group named exactly `Proxy`: ensure it exists and selects your intended remote node (not DIRECT). Names are case-sensitive. Provider policy imports may later replace groups/rules; review again after importing.
+Import a [subscription](subscriptions.md) first. Read `core.config` in your private manager.yaml and preview and validate changes before applying them; the tool retains no historical copy. The current checker requires a group named exactly `Proxy`: ensure it exists and selects your intended remote node (not DIRECT). Names are case-sensitive. Provider policy imports may later replace groups/rules; review again after importing.
 
 Create these three files, keeping existing user rules when adapting this example. Do not run the file-creation snippet over existing files without merging their contents. Directory permission must be 700 and file permissions 600. Paths are relative to the managed Mihomo HomeDir, not the repository or working directory.
 
