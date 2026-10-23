@@ -54,6 +54,19 @@ jobs:
               return json.loads(text) if text is not None else None
 
 
+          def release_record(optional=False):
+              # GitHub's by-tag REST endpoint returns 404 for an unpublished tag even
+              # when the associated draft release exists. List authorized draft records
+              # and retain their numeric ID rather than creating a second draft.
+              matches = [row for row in api('releases?per_page=100') if row['tag_name'] == TAG]
+              assert len(matches) <= 1, 'multiple releases for the requested tag'
+              if not matches:
+                  if optional:
+                      return None
+                  raise RuntimeError('release-record-missing')
+              return api('releases/' + str(matches[0]['id']))
+
+
           def validate_run():
               run = api('actions/runs/' + RUN)
               assert run['repository']['full_name'] == REPO
@@ -74,11 +87,11 @@ jobs:
               for name, expected in inventory.items():
                   path = ASSETS / name
                   assert path.stat().st_size == expected['bytes'] and hashlib.sha256(path.read_bytes()).hexdigest() == expected['sha256']
-              release = api('releases/tags/' + TAG, optional=True)
+              release = release_record(optional=True)
               if release is None:
                   gh('release', 'create', TAG, '--repo', REPO, '--target', COMMIT, '--draft',
                      '--title', 'mihomoctl v1.4.0 - complete SSH bundle', '--notes-file', str(BASE / 'release-notes.md'))
-                  release = api('releases/tags/' + TAG)
+                  release = release_record()
               assert release['target_commitish'] == COMMIT and release['prerelease'] is False
               for asset in release['assets']:
                   assert asset['name'] in inventory
@@ -87,7 +100,7 @@ jobs:
               if missing:
                   assert release['draft'] is True, 'refuse to change an incomplete public release'
                   gh('release', 'upload', TAG, '--repo', REPO, *[str(ASSETS / name) for name in sorted(missing)])
-              release = api('releases/tags/' + TAG)
+              release = release_record()
               assert names == {asset['name'] for asset in release['assets']}
               for asset in release['assets']:
                   assert asset['state'] == 'uploaded'
@@ -96,7 +109,7 @@ jobs:
               print('Verified all uploaded GitHub asset digests:', len(names), flush=True)
               if release['draft']:
                   gh('release', 'edit', TAG, '--repo', REPO, '--draft=false', '--latest')
-              release = api('releases/tags/' + TAG)
+              release = release_record()
               assert release['draft'] is False and release['published_at']
               tag = api('git/ref/tags/' + TAG)
               assert tag['object']['type'] == 'commit' and tag['object']['sha'] == COMMIT
