@@ -215,11 +215,14 @@ def build(artifacts, runtime, core, wheelhouse, output, *, worktree=False):
         if sum(p.stat().st_size for p in root.rglob('*') if p.is_file()) > MAX_EXPANDED:
             raise ValueError('portable-expanded-budget-exceeded')
         subprocess.run([python, '-I', '-B', '-c',
-                        'import os, ssl, encodings, ctypes, asyncio, multiprocessing, _curses, _tkinter; '
+                        'import os, sys, ssl, subprocess, encodings, ctypes, asyncio, multiprocessing, _curses, _tkinter; '
                         'context = ssl.create_default_context(); paths = ssl.get_default_verify_paths(); '
                         'assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname; '
                         'assert (paths.cafile and os.path.isfile(paths.cafile)) or '
-                        '(paths.capath and os.path.isdir(paths.capath))'], check=True)
+                        '(paths.capath and os.path.isdir(paths.capath)); '
+                        'subprocess.run([sys.executable, "-I", "-B", "-c", "import ssl, encodings"], check=True, timeout=30); '
+                        'child = multiprocessing.get_context("spawn").Process(target=os.getpid); '
+                        'child.start(); child.join(30); assert child.exitcode == 0'], check=True)
         subprocess.run([root / 'mihomoctl', 'version', '--json'], check=True)
         temporary_archive = output / ('.' + name + '.partial')
         with temporary_archive.open('xb') as raw, gzip.GzipFile(filename='', mode='wb', fileobj=raw, mtime=epoch) as gz:
