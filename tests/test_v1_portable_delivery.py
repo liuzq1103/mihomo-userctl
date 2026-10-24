@@ -71,6 +71,20 @@ class RuntimePruningTests(unittest.TestCase):
 
 
 class PublicationIdentityTests(unittest.TestCase):
+    def test_creation_response_survives_stale_release_listing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'release-notes.md').write_text('reviewed notes', encoding='utf-8')
+            record = {'id': 123, 'target_commitish': 'a' * 40, 'prerelease': False,
+                      'draft': True, 'body': 'reviewed notes', 'name': 'mihomoctl v1.4.1',
+                      'assets': [], 'html_url': 'draft'}
+            with patch.object(publication, 'check_existing_tag'), \
+                    patch.object(publication, 'find_release', return_value=None) as lookup, \
+                    patch.object(publication, 'create_draft', return_value=record), \
+                    patch.object(publication, 'download_verify'):
+                self.assertFalse(publication.deliver('owner/repo', 'a' * 40, '1.4.1', root, {}, False)['published'])
+                lookup.assert_called_once()
+
     def test_public_tag_must_exist(self):
         with patch.object(publication, 'command', return_value='[[]]'):
             publication.check_existing_tag('owner/repo', 'v1.4.1', 'a' * 40)
