@@ -24,7 +24,20 @@ def command(*args):
 
 
 def api(repo, endpoint):
-    return json.loads(command('gh', 'api', 'repos/' + repo + '/' + endpoint))
+    return json.loads(command('gh', 'api', '--header', 'Cache-Control: no-cache',
+                              'repos/' + repo + '/' + endpoint))
+
+
+def create_draft(repo, tag, commit, notes):
+    # The list endpoint may briefly omit a just-created draft. Retain the
+    # creation response (including its numeric ID), rather than rediscover it.
+    with tempfile.TemporaryDirectory(prefix='mihomoctl-draft-request-') as temporary:
+        body = Path(temporary) / 'request.json'
+        body.write_text(json.dumps({'tag_name': tag, 'target_commitish': commit,
+                        'name': 'mihomoctl ' + tag, 'body': notes,
+                        'draft': True, 'prerelease': False}), encoding='utf-8')
+        return json.loads(command('gh', 'api', '--method', 'POST',
+                                  'repos/' + repo + '/releases', '--input', body))
 
 
 def validate_run(repo, run_id, commit):
@@ -55,6 +68,7 @@ def find_release(repo, tag):
 def check_existing_tag(repo, tag, commit, *, required=False):
     # Paginated matching refs handles a missing draft tag without hiding API errors.
     refs = json.loads(command('gh', 'api', '--paginate', '--slurp',
+                             '--header', 'Cache-Control: no-cache',
                              'repos/' + repo + '/git/matching-refs/tags/' + tag))
     exact = [row for page in refs for row in page if row['ref'] == 'refs/tags/' + tag]
     if len(exact) > 1:
@@ -151,9 +165,7 @@ def deliver(repo, commit, version, output, inventory, publish):
     check_existing_tag(repo, tag, commit)
     record = find_release(repo, tag)
     if record is None:
-        command('gh', 'release', 'create', tag, '--repo', repo, '--target', commit,
-                '--draft', '--title', 'mihomoctl ' + tag, '--notes-file', output / 'release-notes.md')
-        record = find_release(repo, tag)
+        record = create_draft(repo, tag, commit, (output / 'release-notes.md').read_text(encoding='utf-8'))
     if record['target_commitish'] != commit or record['prerelease'] is not False:
         raise ValueError('release-identity-mismatch')
     if not record['draft']:
