@@ -1,6 +1,6 @@
 # Configuration and compatibility contract
 
-The manager schema remains `version: 1`, independently of package version 1.4.0. Public JSON remains `mihomoctl/v1`, with command, scope, overall, data, checks and errors. PASS exits 0, FAIL exits 1, UNVERIFIED exits 2; exec/direct preserve child exit and signal behavior after launch.
+The manager schema remains `version: 1`, independently of package version 1.4.1. Public JSON remains `mihomoctl/v1`, with command, scope, overall, data, checks and errors. PASS exits 0, FAIL exits 1, UNVERIFIED exits 2; exec/direct preserve child exit and signal behavior after launch.
 
 Read the initialized private manager.yaml rather than replacing it wholesale. A profile references named core listeners and a private credentials_file; it never duplicates ports or embeds passwords. Bindings reference a profile and adapter. Supported adapters: exec, systemd, docker, kubernetes, supervisor, pm2, ci. See [integration examples](../operations/integrations.md).
 

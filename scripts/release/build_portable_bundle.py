@@ -25,6 +25,8 @@ sys.path.insert(0, str(ROOT))
 
 from mihomoctl.portable import verify_bundle, MAX_BYTES, MAX_FILES
 from mihomoctl.release_artifacts import load_artifacts, safe_member, verify_wheel_inventory
+from scripts.release.trim_portable_runtime import trim
+from scripts.release.portable_policy import MAX_DOWNLOAD, MAX_EXPANDED
 
 LAUNCHER = '''#!/bin/sh
 set -eu
@@ -144,6 +146,8 @@ def build(artifacts, runtime, core, wheelhouse, output, *, worktree=False):
                 shutil.rmtree(path)
         for path in (root / 'runtime/bin').glob('pip*'):
             path.unlink()
+        pruning = trim(root / 'runtime', scan_root=root)
+        (root / 'runtime-trim.json').write_text(json.dumps(pruning, indent=2, sort_keys=True) + '\n')
         for record in (root / 'lib').glob('*.dist-info/RECORD'):
             rows = []
             with record.open(newline='') as stream:
@@ -192,6 +196,7 @@ def build(artifacts, runtime, core, wheelhouse, output, *, worktree=False):
             'mihomoctl complete SSH bundle\nVerify the outer checksum through a trusted release record.\n'
             './mihomoctl opens the terminal UI. ./install.sh installs for this user.\n'
             'Python, Textual and the pinned Mihomo core are included. No venv or pip is needed.\n'
+            'The private runtime omits development aliases, headers, ensurepip and IDLE.\n'
             'Subscription URLs require reachable HTTPS endpoints. No historical backups are retained.\n'
             'Use ./mihomoctl tui --engine plain for a basic terminal.\n', encoding='utf-8')
         for cache in root.rglob('__pycache__'):
@@ -207,6 +212,17 @@ def build(artifacts, runtime, core, wheelhouse, output, *, worktree=False):
                     'runtime': runtime_pin, 'core': core_pin, 'files': files}
         (root / 'bundle-manifest.json').write_text(json.dumps(document, indent=2, sort_keys=True) + '\n')
         verify_bundle(root)
+        if sum(p.stat().st_size for p in root.rglob('*') if p.is_file()) > MAX_EXPANDED:
+            raise ValueError('portable-expanded-budget-exceeded')
+        subprocess.run([python, '-I', '-B', '-c',
+                        'import os, sys, ssl, subprocess, encodings, ctypes, asyncio, multiprocessing, _curses, _tkinter; '
+                        'context = ssl.create_default_context(); paths = ssl.get_default_verify_paths(); '
+                        'assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname; '
+                        'assert (paths.cafile and os.path.isfile(paths.cafile)) or '
+                        '(paths.capath and os.path.isdir(paths.capath)); '
+                        'subprocess.run([sys.executable, "-I", "-B", "-c", "import ssl, encodings"], check=True, timeout=30); '
+                        'child = multiprocessing.get_context("spawn").Process(target=os.getpid); '
+                        'child.start(); child.join(30); assert child.exitcode == 0'], check=True)
         subprocess.run([root / 'mihomoctl', 'version', '--json'], check=True)
         temporary_archive = output / ('.' + name + '.partial')
         with temporary_archive.open('xb') as raw, gzip.GzipFile(filename='', mode='wb', fileobj=raw, mtime=epoch) as gz:
@@ -227,6 +243,9 @@ def build(artifacts, runtime, core, wheelhouse, output, *, worktree=False):
                         else:
                             with path.open('rb') as source:
                                 package.addfile(info, source)
+        if temporary_archive.stat().st_size > MAX_DOWNLOAD:
+            temporary_archive.unlink()
+            raise ValueError('portable-download-budget-exceeded')
         os.link(temporary_archive, archive)
         temporary_archive.unlink()
     checksum = digest(archive)

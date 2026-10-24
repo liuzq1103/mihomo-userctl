@@ -58,6 +58,7 @@ def download(pin, repository, tag, directory):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--previous-bundle', action='store_true', help='also fetch pinned 1.4.0 upgrade fixture')
     args = parser.parse_args()
     os.umask(0o077)
     args.output.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -65,3 +66,7 @@ if __name__ == '__main__':
     core = json.loads((ROOT / 'mihomoctl/mihomo-digests.json').read_text())['pins'][0]
     download(runtime, 'astral-sh/python-build-standalone', runtime['release'], args.output)
     download(core, 'MetaCubeX/mihomo', core['version'], args.output)
+    if args.previous_bundle:
+        import runpy
+        baseline = runpy.run_path(str(Path(__file__).with_name('portable_policy.py')))['BASELINE']
+        download(baseline, 'liuzq1103/mihomo-userctl', 'v' + baseline['version'], args.output)

@@ -1,22 +1,22 @@
-# Install mihomoctl 1.4.0
+# Install mihomoctl 1.4.1
 
-<!-- stable-version: 1.4.0 -->
+<!-- stable-version: 1.4.1 -->
 
 The complete SSH bundle supports Ubuntu 22.04/24.04 x86_64 and includes Python, Textual, all dependencies and the pinned Mihomo core. No system Python, virtual environment, pip, sudo or port forwarding is required. Each Linux account owns a separate proxy instance.
 
-Use the complete bundle from the [v1.4.0 release](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.4.0). Source archives and legacy wheelhouse kits do not include an interpreter. Development builds marked `publishable: false` are not release artifacts.
+Use the complete bundle from the [v1.4.1 release](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.4.1). Source archives and legacy wheelhouse kits do not include an interpreter. Development builds marked `publishable: false` are not release artifacts.
 
 ## Download, verify and run
 
-Obtain `mihomoctl-1.4.0-portable-linux-x86_64.tar.gz` and its `.sha256` sidecar through a trusted release channel. Verify the digest against an independently trusted release record before running code. A colocated checksum alone does not authenticate a publisher. Transfer the whole archive to the server if it cannot access GitHub.
+Obtain `mihomoctl-1.4.1-portable-linux-x86_64.tar.gz` and its `.sha256` sidecar through a trusted release channel. Verify the digest against an independently trusted release record before running code. A colocated checksum alone does not authenticate a publisher. Transfer the whole archive to the server if it cannot access GitHub.
 
 ```bash
 umask 077
-curl --fail --location --remote-name https://github.com/liuzq1103/mihomo-userctl/releases/download/v1.4.0/mihomoctl-1.4.0-portable-linux-x86_64.tar.gz
-curl --fail --location --remote-name https://github.com/liuzq1103/mihomo-userctl/releases/download/v1.4.0/mihomoctl-1.4.0-portable-linux-x86_64.tar.gz.sha256
-sha256sum --check --strict mihomoctl-1.4.0-portable-linux-x86_64.tar.gz.sha256
-tar -xzf mihomoctl-1.4.0-portable-linux-x86_64.tar.gz
-cd mihomoctl-1.4.0-portable-linux-x86_64
+curl --fail --location --remote-name https://github.com/liuzq1103/mihomo-userctl/releases/download/v1.4.1/mihomoctl-1.4.1-portable-linux-x86_64.tar.gz
+curl --fail --location --remote-name https://github.com/liuzq1103/mihomo-userctl/releases/download/v1.4.1/mihomoctl-1.4.1-portable-linux-x86_64.tar.gz.sha256
+sha256sum --check --strict mihomoctl-1.4.1-portable-linux-x86_64.tar.gz.sha256
+tar -xzf mihomoctl-1.4.1-portable-linux-x86_64.tar.gz
+cd mihomoctl-1.4.1-portable-linux-x86_64
 ./mihomoctl
 ```
 

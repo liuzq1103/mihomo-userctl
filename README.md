@@ -12,8 +12,8 @@ mihomoctl 为 Linux 上的 Mihomo 提供用户级运行管理、认证代理环�
 
 ## 系统要求和当前稳定版本
 
-<!-- stable-version: 1.4.0 -->
-当前稳定版本：**1.4.0**。面向多人共享服务器，每人使用独立 Linux 账号。新增完整发行包内置 Python、Textual、依赖与固定核心，面向 Ubuntu 22.04/24.04 x86_64；无需创建虚拟环境、单独安装界面或使用端口转发。从 [v1.4.0 发布页](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.4.0) 下载完整包及摘要。源码和旧式 wheelhouse 套件仍需自行准备运行环境。
+<!-- stable-version: 1.4.1 -->
+当前稳定版本：**1.4.1**。面向多人共享服务器，每人使用独立 Linux 账号。新增完整发行包内置 Python、Textual、依赖与固定核心，面向 Ubuntu 22.04/24.04 x86_64；无需创建虚拟环境、单独安装界面或使用端口转发。从 [v1.4.1 发布页](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.4.1) 下载完整包及摘要。源码和旧式 wheelhouse 套件仍需自行准备运行环境。
 
 ## 最短 Quick Start
 
