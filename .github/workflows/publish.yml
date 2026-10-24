@@ -1,0 +1,80 @@
+name: Publish gated release
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful main push run of test.yml
+        required: true
+        type: string
+      publish:
+        description: Publish the verified draft and mark latest
+        default: false
+        type: boolean
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: mihomoctl-publish
+  cancel-in-progress: false
+jobs:
+  deliver:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_ID: ${{ inputs.run_id }}
+    steps:
+      - name: Resolve successful main test run
+        id: source
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          run_id = os.environ['RUN_ID']
+          assert run_id.isdecimal()
+          repo = os.environ['GITHUB_REPOSITORY']
+          run = json.loads(subprocess.check_output(['gh', 'api', 'repos/' + repo + '/actions/runs/' + run_id]))
+          assert run['repository']['full_name'] == repo
+          assert run['head_branch'] == 'main' and run['event'] == 'push'
+          assert run['status'] == 'completed' and run['conclusion'] == 'success'
+          assert run['path'] == '.github/workflows/test.yml'
+          assert re.fullmatch('[0-9a-f]{40}', run['head_sha'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('sha=' + run['head_sha'] + '\n')
+          PY
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.run_id }}
+          path: dist/publication/ci
+      - name: Prepare validator and pinned previous release
+        shell: bash
+        run: |
+          umask 077
+          python3 -m venv "$RUNNER_TEMP/validator"
+          "$RUNNER_TEMP/validator/bin/pip" install --require-hashes -r requirements-lock.txt
+          mkdir -p dist/publication/previous
+          gh release download v1.4.0 --pattern mihomoctl-1.4.0-portable-linux-x86_64.tar.gz --dir dist/publication/previous
+      - name: Verify draft and optionally publish
+        shell: bash
+        env:
+          PUBLISH_RELEASE: ${{ inputs.publish }}
+        run: |
+          args=()
+          if [ "$PUBLISH_RELEASE" = true ]; then args+=(--publish); fi
+          "$RUNNER_TEMP/validator/bin/python" scripts/release/publish_release.py --run-id "$RUN_ID" --artifacts dist/publication/ci --output dist/publication "${args[@]}"
+      - name: Preserve publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: publication-verification-${{ inputs.run_id }}
+          path: |
+            dist/publication/publication-verification.json
+            dist/publication/delivered-smoke.json
+            dist/publication/asset-inventory.json
+            dist/publication/release-notes.md
+          if-no-files-found: warn

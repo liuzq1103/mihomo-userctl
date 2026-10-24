@@ -11,6 +11,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts.release.verify_offline_bundle import load_bundle
+from scripts.release.portable_policy import BASELINE, MAX_DOWNLOAD, MAX_EXPANDED, MAX_INSTALLED
 
 
 class GateError(ValueError):
@@ -146,10 +147,27 @@ def verify(artifacts, evidence, commit, offline_artifacts=None, portable_artifac
         name = 'mihomoctl-' + version + '-portable-linux-x86_64.tar.gz'
         archive = portable_artifacts / name
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        if archive.stat().st_size > MAX_DOWNLOAD:
+            raise GateError('portable-download-budget-exceeded')
         if (portable_artifacts / (name + '.sha256')).read_text().strip() != digest + '  ' + name:
             raise GateError('portable-checksum-mismatch')
         for ubuntu in ('22.04', '24.04'):
             report = document(evidence / ('validation-ubuntu-' + ubuntu) / 'portable-acceptance.json')
+            if (type(report.get('bundle_bytes')) is not int or report['bundle_bytes'] != archive.stat().st_size
+                    or type(report.get('expanded_bytes')) is not int or not 0 < report['expanded_bytes'] <= MAX_EXPANDED
+                    or report.get('baseline') != BASELINE):
+                raise GateError('portable-size-evidence-invalid: ' + ubuntu)
+            for row in report.get('users', []):
+                upgrade = row.get('previous_upgrade', {})
+                if (type(row.get('installed_bytes')) is not int or not 0 < row['installed_bytes'] <= MAX_INSTALLED
+                        or upgrade.get('previous_version') != BASELINE['version']
+                        or upgrade.get('previous_commit') != BASELINE['commit']
+                        or upgrade.get('previous_bundle_sha256') != BASELINE['sha256']
+                        or upgrade.get('version') != version
+                        or any(upgrade.get(key) is not True for key in ('success', 'core_identity_unchanged',
+                            'core_digest_unchanged', 'authentication_preserved', 'selection_preserved',
+                            'protected_files_unchanged', 'no_history'))):
+                    raise GateError('portable-previous-upgrade-incomplete: ' + ubuntu)
             users = report.get('users', [])
             if (report.get('success') is not True or report.get('network_isolated') is not True
                     or report.get('os') != 'ubuntu' or report.get('ubuntu') != ubuntu

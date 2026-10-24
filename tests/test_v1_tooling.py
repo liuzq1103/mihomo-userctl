@@ -18,6 +18,7 @@ from unittest.mock import patch
 import zipfile
 
 from scripts.release import build_release, verify_release
+from scripts.release.portable_policy import BASELINE
 from scripts.ci import secret_scan
 
 
@@ -191,7 +192,15 @@ class PublishGateTests(unittest.TestCase):
                 'success': True, 'network_isolated': True, 'real_uids': True,
                 'publishable': True, 'os': 'ubuntu', 'ubuntu': ubuntu,
                 'commit': self.commit, 'version': '1.0.0', 'bundle_sha256': checksum,
+                'bundle_bytes': archive.stat().st_size, 'expanded_bytes': 100,
+                'baseline': BASELINE,
                 'users': [{'uid': uid, 'controller_port': 30000 + uid,
+                           'installed_bytes': 100,
+                           'previous_upgrade': {'success': True, 'previous_version': BASELINE['version'],
+                               'previous_commit': BASELINE['commit'], 'previous_bundle_sha256': BASELINE['sha256'],
+                               'version': '1.0.0', 'core_identity_unchanged': True, 'core_digest_unchanged': True,
+                               'authentication_preserved': True, 'selection_preserved': True,
+                               'protected_files_unchanged': True, 'no_history': True},
                            'core_sha256': 'c' * 64, 'no_history': True,
                            'authentication_rejected': True, 'system_python_absent_from_path': True,
                            'ssh_transport': uid == 1002, 'active_ui_update_refused': True,
@@ -204,6 +213,15 @@ class PublishGateTests(unittest.TestCase):
         self.assertIn(archive.name, verify()['assets'])
         path = self.report_path('24.04', 'portable-acceptance')
         original = json.loads(path.read_text())
+        invalid = json.loads(json.dumps(original))
+        invalid['users'][0]['previous_upgrade']['core_identity_unchanged'] = False
+        self.save(path, invalid)
+        with self.assertRaisesRegex(verify_release.GateError, 'previous-upgrade'):
+            verify()
+        invalid = dict(original, expanded_bytes=160000001)
+        self.save(path, invalid)
+        with self.assertRaisesRegex(verify_release.GateError, 'size-evidence'):
+            verify()
         for key, value in (('bundle_sha256', 'd' * 64), ('network_isolated', False)):
             self.save(path, dict(original, **{key: value}))
             with self.assertRaisesRegex(verify_release.GateError, 'portable-acceptance'):

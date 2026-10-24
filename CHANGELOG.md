@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.1] - 2026-10-24
+
+- Remove duplicate Python executables and the development libpython alias while retaining the complete offline terminal experience.
+- Trim headers, ensurepip, IDLE and their unused wrappers after dependency installation; verify the pinned runtime layout and ELF dependencies before pruning.
+- Gate both Ubuntu targets on a real 1.4.0 portable upgrade with a running authenticated core, preserving process identity, configuration and node selection.
+- Enforce decimal-byte archive, expanded and first-install budgets and report physical allocation and sampled temporary peaks.
+- Avoid uploading the second identical portable artifact; publish only validated main CI outputs through a resumable draft workflow.
+
 ## [1.4.0] - 2026-10-23
 
 - Ship a relocatable Linux x86_64 bundle with pinned Python, Textual, dependencies and Mihomo; no target venv or pip setup.

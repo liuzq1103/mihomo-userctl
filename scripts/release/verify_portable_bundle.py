@@ -20,8 +20,90 @@ import sys
 import tempfile
 import time
 import platform
+import runpy
 
 ROOT = Path(__file__).resolve().parents[2]
+POLICY = runpy.run_path(str(Path(__file__).with_name('portable_policy.py')))
+BASELINE = POLICY['BASELINE']
+usage, PeakUsage = POLICY['usage'], POLICY['PeakUsage']
+
+
+def upgrade_scenario(previous, candidate, home):
+    """Use the real 1.4.0 launcher while its authenticated core keeps running."""
+    previous, candidate, home = map(Path, (previous, candidate, home))
+    home.mkdir(mode=0o700)
+    env = dict(os.environ, HOME=str(home))
+    for key in ('CONFIG', 'DATA', 'STATE', 'CACHE', 'RUNTIME'):
+        directory = home / key.lower()
+        directory.mkdir(mode=0o700)
+        env['XDG_' + key + ('_DIR' if key == 'RUNTIME' else '_HOME')] = str(directory)
+    os.environ.clear()
+    os.environ.update(env)
+    (home / '.bashrc').write_bytes(b'# preserve upgrade shell\n')
+    run([previous / 'install.sh'], env)
+    command = home / '.local/bin/mihomoctl'
+    assert json.loads(run([command, 'version', '--json'], env).stdout)['data']['mihomoctl'] == BASELINE['version']
+    # Import from the installed OLD generation, not the new candidate.
+    sys.path.insert(0, str((home / 'data/mihomoctl/install/current/lib').resolve()))
+    from mihomoctl.app import Application
+    from mihomoctl.portable import prepare_core
+    from mihomoctl.controller.controller_service import ConsoleService
+    from mihomoctl.controller.controller_config import read_config, endpoint
+    from mihomoctl.controller.controller_api import Client
+    from mihomoctl import identity
+    from mihomoctl.installation import verify_installed, InstallPaths
+    app = Application()
+    core = prepare_core(app.scope)
+    app.initialize(str(core))
+    source = home / 'upgrade-subscription.yaml'
+    source.write_text('proxies: [{name: Upgrade A, type: direct}, {name: Upgrade B, type: direct}]\n')
+    source.chmod(0o600)
+    service = ConsoleService(app.load_manager().core.config, str(app.scope.core_home), app=app)
+    try:
+        plan = service.subscription_input(str(source), kind='file')
+        service.subscription_save_and_start(plan['id'], plan['sha256'])
+        service.choose('Proxy', 'Upgrade B')
+        state = json.loads(app.scope.runtime_state.read_text())
+        before = {key: state[key] for key in ('pid', 'uid', 'start_time', 'exe', 'binary', 'config')}
+        core_sha = POLICY['file_digest'](core)
+        _, config, _ = read_config(Path(app.load_manager().core.config))
+        port, secret = endpoint(config)
+        client = Client(port, secret)
+        client.request('/version')
+        protected_paths = [home / '.bashrc', app.scope.manager_path, Path(app.load_manager().core.config)]
+        for directory in (app.scope.config_root, app.scope.credentials_dir):
+            protected_paths.extend(p for p in directory.rglob('*') if p.is_file() and not p.is_symlink())
+        protected = {str(p): p.read_bytes() for p in protected_paths}
+        with PeakUsage(home) as peak:
+            run([command, 'update', candidate], env)
+        new_version = json.loads(run([command, 'version', '--json'], env).stdout)['data']['mihomoctl']
+        assert new_version == json.loads((candidate / 'bundle-manifest.json').read_text())['version']
+        after = json.loads(app.scope.runtime_state.read_text())
+        assert before == {key: after[key] for key in before}
+        assert identity.alive(identity.ProcessIdentity(before['pid'], before['uid'], before['start_time'], before['exe'], before['config']))
+        assert str(Path('/proc/%d/exe' % before['pid']).resolve()) == before['exe']
+        assert POLICY['file_digest'](core) == core_sha
+        assert client.request('/proxies/Proxy')['now'] == 'Upgrade B'
+        try:
+            Client(port, 'incorrect-token').request('/version')
+        except Exception:
+            pass
+        else:
+            raise RuntimeError('upgrade-controller-authentication-lost')
+        assert all(Path(name).read_bytes() == body for name, body in protected.items())
+        installed = verify_installed(app.scope)
+        paths = InstallPaths(app.scope)
+        assert installed['version'] == new_version and len(list(paths.generations.iterdir())) == 1
+        assert not list(paths.backups_root.iterdir()) and not list(app.scope.backups_root.iterdir())
+        result = {'success': True, 'previous_version': BASELINE['version'],
+                  'previous_commit': BASELINE['commit'], 'previous_bundle_sha256': BASELINE['sha256'],
+                  'version': new_version, 'core_identity_unchanged': True,
+                  'core_digest_unchanged': True, 'authentication_preserved': True,
+                  'selection_preserved': True, 'protected_files_unchanged': True, 'no_history': True,
+                  'observed_upgrade_peak': peak.peak, 'peak_sample_interval_ms': 50}
+        print(json.dumps(result, sort_keys=True))
+    finally:
+        run([command, 'stop'], env)
 
 
 def run(command, env, **options):
@@ -99,7 +181,7 @@ def terminal_probe(command, env, during=None, remote_runtime=None):
         os.close(master)
 
 
-def worker(root, home, archive):
+def worker(root, home, archive, previous=None):
     root, home = Path(root), Path(home)
     wait = os.environ.get('MIHOMOCTL_PORTABLE_WAIT') == '1'
     ssh = json.loads(os.environ['MIHOMOCTL_PORTABLE_SSH']) if os.environ.get('MIHOMOCTL_PORTABLE_SSH') else None
@@ -127,7 +209,8 @@ def worker(root, home, archive):
     (home / 'run').mkdir(mode=0o700)
     startup = home / '.bashrc'
     startup.write_bytes(b'# keep this file unchanged\n')
-    run([root / 'install.sh'], env)
+    with PeakUsage(home) as install_peak:
+        run([root / 'install.sh'], env)
     command = home / '.local/bin/mihomoctl'
     elapsed = []
     for _ in range(3):
@@ -141,8 +224,9 @@ def worker(root, home, archive):
     from mihomoctl.controller.controller_service import ConsoleService
     from mihomoctl.installation import verify_installed, InstallPaths
     app = Application()
-    core = prepare_core(app.scope)
-    app.initialize(str(core))
+    with PeakUsage(home) as core_peak:
+        core = prepare_core(app.scope)
+        app.initialize(str(core))
     source = home / 'subscription.yaml'
     source.write_text('proxies: [{name: 本地 A, type: direct}, {name: Local B, type: direct}]\n')
     source.chmod(0o600)
@@ -189,6 +273,12 @@ def worker(root, home, archive):
                   'extraction_umask_0002': True,
                   'system_python_absent_from_path': True, 'authentication_rejected': rejected,
                   'active_ui_update_refused': True, 'ssh_transport': bool(ssh), **metrics}
+        result['directory_usage'] = {name: usage(home / name) for name in ('data', 'config', 'state', 'cache', 'run')}
+        result['generation_usage'] = usage(home / 'data/mihomoctl/install/current')
+        result['observed_install_peak'] = install_peak.peak
+        result['observed_initialization_peak'] = core_peak.peak
+        result['peak_sample_interval_ms'] = 50
+        assert result['installed_bytes'] <= POLICY['MAX_INSTALLED']
         (home / 'ready.json').write_text(json.dumps(result))
         (home / 'ready.json').chmod(0o600)
         if wait:
@@ -207,6 +297,10 @@ def worker(root, home, archive):
         assert config.read_bytes() and hashlib.sha256(config.read_bytes()).hexdigest() == result['config_sha256']
         assert startup.read_bytes() == b'# keep this file unchanged\n'
         result['no_history'] = True
+        if previous:
+            completed = run([root / 'runtime/bin/python3', '-I', '-B', Path(__file__),
+                             '--upgrade-worker', previous, root, home / 'upgrade'], env)
+            result['previous_upgrade'] = json.loads(completed.stdout)
         (home / 'result.json').write_text(json.dumps(result))
     finally:
         # Never leave a test core behind, including after a failed assertion.
@@ -216,7 +310,7 @@ def worker(root, home, archive):
             pass
 
 
-def verify(bundle, report, real_users=False, require_isolation=False, ssh_user=None):
+def verify(bundle, report, real_users=False, require_isolation=False, ssh_user=None, previous_bundle=None):
     if str(ROOT) not in sys.path:
         sys.path.append(str(ROOT))
     from mihomoctl.portable import source_tree, verify_bundle
@@ -236,6 +330,18 @@ def verify(bundle, report, real_users=False, require_isolation=False, ssh_user=N
         shutil.copyfile(bundle, delivered)
         delivered.chmod(0o644)
         manifest = verify_bundle(root)
+        previous = None
+        if previous_bundle:
+            if POLICY['file_digest'](previous_bundle) != BASELINE['sha256']:
+                raise RuntimeError('previous-portable-digest-mismatch')
+            with source_tree(previous_bundle) as old:
+                old_manifest = verify_bundle(old)
+                if any(old_manifest.get(key) != BASELINE[key] for key in ('version', 'commit')) or old_manifest.get('publishable') is not True:
+                    raise RuntimeError('previous-portable-identity-mismatch')
+                previous = base / 'previous bundle'
+                shutil.copytree(old, previous)
+            for path in (previous, *previous.rglob('*')):
+                path.chmod(0o755 if path.is_dir() or path.stat().st_mode & 0o111 else 0o644)
         # Root-owned immutable application files can be shared; every worker
         # installs into a separate private home using the actual delivered CLI.
         for path in (root, *root.rglob('*')):
@@ -281,6 +387,8 @@ def verify(bundle, report, real_users=False, require_isolation=False, ssh_user=N
         children, homes = [], []
         script = base / 'verify.py'
         shutil.copyfile(Path(__file__), script)
+        shutil.copyfile(Path(__file__).with_name('portable_policy.py'), base / 'portable_policy.py')
+        (base / 'portable_policy.py').chmod(0o644)
         script.chmod(0o644)
         try:
             for index, uid in enumerate(users):
@@ -299,8 +407,11 @@ def verify(bundle, report, real_users=False, require_isolation=False, ssh_user=N
                     environment['MIHOMOCTL_PORTABLE_SSH'] = json.dumps(ssh_config)
                 credentials = {'user': uid, 'group': uid, 'extra_groups': []} if real_users else {}
                 output = (base / ('worker-%d.log' % index)).open('w')
-                child = subprocess.Popen([root / 'runtime/bin/python3', '-I', '-B', script,
-                                          '--worker', root, home, delivered], env=environment,
+                worker_args = [root / 'runtime/bin/python3', '-I', '-B', script,
+                               '--worker', root, home, delivered]
+                if previous:
+                    worker_args.extend(['--previous-root', previous])
+                child = subprocess.Popen(worker_args, env=environment,
                                          stdout=output, stderr=output, **credentials)
                 output.close()
                 children.append(child)
@@ -322,7 +433,7 @@ def verify(bundle, report, real_users=False, require_isolation=False, ssh_user=N
             for home in homes:
                 (home / 'finish').touch()
             for index, child in enumerate(children):
-                if child.wait(timeout=120) != 0:
+                if child.wait(timeout=300) != 0:
                     raise RuntimeError('worker finalization failed\n' +
                                        (base / ('worker-%d.log' % index)).read_text()[-5000:])
             rows = [json.loads((home / 'result.json').read_text()) for home in homes]
@@ -332,7 +443,12 @@ def verify(bundle, report, real_users=False, require_isolation=False, ssh_user=N
                       'publishable': manifest['publishable'], 'network_isolated': isolated,
                       'real_uids': real_users, 'users': rows, 'core_sha256': rows[0]['core_sha256'],
                       'bundle_sha256': hashlib.sha256(delivered.read_bytes()).hexdigest(),
-                      'bundle_bytes': delivered.stat().st_size}
+                      'bundle_bytes': delivered.stat().st_size,
+                      'expanded_bytes': usage(root)['logical_bytes'], 'baseline': BASELINE}
+            result['external_input_bytes'] = Path(bundle).stat().st_size + (Path(previous_bundle).stat().st_size if previous_bundle else 0)
+            result['external_unpacked_source_usage'] = usage(source)
+            assert result['bundle_bytes'] <= POLICY['MAX_DOWNLOAD']
+            assert result['expanded_bytes'] <= POLICY['MAX_EXPANDED']
         finally:
             for home in homes:
                 (home / 'finish').touch(exist_ok=True)
@@ -370,9 +486,14 @@ if __name__ == '__main__':
     parser.add_argument('--require-isolation', action='store_true')
     parser.add_argument('--ssh-user', help='existing unprivileged account; requires unshare --mount --net as root')
     parser.add_argument('--worker', nargs=3)
+    parser.add_argument('--previous-root', type=Path)
+    parser.add_argument('--previous-bundle', type=Path)
+    parser.add_argument('--upgrade-worker', nargs=3)
     args = parser.parse_args()
-    if args.worker:
-        worker(*args.worker)
+    if args.upgrade_worker:
+        upgrade_scenario(*args.upgrade_worker)
+    elif args.worker:
+        worker(*args.worker, previous=args.previous_root)
     else:
         if not args.bundle:
             parser.error('--bundle is required')
@@ -386,6 +507,6 @@ if __name__ == '__main__':
                 for path in library.rglob('*'):
                     path.chmod(0o700 if path.is_dir() else 0o600)
                 sys.path.insert(0, str(library))
-                verify(args.bundle, args.report, args.real_users, args.require_isolation, args.ssh_user)
+                verify(args.bundle, args.report, args.real_users, args.require_isolation, args.ssh_user, args.previous_bundle)
         else:
-            verify(args.bundle, args.report, args.real_users, args.require_isolation, args.ssh_user)
+            verify(args.bundle, args.report, args.real_users, args.require_isolation, args.ssh_user, args.previous_bundle)

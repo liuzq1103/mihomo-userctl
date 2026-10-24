@@ -40,7 +40,7 @@ jobs:
       - name: Prepare build and optional UI dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y shellcheck python3-venv iproute2 dbus-user-session openssh-server
+          sudo apt-get install -y shellcheck python3-venv iproute2 dbus-user-session openssh-server binutils
           /usr/bin/python3 -m venv /tmp/mihomoctl-v1-ci-python
           source /tmp/mihomoctl-v1-ci-python/bin/activate
           echo /tmp/mihomoctl-v1-ci-python/bin >> "$GITHUB_PATH"
@@ -118,7 +118,7 @@ jobs:
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
       - name: Build complete SSH bundle with pinned Python, Textual and core
         run: |
-          python scripts/release/fetch_portable_inputs.py --output "$RUNNER_TEMP/portable-inputs"
+          python scripts/release/fetch_portable_inputs.py --output "$RUNNER_TEMP/portable-inputs" --previous-bundle
           python -m pip download --only-binary=:all: --require-hashes --python-version 312 --implementation cp --abi cp312 --platform manylinux2014_x86_64 -r scripts/textual-requirements.txt --dest "$RUNNER_TEMP/portable-wheelhouse"
           runtime=$(python -c "import json; print(json.load(open('scripts/release/portable-runtime.json'))['name'])")
           core=$(python -c "import json; print(json.load(open('mihomoctl/mihomo-digests.json'))['pins'][0]['asset'])")
@@ -126,7 +126,7 @@ jobs:
       - name: Exercise SSH bundle offline with distinct user identities
         run: |
           kit=$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*-portable-linux-x86_64.tar.gz' -print)
-          sudo unshare --mount --net -- /usr/bin/python3 scripts/release/verify_portable_bundle.py --bundle "$kit" --real-users --require-isolation --ssh-user "$(id -un)" --report "$RUNNER_TEMP/portable-acceptance.json"
+          sudo unshare --mount --net -- /usr/bin/python3 scripts/release/verify_portable_bundle.py --bundle "$kit" --previous-bundle "$RUNNER_TEMP/portable-inputs/mihomoctl-1.4.0-portable-linux-x86_64.tar.gz" --real-users --require-isolation --ssh-user "$(id -un)" --report "$RUNNER_TEMP/portable-acceptance.json"
       - name: Install, update and recover the delivered kit with networking disabled
         run: |
           kit=$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*-offline-${{ matrix.offline_target }}.tar.gz' -print)
@@ -175,10 +175,22 @@ jobs:
             ${{ runner.temp }}/portable-acceptance.json
           if-no-files-found: error
       - name: Upload exact-commit release candidates
+        if: matrix.os == 'ubuntu-22.04'
         uses: actions/upload-artifact@v4
         with:
           name: release-candidate-${{ matrix.os }}
           path: dist/*
+          if-no-files-found: error
+      - name: Upload secondary build proof and target-specific kit
+        if: matrix.os == 'ubuntu-24.04'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate-${{ matrix.os }}
+          path: |
+            dist/*-offline-*.tar.gz
+            dist/*-offline-*.tar.gz.sha256
+            dist/*-portable-*.tar.gz.sha256
+            dist/build-receipt.json
           if-no-files-found: error
   release-gate:
     needs: ubuntu
@@ -206,6 +218,8 @@ jobs:
           python3 scripts/release/verify_release.py --artifacts candidates/release-candidate-ubuntu-22.04 --offline-artifacts offline --evidence evidence --commit "$GITHUB_SHA" > release-gate.json || rc=$?
           printf 'verify_release_rc=%s\n' "$rc"
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+          python3 -c "import json; from pathlib import Path; a=json.loads(Path('candidates/release-candidate-ubuntu-24.04/build-receipt.json').read_text()); b=json.loads(Path('candidates/release-candidate-ubuntu-22.04/build-receipt.json').read_text()); assert all(a[k]==b[k] for k in ('commit','version','source_epoch','source','publishable')); e=json.loads(Path('evidence/validation-ubuntu-24.04/artifact-install.json').read_text()); assert a['sha256']==e['artifact_sha256']"
+          cmp candidates/release-candidate-ubuntu-22.04/*-portable-*.sha256 candidates/release-candidate-ubuntu-24.04/*-portable-*.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: release-gate
