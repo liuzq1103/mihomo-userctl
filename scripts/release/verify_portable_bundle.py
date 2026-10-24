@@ -311,6 +311,9 @@ def worker(root, home, archive, previous=None):
 
 
 def verify(bundle, report, real_users=False, require_isolation=False, ssh_user=None, previous_bundle=None):
+    # SSH acceptance temporarily bind-mounts the runner home. Capture original
+    # input sizes before that mount hides checkout and RUNNER_TEMP paths.
+    external_input_bytes = Path(bundle).stat().st_size + (Path(previous_bundle).stat().st_size if previous_bundle else 0)
     if str(ROOT) not in sys.path:
         sys.path.append(str(ROOT))
     from mihomoctl.portable import source_tree, verify_bundle
@@ -445,7 +448,7 @@ def verify(bundle, report, real_users=False, require_isolation=False, ssh_user=N
                       'bundle_sha256': hashlib.sha256(delivered.read_bytes()).hexdigest(),
                       'bundle_bytes': delivered.stat().st_size,
                       'expanded_bytes': usage(root)['logical_bytes'], 'baseline': BASELINE}
-            result['external_input_bytes'] = Path(bundle).stat().st_size + (Path(previous_bundle).stat().st_size if previous_bundle else 0)
+            result['external_input_bytes'] = external_input_bytes
             result['external_unpacked_source_usage'] = usage(source)
             assert result['bundle_bytes'] <= POLICY['MAX_DOWNLOAD']
             assert result['expanded_bytes'] <= POLICY['MAX_EXPANDED']
