@@ -215,8 +215,11 @@ def build(artifacts, runtime, core, wheelhouse, output, *, worktree=False):
         if sum(p.stat().st_size for p in root.rglob('*') if p.is_file()) > MAX_EXPANDED:
             raise ValueError('portable-expanded-budget-exceeded')
         subprocess.run([python, '-I', '-B', '-c',
-                        'import ssl, encodings, ctypes, asyncio, multiprocessing, _curses, _tkinter; '
-                        'assert ssl.create_default_context().cert_store_stats()["x509_ca"] > 0'], check=True)
+                        'import os, ssl, encodings, ctypes, asyncio, multiprocessing, _curses, _tkinter; '
+                        'context = ssl.create_default_context(); paths = ssl.get_default_verify_paths(); '
+                        'assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname; '
+                        'assert (paths.cafile and os.path.isfile(paths.cafile)) or '
+                        '(paths.capath and os.path.isdir(paths.capath))'], check=True)
         subprocess.run([root / 'mihomoctl', 'version', '--json'], check=True)
         temporary_archive = output / ('.' + name + '.partial')
         with temporary_archive.open('xb') as raw, gzip.GzipFile(filename='', mode='wb', fileobj=raw, mtime=epoch) as gz:
