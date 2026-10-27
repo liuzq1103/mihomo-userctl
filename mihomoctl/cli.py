@@ -639,11 +639,6 @@ def cmd_service(app, args, json_mode):
     if action == "install":
         scope.require_mutation()
         manager, endpoints, controller, profile, _cfg = app.resolve()
-        if manager.core.backend == "systemd" and systemd_backend.unit_path(scope).exists():
-            systemd_backend.SystemdBackend(scope, manager, endpoints, controller)._require_owned_unit()
-            data = {"unit": UNIT_NAME, "installed": True, "changed": False}
-            return _finish("service-install", scope.name, env.PASS, data, json_mode=json_mode,
-                           text=_kv_text(data))
         if manager.core.backend != "systemd":
             from .lifecycle.process import ProcessBackend
             backend = ProcessBackend(scope, manager, endpoints, controller)
@@ -658,12 +653,18 @@ def cmd_service(app, args, json_mode):
         def install(tx):
             nonlocal manager
             manager, current_endpoints, current_controller, _profile, _cfg = app.resolve()
+            if manager.core.backend == 'systemd' and systemd_backend.unit_path(scope).exists():
+                current=systemd_backend._owned_unit_text(scope)
+                if current==systemd_backend.unit_text(manager,scope):
+                    systemd_backend.SystemdBackend(scope,manager,current_endpoints,current_controller)._require_owned_unit()
+                    return {'unit':UNIT_NAME,'installed':True,'changed':False}
             if manager.core.backend != "systemd":
                 from .lifecycle.process import ProcessBackend
                 if ProcessBackend(scope, manager, current_endpoints, current_controller).running_identity() is not None:
                     raise MihomoctlError("backend-active", "stop the running process backend before switching to systemd")
             result = systemd_backend.install_unit(manager, scope, tx=tx)
-            mutate(tx)
+            if manager.core.backend != 'systemd':
+                mutate(tx)
             return result
         # Acquire the operation lock outside recovery handling. A contender
         # must never reload definitions owned by the transaction holding it.

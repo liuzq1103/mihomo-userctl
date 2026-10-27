@@ -108,6 +108,10 @@ class RealCoreTests(unittest.TestCase):
         """Two controllable CONNECT proxies, a local target, and a real core."""
         class Target(BaseHTTPRequestHandler):
             def do_HEAD(self):
+                # v1.19.32 rounds down to milliseconds and treats a zero
+                # LastDelayForTestUrl as 0xffff even when the probe is alive.
+                # A real positive baseline is required for fastest selection.
+                time.sleep(.02)
                 self.send_response(204)
                 self.end_headers()
             do_GET = do_HEAD
@@ -191,6 +195,12 @@ rules: ["MATCH,Entry"]
                             time.sleep(.2)
                         self.fail("real core timed out during " + description)
                     rows = wait_for(lambda r: all(r.get(n, {}).get("probe_observed") for n in ("A", "B")), "initial probes")
+                    probe_url='http://127.0.0.1:{}/204'.format(target.server_port)
+                    raw=service.client().request('/proxies')['proxies']
+                    for name in ('A','B'):
+                        evidence=raw[name]['extra'][probe_url]
+                        self.assertIs(evidence['alive'],True,'initial local probe must be healthy')
+                        self.assertTrue(0<evidence['history'][-1]['delay']<0xffff,'initial probe must have a usable positive millisecond delay')
                     chosen = rows["Auto"]["selected"]
                     healthy = "B" if chosen == "A" else "A"
                     servers[1 if chosen == "A" else 2].failed.set()

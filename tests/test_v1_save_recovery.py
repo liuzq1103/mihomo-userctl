@@ -116,6 +116,42 @@ class SaveRecoveryTests(unittest.TestCase):
         self.assertEqual((before.st_ino,before.st_uid,before.st_gid,before.st_mode),(after.st_ino,after.st_uid,after.st_gid,after.st_mode))
         self.assertEqual(child.read_bytes(),b'preserved')
 
+    def test_cli_service_install_migrates_exact_legacy_without_bypassing_security_or_lock(self):
+        from mihomoctl import cli
+        from mihomoctl.config import Manager,CoreSettings
+        from mihomoctl.lifecycle import systemd
+        from mihomoctl.errors import StateError
+        import contextlib,io
+        manager=Manager(core=CoreSettings('/fixture/core',str(self.config),'systemd'))
+        unit=systemd.unit_path(self.scope);unit.parent.mkdir(parents=True,mode=0o700)
+        current=systemd.unit_text(manager,self.scope)
+        legacy=current.replace(systemd.CORE_ENVIRONMENT,systemd.LEGACY_CORE_ENVIRONMENT)
+        self.scope.manager_path.write_text('manager bytes stay unchanged\n');self.scope.manager_path.chmod(0o600)
+        app=Mock(scope=self.scope);app.resolve.return_value=(manager,[],None,None,{})
+        for kind in ('legacy','drift','unsafe','current'):
+            text=legacy if kind in ('legacy','unsafe') else current+'# manual change\n' if kind=='drift' else current
+            unit.write_text(text);unit.chmod(0o664 if kind=='unsafe' else 0o600)
+            inode=unit.stat().st_ino
+            def require_current():
+                self.assertEqual(unit.read_text(),current)
+                self.assertTrue(list(self.scope.backups_root.glob('*/journal.json')),'CLI fast path bypassed operation transaction')
+            with self.subTest(kind=kind),patch.object(systemd,'systemd_available',return_value=True), \
+                    patch.object(systemd,'_systemctl') as control, \
+                    patch.object(systemd.SystemdBackend,'_require_owned_unit',side_effect=require_current), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                if kind in ('drift','unsafe'):
+                    with self.assertRaisesRegex(StateError,'unit-drifted' if kind=='drift' else 'unit-not-managed'):
+                        cli.cmd_service(app,['install'],True)
+                    control.assert_not_called();self.assertEqual(unit.read_text(),text)
+                else:
+                    cli.cmd_service(app,['install'],True)
+                    self.assertEqual(unit.read_text(),current)
+                    if kind=='legacy':control.assert_called_once_with(self.scope,'daemon-reload')
+                    else:control.assert_not_called();self.assertEqual(unit.stat().st_ino,inode)
+            self.assertEqual(self.scope.manager_path.read_text(),'manager bytes stay unchanged\n')
+            self.assertFalse(list(self.scope.backups_root.glob('*/journal.json')))
+        app.lifecycle.assert_not_called()
+
     def test_failed_recovery_start_tracks_unknown_identity_and_never_starts_twice(self):
         tx=transaction.Transaction(self.scope,'policy-activate')
         tx.runtime={'was_running':True};tx._persist();tx.write_text(self.config,'new config\n')

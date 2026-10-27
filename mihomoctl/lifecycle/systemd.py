@@ -189,6 +189,17 @@ def _record_unit_change(tx):
         tx._persist()
 
 
+def _owned_unit_text(scope):
+    """Read only an owned, safe unit; template/cache checks remain separate."""
+    from ..trust import _check_ancestors
+    path=unit_path(scope)
+    _check_ancestors(path,'unit-not-managed',owners={0,os.geteuid()})
+    if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o022 \
+            or path.stat().st_uid not in {0,os.geteuid()}:
+        raise StateError('unit-not-managed','managed unit is missing or unsafe')
+    return path.read_text(encoding='utf-8')
+
+
 def install_unit(manager: Manager, scope, tx=None):
     """Write the managed unit (marked) and daemon-reload.  Never enable,
     start or set linger.  Refuses to replace an unowned/drifted file."""
@@ -203,7 +214,7 @@ def install_unit(manager: Manager, scope, tx=None):
     if path.is_symlink():
         raise StateError('unit-not-managed', 'managed unit cannot be a symlink')
     if path.exists() or path.is_symlink():
-        current = path.read_text(encoding="utf-8") if path.is_file() else ""
+        current = _owned_unit_text(scope)
         if not current.startswith(UNIT_MARKER):
             raise StateError("unit-not-managed",
                              "%s exists and is not managed by mihomoctl" % path)
@@ -317,11 +328,7 @@ class SystemdBackend:
     def _require_owned_unit(self):
         from ..trust import _check_ancestors
         path = unit_path(self.scope)
-        _check_ancestors(path, 'unit-not-managed', owners={0, os.geteuid()})
-        if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o022 \
-                or path.stat().st_uid not in {0, os.geteuid()}:
-            raise StateError('unit-not-managed', 'managed unit is missing or unsafe')
-        if path.read_text(encoding='utf-8') != unit_text(self.manager, self.scope):
+        if _owned_unit_text(self.scope) != unit_text(self.manager, self.scope):
             raise StateError('unit-not-managed', 'unit definition differs from the managed generated unit')
         props = self._main_pid()
         if props.get('NeedDaemonReload') != 'no':
