@@ -132,11 +132,7 @@ def _run_version(binary, as_uid=None):
 
 
 def _version_matches(output, version):
-    tokens = []
-    import re
-    for token in re.findall(r"v?\d+\.\d+\.\d+", output or ""):
-        tokens.append(token.lstrip("v"))
-    return version.lstrip("v") in tokens
+    return runner.reported_version(output) == version.lstrip('v')
 
 
 def install(scope, version, sha256=None, dry_run=False, force=False):
@@ -195,8 +191,11 @@ def install(scope, version, sha256=None, dry_run=False, force=False):
             if destination.exists() and not force:
                 raise SupplyChainError("core-already-installed", "use an explicit replacement operation")
             manager = load_manager(scope) if scope.manager_path.exists() else None
+            config_text = None
+            proof = None
             if manager:
-                runner.validate_config(binary, Path(manager.core.config).read_text(encoding="utf-8"),
+                config_text = Path(manager.core.config).read_text(encoding='utf-8')
+                proof = runner.validate_config(binary, config_text,
                                        scope.core_home, as_uid=_safe_check_uid(scope))
             receipt = _read_receipt(scope)
             receipt["installs"].append({"version": version, "binary": str(destination),
@@ -205,7 +204,7 @@ def install(scope, version, sha256=None, dry_run=False, force=False):
                                        "note": "digest comparison; not an upstream signature",
                                        "installed_at": int(time.time())})
             tx = Transaction(scope, "core-install")
-            _publish_and_activate(scope, tx, manager, destination, core=core, receipt=receipt)
+            _publish_and_activate(scope, tx, manager, destination, core=core, receipt=receipt, validated_config=config_text, validated_proof=proof)
             from .retention import cleanup_after_commit
             cleanup_after_commit(scope, core=True)
         return {"version": version, "binary": str(destination), "sha256": digest,
@@ -265,30 +264,41 @@ def _application(scope):
     return Application(system=scope.system, config_dir=str(scope.config_root))
 
 
-def _publish_and_activate(scope, tx, manager, binary, core=None, receipt=None):
+def _publish_and_activate(scope, tx, manager, binary, core=None, receipt=None, validated_config=None, validated_proof=None):
     """Publish binary, receipt, binding and unit together; restore a running old core on failure."""
     from . import envelope
     from .lifecycle import systemd
     app = _application(scope)
     old_backend = None
     was_running = False
-    stopped = False
-    attempted_start = False
     new_backend = None
-    if manager is not None:
-        _old, endpoints, controller, _profile, _cfg = app.resolve()
-        old_backend = app._backend(manager, endpoints, controller)
-        was_running = bool(old_backend.status().get("running"))
     unit = systemd.unit_path(scope)
-    if manager is not None:
-        tx.runtime = {'was_running': was_running}
+    def transition(phase):
+        tx.runtime['phase'] = phase
         tx._persist()
     try:
+        if manager is not None:
+            _old, endpoints, controller, _profile, _cfg = app.resolve()
+            old_backend = app._backend(manager, endpoints, controller)
+            old_backend.running_identity()
+            if manager.core.backend == 'systemd' and unit.exists():
+                props = old_backend._require_owned_unit()
+                if props.get('ActiveState') not in ('inactive','failed') and old_backend.running_identity() is None:
+                    from .errors import ObservedStateError
+                    raise ObservedStateError('service-identity-unverified', 'core replacement requires a verified managed unit')
+            was_running = bool(old_backend.status().get('running'))
+            tx.runtime = {'was_running':was_running,'phase':'prepared'}
+            tx._persist()
+        if manager is not None and validated_config is not None and Path(manager.core.config).read_text(encoding='utf-8') != validated_config:
+            from .errors import StateError
+            raise StateError('config-changed-after-validation', 'configuration changed before core replacement')
+        if validated_proof is not None:
+            validated_proof.ensure_current(binary_bytes=core)
         if manager and manager.core.backend == "systemd" and unit.exists():
             if unit.is_symlink() or not unit.read_text(encoding="utf-8").startswith(systemd.UNIT_MARKER + "\n"):
                 raise SupplyChainError("core-unit-not-managed")
         if was_running:
-            stopped = True
+            transition('stopping')
             old_backend.stop()
         if core is not None:
             tx.write_bytes(binary, core, mode=0o755)
@@ -298,42 +308,24 @@ def _publish_and_activate(scope, tx, manager, binary, core=None, receipt=None):
             manager.core.binary = str(binary)
             tx.write_text(scope.manager_path, render_manager(manager))
             if manager.core.backend == "systemd" and unit.exists():
+                tx.runtime['unit_reload'] = True
+                tx._persist()
                 tx.write_text(unit, systemd.unit_text(manager, scope), mode=0o644 if scope.system else 0o600)
                 systemd._systemctl(scope, "daemon-reload")
             if was_running:
                 _new, endpoints, controller, _profile, _cfg = app.resolve()
                 new_backend = app._backend(_new, endpoints, controller)
-                attempted_start = True
                 new_backend.start(health_check=lambda: (
-                    envelope.combine_checks(app.health()) == envelope.PASS, "local health gate"))
+                    envelope.combine_checks(app.health()) == envelope.PASS, "local health gate"), runtime_transition=transition)
         tx.commit()
     except BaseException as original:
         if tx.finished:
             raise
-        if attempted_start and new_backend is not None:
-            try:
-                new_backend.stop()
-            except Exception:
-                # Restore files first; failure to restore runtime below is reported separately.
-                pass
-        # Keep recovery material until the original runtime is healthy again.
-        # A later invocation must be able to finish recovery after another
-        # failure or interruption during this restart.
-        tx.rollback(finish=not stopped)
-        if stopped:
-            try:
-                if manager.core.backend == "systemd":
-                    systemd._systemctl(scope, "daemon-reload")
-                old, endpoints, controller, _profile, _cfg = app.resolve()
-                restored = app._backend(old, endpoints, controller)
-                if not restored.status().get("running"):
-                    restored.start(health_check=lambda: (
-                        envelope.combine_checks(app.health()) == envelope.PASS, "restored health gate"))
-            except Exception as recovery:
-                raise RollbackFailedError("core-runtime-rollback-failed",
-                                          "previous files restored but runtime recovery failed") from original
-            tx.finished = True
-            tx._cleanup()
+        from .transaction import restore_failed_operation
+        try:
+            restore_failed_operation(tx)
+        except RollbackFailedError:
+            raise RollbackFailedError('core-runtime-rollback-failed', 'previous runtime restoration remains unverified; recovery journal retained') from original
         raise
 
 
@@ -347,13 +339,15 @@ def _activate(scope, binary, validate=True, dry_run=False):
         return {"binary": str(binary), "dry_run": True}
     with operation_lock(scope):
         manager = load_manager(scope)
+        config_text = None
+        proof = None
         if validate:
             config_text = Path(manager.core.config).read_text(encoding="utf-8")
             uid = _safe_check_uid(scope)
-            runner.validate_config(binary, config_text, scope.core_home, as_uid=uid)
+            proof = runner.validate_config(binary, config_text, scope.core_home, as_uid=uid)
         old = manager.core.binary
         tx = Transaction(scope, "core-activate")
-        _publish_and_activate(scope, tx, manager, binary)
+        _publish_and_activate(scope, tx, manager, binary, validated_config=config_text, validated_proof=proof)
         return old
 
 

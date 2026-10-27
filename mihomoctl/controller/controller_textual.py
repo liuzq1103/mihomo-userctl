@@ -1,6 +1,7 @@
 """Optional SSH/PTY frontend. All I/O belongs to application services."""
 import json
 import os
+import re
 import shlex
 import threading
 import time
@@ -14,11 +15,11 @@ from textual.widgets import Button, DataTable, Footer, Header, Input, RichLog, S
 
 try:
     from .controller_state import Store, Snapshot
-    from .controller_types import ControlError, error_text
+    from .controller_types import ControlError, error_text, node_identity
     from .controller_health import guidance, parse_console
 except ImportError:
     from controller_state import Store, Snapshot
-    from controller_types import ControlError, error_text
+    from controller_types import ControlError, error_text, node_identity
     from controller_health import guidance, parse_console
 
 # V1 page set. The subscription page is "subscriptions"; "profile" is the
@@ -53,7 +54,7 @@ LABELS = {"state": "状态", "nodes": "节点数", "groups": "分组数", "rules
           "affected_groups": "受影响的分组", "provider_settings": "引用提供商的探测设置",
           "probe_overwrites": "订阅覆盖的现有探测设置", "requested_policy": "请求的导入模式"}
 VALUES = {"preview": "预览（尚未保存）", "restart-required": "已保存，尚未生效，请重启",
-          "unchanged": "未改变", "auto": "按内容自动判断", "provider": "提供商节点、分组和规则", "nodes": "仅合并节点",
+          "unchanged": "未改变", "auto": "按内容自动判断", "provider": "提供商节点、分组和规则", "nodes": "仅合并节点", "policy": "仅叠加策略（保留节点和 provider）",
           "confirmed": "已完成", "add": "新增", "replace": "替换", "remove": "移除",
           "start": "启动", "stop": "停止", "restart": "重启"}
 # Only these keys carry our own status enums. Node, group and provider names are
@@ -64,6 +65,21 @@ STATUS_KEYS = frozenset(("state", "service", "policy", "action"))
 def preview_count(preview, key):
     value = preview.get(key)
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def delay_key(target):
+    if isinstance(target, dict):
+        opaque=target.get('target_id')
+        return opaque if isinstance(opaque,str) and re.fullmatch(r'[a-f0-9]{64}',opaque) else node_identity(target['name'],target.get('provider'))
+    return node_identity(target)
+
+
+def delay_text(result):
+    if result.get('state') == 'cancelled': return '已取消'
+    if result.get('state') == 'failed' or result.get('error'):
+        return '失败：' + error_text(result.get('error') or 'probe-unverified')
+    if type(result.get('delay_ms')) in (int, float): return str(result['delay_ms'])
+    return '未确认'
 
 
 def preview_summary(preview):
@@ -260,6 +276,9 @@ class Console(App):
             self.store.state.snapshots["operation"] = Snapshot(value=initial_preview, freshness="fresh")
         self.visible_nodes = []
         self.latencies = {}
+        self._probing_targets = ()
+        self.probe_summary = ''
+        self.operation_notice = ''
         self.log_level = "info"
         self.exit_requested = False
         self.source_kind = "url"
@@ -267,7 +286,7 @@ class Console(App):
         # Seed the selector with it so the first Select.Changed is a no-op
         # instead of wiping the review the user just prepared.
         seeded = initial_preview.get("requested_policy", initial_preview.get("policy")) if isinstance(initial_preview, dict) else None
-        self.source_policy = seeded if seeded in ("auto", "provider", "nodes") else "simple"
+        self.source_policy = seeded if seeded in ("auto", "provider", "nodes", "policy") else "simple"
         self.source_path = ""
         # Pending work and the guarded backup come from the service receipt, never
         # from a second copy the UI can drift on.
@@ -288,7 +307,7 @@ class Console(App):
         yield Select([(PAGE_NAMES[name], name) for name in PAGES], value=self.page, allow_blank=True, id="navigation")
         with Horizontal(id="subscription-source"):
             yield Select([("订阅 URL", "url"), ("YAML 文件", "file")], value="url", allow_blank=False, id="source-kind")
-            yield Select([("简单节点选择", "simple"), ("订阅完整策略", "provider"), ("仅合并节点", "nodes"), ("自动判断", "auto")], value=self.source_policy, allow_blank=False, id="source-policy")
+            yield Select([("简单节点选择", "simple"), ("订阅完整策略", "provider"), ("仅合并节点", "nodes"), ("仅叠加策略（保留节点和 provider）", "policy"), ("自动判断", "auto")], value=self.source_policy, allow_blank=False, id="source-policy")
             yield Input(placeholder="粘贴 HTTPS 订阅 URL", password=True, id="source-path")
         with HorizontalScroll(id="toolbar"):
             yield Button("初始化", id="setup-controller")
@@ -411,7 +430,7 @@ class Console(App):
                 source.placeholder = "粘贴 HTTPS 订阅 URL" if event.value == "url" else "YAML 文件路径"
                 self.clear_preview("来源已切换，请重新预览导入。")
         elif event.select.id == "source-policy":
-            if event.value in ("simple", "auto", "provider", "nodes") and event.value != self.source_policy:
+            if event.value in ("simple", "auto", "provider", "nodes", "policy") and event.value != self.source_policy:
                 self.source_policy = event.value
                 self.clear_preview("导入策略已切换，请重新预览导入。")
 
@@ -475,9 +494,13 @@ class Console(App):
         if self.store.submit(key, operation):
             self.mirror_alias(key)
             if key == "operation":
+                self.probe_summary = ''
+                self.operation_notice = '正在处理操作…'
                 self.query_one("#hint", Static).update("正在处理操作…")
                 for identifier in ("source-path", "source-kind", "source-policy"):
                     self.query_one("#" + identifier).disabled = True
+            return True
+        return False
 
     def mirror_alias(self, key):
         """Share one snapshot object with every retained identifier of a page.
@@ -510,7 +533,9 @@ class Console(App):
         for key in self.store.drain():
             if key == "progress":
                 completed, total = self.store.state.progress
-                self.query_one("#hint", Static).update("批量测速 {}/{} | : cancel 停止排队项".format(completed, total))
+                self.probe_summary = "批量测速 {}/{} | : cancel 停止排队项".format(completed, total)
+                self.operation_notice = self.probe_summary
+                self.query_one("#hint", Static).update(self.probe_summary)
                 continue
             snap = self.store.state.snapshots[key]
             if snap.error:
@@ -519,6 +544,7 @@ class Console(App):
             else:
                 self.failures[key] = 0
             if key == "operation":
+                was_probe = bool(self._probing_targets)
                 for identifier in ("source-path", "source-kind", "source-policy"):
                     self.query_one("#" + identifier).disabled = False
                 self.sync_state()
@@ -534,19 +560,34 @@ class Console(App):
                     if result.get("action") in ("start", "restart"):
                         self.next_refresh["overview"] = 0
                     if "delay_ms" in result:
-                        self.latencies[result["name"]] = result["delay_ms"]
+                        self.latencies[delay_key(result)] = delay_text(result)
                     for row in result.get("results", []):
-                        if "delay_ms" in row:
-                            self.latencies[row["name"]] = row["delay_ms"]
+                        self.latencies[delay_key(row)] = delay_text(row)
+                    if self._probing_targets:
+                        if 'results' in result:
+                            rows=result['results']
+                            failed=sum(row.get('state')=='failed' for row in rows)
+                            cancelled=sum(row.get('state')=='cancelled' for row in rows)
+                            self.probe_summary='批量测速完成：成功 {}，失败 {}，取消 {}'.format(len(rows)-failed-cancelled,failed,cancelled)
+                        else: self.probe_summary='测速完成：'+delay_text(result)+' ms'
+                        self._probing_targets=()
                     if result.get("state") == "preview":
                         summary = " | ".join(preview_summary(result))
                         cleared = cleared_units(result)
                         summary += " | 点击保存并启动，确认后生效" + ("（会清空本地" + "、".join(cleared) + "）" if cleared else "")
                     else:
                         summary = " | ".join(line.strip() for line in report_lines(result)[:3])
-                    self.query_one("#hint", Static).update(Text(summary))
+                    self.operation_notice = self.probe_summary if was_probe else summary
+                    self.query_one("#hint", Static).update(Text(self.operation_notice))
                 else:
-                    self.query_one("#hint", Static).update(Text("操作未完成：" + snap.error_message + "；请检查核心与私有配置"))
+                    if self._probing_targets:
+                        for target in self._probing_targets:
+                            self.latencies[delay_key(target)]=delay_text({'state':'failed','error':snap.error})
+                        self._probing_targets=()
+                        self.probe_summary='测速失败：'+error_text(snap.error)
+                    self.operation_notice = '操作未完成：' + snap.error_message
+                    self.query_one("#hint", Static).update(Text(self.operation_notice))
+                    self.next_refresh['overview'] = self.next_refresh['runtime'] = 0
             if key == "logs" and not snap.error and not hasattr(self.service, "logs"):
                 self.store.state.logs.append(snap.value)
             if (key == self.page or key in ("operation", "runtime", "traffic", "memory")) and not (self.paused and self.page in ("logs", "connections")):
@@ -700,12 +741,25 @@ class Console(App):
                 self.group = groups[0]["name"] if groups else ""
             self.replace_rows(self.query_one("#groups", DataTable), [(row["name"], (row["name"], GROUP_TYPES.get(row["type"], row["type"]), row["selected"] or "")) for row in groups])
             group = value.get(self.group, {})
-            self.visible_nodes = sorted([node for node in group.get("members", []) if self.filter_text.casefold() in node.casefold()], key=str.casefold, reverse=self.reverse)
+            targets = group.get('member_targets')
+            self._node_targets = {}
+            if targets is not None:
+                targets = sorted([t for t in targets if self.filter_text.casefold() in t['name'].casefold()],
+                                 key=lambda t: (t['name'].casefold(), t.get('provider') or ''), reverse=self.reverse)
+                self._node_targets = {str(i): t for i, t in enumerate(targets)}
+                self.visible_nodes = list(self._node_targets)
+            else:
+                self.visible_nodes = sorted([node for node in group.get("members", []) if self.filter_text.casefold() in node.casefold()], key=str.casefold, reverse=self.reverse)
             marker = "*" if self.ascii_only else "✓"
-            self.replace_rows(self.query_one("#nodes", DataTable), [(node, (node, marker if node == group.get("selected") else "", self.latencies.get(node, ""))) for node in self.visible_nodes])
+            self.replace_rows(self.query_one("#nodes", DataTable), [(key, (
+                self._node_targets[key]['name'] + (' [' + self._node_targets[key]['provider'] + ']' if self._node_targets[key].get('provider') else '') if key in self._node_targets else key,
+                marker if self._node_targets.get(key, {}).get('name', key) == group.get('selected') else '', self.latencies.get(delay_key(self._node_targets.get(key, key)), '未测试')))
+                for key in self.visible_nodes])
             self.query_one("#nodes").border_title = self.group + (" [回车选择]" if group.get("selectable") else " [自动组，只读]")
             chain = " → ".join(group.get("selection_chain", []))
             self.query_one("#hint", Static).update(Text(("当前链路：" + chain + "；: chain 查看自动路径与风险") if chain else "手动组回车选择；自动组由核心选择"))
+            if self.operation_notice:
+                self.query_one('#hint',Static).update(Text(self.operation_notice))
         elif self.page == "connections":
             rows = []
             for index, row in enumerate(value["connections"]):
@@ -790,7 +844,11 @@ class Console(App):
             self.query_one("#nodes").focus()
         elif event.data_table.id == "nodes":
             node, group = event.row_key.value, self.group
+            node = getattr(self, '_node_targets', {}).get(node, {}).get('name', node)
             self.node = node
+            if sum(t['name'] == node for t in getattr(self, '_node_targets', {}).values()) > 1:
+                self.query_one('#hint', Static).update('同名节点可按来源测速，但核心选择接口仅按名称，无法确认来源；请使用唯一节点名称。')
+                return
             snapshot = self.store.state.snapshots.get("proxies")
             if not snapshot or not (snapshot.value or {}).get(group, {}).get("selectable"):
                 self.query_one("#hint", Static).update("自动组由核心选择节点，可使用测速。")
@@ -811,10 +869,16 @@ class Console(App):
     def action_latency(self):
         node = self.selected_node()
         if node:
-            self.schedule("operation", lambda: self.service.latency(node))
+            target = getattr(self, '_node_targets', {}).get(node, node)
+            if self.schedule("operation", lambda: self.service.latency(target)):
+                self._probing_targets=(target,)
+                self.latencies[delay_key(target)]='测速中'
+                self.probe_summary='正在测速'
+                self.operation_notice=self.probe_summary
+                self.render_page()
 
     def action_batch(self):
-        targets = tuple(self.visible_nodes) if self.page == "proxies" else ()
+        targets = tuple(getattr(self, '_node_targets', {}).get(n, n) for n in self.visible_nodes) if self.page == "proxies" else ()
         if targets:
             self.push_screen(Confirm("对当前可见的 {} 个节点测速？目标为公共 HTTPS 地址，最多 4 个并发；: cancel 停止排队项。".format(len(targets))),
                              lambda yes: self.start_batch(targets) if yes else None)
@@ -823,7 +887,12 @@ class Console(App):
         if "operation" not in self.store.pending:
             self.batch_cancel = threading.Event()
             cancelled = self.batch_cancel
-            self.schedule("operation", lambda: self.service.batch_latency(targets, cancelled, self.store.progress))
+            if self.schedule("operation", lambda: self.service.batch_latency(targets, cancelled, self.store.progress)):
+                self._probing_targets=tuple(targets)
+                for target in targets: self.latencies[delay_key(target)]='测速中'
+                self.probe_summary='批量测速中 | : cancel 停止排队项'
+                self.operation_notice=self.probe_summary
+                self.render_page()
 
     def action_connections(self):
         self.query_one("#navigation", Select).value = "connections"

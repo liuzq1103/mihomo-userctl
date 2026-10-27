@@ -44,7 +44,7 @@ class Client:
                 return None
             if response.status == 401:
                 raise ControlError("controller-authentication-failed", 1)
-            if optional and response.status in (404, 405):
+            if optional and response.status in (404, 405, 501):
                 raise ControlError("controller-capability-unsupported")
             if response.status not in (200, 204):
                 raise ControlError((status_codes or {}).get(response.status, "controller-request-failed"), 1)
@@ -105,7 +105,7 @@ class Client:
             response = connection.getresponse()
             if response.status == 401:
                 raise ControlError("controller-authentication-failed", 1)
-            if response.status in (404, 405):
+            if response.status in (404, 405, 501):
                 raise ControlError("controller-capability-unsupported")
             if response.status != 200:
                 raise ControlError("controller-request-failed", 1)

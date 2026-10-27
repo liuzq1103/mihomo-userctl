@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mihomoctl"
-version = "1.4.1"
+version = "1.4.2"
 description = "User-level Mihomo runtime manager: proxy profiles, environment injection, runtime integration, health checks"
 readme = "README.md"
 requires-python = ">=3.10"

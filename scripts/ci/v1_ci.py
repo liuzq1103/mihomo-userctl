@@ -15,7 +15,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-EXCLUDED = {".git", ".aws", ".codex", ".agents", "__pycache__", ".pytest_cache", "dist", "build", ".venv", "paseo.json", ".rel-stage-path", "rel-staging", "启动速查-codex-paseo.md"}
+EXCLUDED = {".git", ".aws", ".codex", ".agents", "__pycache__", ".pytest_cache", "dist", "build", ".venv", "outputs", "paseo.json", ".rel-stage-path", "rel-staging", "启动速查-codex-paseo.md"}
 
 
 def snapshot(destination, public=False):
@@ -35,7 +35,7 @@ def run(args, cwd, env=None):
     subprocess.run([str(a) for a in args], cwd=cwd, env=env, check=True)
 
 
-def source_evidence():
+def source_evidence(source=None):
     """Bind CI observations to their source commit and actual Ubuntu version."""
     command = ["git", "-c", "safe.directory=" + str(ROOT), "-C", str(ROOT)]
     try:
@@ -49,7 +49,13 @@ def source_evidence():
         if "=" in line:
             key, value = line.split("=", 1)
             release[key] = value.strip('"')
-    return {"commit": commit, "source_dirty": dirty,
+    content_root = source or ROOT
+    manifest = json.loads((content_root / 'release-manifest.json').read_text(encoding='utf-8'))
+    fingerprint = hashlib.sha256()
+    for name in sorted(manifest['inventory']['files']):
+        fingerprint.update(name.encode('utf-8') + b'\0')
+        fingerprint.update(hashlib.sha256((content_root / name).read_bytes()).digest())
+    return {"commit": commit, "source_dirty": dirty, "source_inventory_sha256": fingerprint.hexdigest(),
             "network_isolated": {name for _, name in socket.if_nameindex()} == {'lo'},
             "os": release.get("ID"),
             "ubuntu": release.get("VERSION_ID"), "python": platform.python_version()}
@@ -84,7 +90,7 @@ def main():
         source = base / "source"
         snapshot(source, public=args.privileged)
         env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
-        evidence = source_evidence()
+        evidence = source_evidence(source)
         if args.core:
             core = args.core.resolve(strict=True)
             if args.privileged:
@@ -138,7 +144,8 @@ for pattern in json.loads(sys.argv[1]):
     suite.addTests(discovered)
 result = unittest.TextTestRunner(verbosity=2).run(suite)
 report = {'tests': result.testsRun, 'failures': len(result.failures), 'errors': len(result.errors),
-          'skipped': len(result.skipped), 'success': result.wasSuccessful()}
+          'skipped': len(result.skipped), 'skipped_tests': [test.id() for test, _reason in result.skipped],
+          'success': result.wasSuccessful()}
 report.update(json.loads(os.environ.get('MIHOMO_V1_SOURCE_EVIDENCE', '{}')))
 report['suites'] = groups
 if os.environ.get('MIHOMO_V1_REAL_CORE_REQUIRED') == '1' and result.skipped:

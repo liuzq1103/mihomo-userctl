@@ -18,8 +18,13 @@ preview 保存私有候选，不激活配置、不重启。检查模式、变更
 
 ```bash
 mihomoctl subscription apply PREVIEW_ID --sha256 CANDIDATE_SHA256
-mihomoctl config validate
 mihomoctl restart
 ```
 
 apply 校验活动原配置摘要、候选 SHA256、字段白名单，并使用 manager 指定的核心验证，再通过事务保存，成功后删除临时恢复材料。原配置漂移、候选篡改、越界修改或验证失败都会拒绝激活。配置发生改变后重新 preview。后续 provider 导入可能替换路由策略，需要再次检查自定义规则。不要编辑 preview 文件绕过门禁。
+
+## 策略片段与校验状态
+
+仅包含分组、规则、rule-providers 的片段使用 `--policy policy`。只替换提供的章节，省略章节、节点和 proxy-providers 保留；TUI 提供相同显式选项。完整 `provider` 模式替换五类路由章节，省略章节置空；`auto` 不识别片段叠加。见[脚本与服务器策略](overrides.md)。
+
+provider/policy 预览包含核心检查，预览不代表激活。TUI 保存会事务化启动或重启，CLI apply 仅保存。失败时查看阶段、配置恢复状态和重新观测的核心状态；成功后清理临时恢复材料，不保留历史备份。

@@ -17,7 +17,7 @@ from mihomoctl import command_spec as spec
 from mihomoctl.errors import UsageError
 from mihomoctl.release_identity import check as check_version
 
-BILINGUAL_TOPICS = ('README.md', 'setup.md', 'subscriptions.md', 'rules.md', 'first-run.md',
+BILINGUAL_TOPICS = ('README.md', 'setup.md', 'subscriptions.md', 'overrides.md', 'rules.md', 'first-run.md',
                     'security.md', 'update.md', 'offline-install.md', 'agent-install-prompt.md',
                     'agent-local-install-prompt.md', 'codex-install-prompt.md', 'troubleshooting.md',
                     'operations/integrations.md', 'operations/release.md',
@@ -173,8 +173,19 @@ def check_installer_options(path, text, errors):
                         errors.append('unknown-install-parameter: %s:%d: %s' % (relative(path), number, flag))
 
 
+def check_offline_versions(path, body, version, errors):
+    if path.name != 'offline-install.md': return
+    versions = re.findall(r'mihomoctl-(\d+\.\d+\.\d+)', body)
+    versions += re.findall(r'github\.com/liuzq1103/mihomo-userctl/releases/(?:tag|download)/v(\d+\.\d+\.\d+)', body)
+    if not versions or any(value != version for value in versions):
+        errors.append('offline-document-version-mismatch: ' + relative(path))
+
+
 def main():
     errors = []
+    try: version = check_version(ROOT)
+    except ValueError as error:
+        errors.append(str(error));version = None
     for path in documents():
         if not path.is_file():
             errors.append('required-document-missing: ' + relative(path))
@@ -183,6 +194,7 @@ def main():
         if '\ufffd' in body:
             errors.append('replacement-character: ' + relative(path))
         check_links(path, body, errors)
+        if version: check_offline_versions(path, body, version, errors)
         # Changelog entries are dated historical records, not current tutorials.
         current = body.split('\n## [', 2)[:2] if path.name == 'CHANGELOG.md' else None
         check_commands(path, '\n## ['.join(current) if current else body, errors)
@@ -196,10 +208,6 @@ def main():
         body = (ROOT / name).read_text(encoding='utf-8')
         if '](' + target + ')' not in body or 'INSTALL.md' not in body:
             errors.append('readme-navigation-missing: ' + name)
-    try:
-        check_version(ROOT)
-    except ValueError as error:
-        errors.append(str(error))
     for error in errors:
         print(error)
     if not errors:

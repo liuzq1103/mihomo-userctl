@@ -789,15 +789,19 @@ options:
 ## latency
 
 ```text
-usage: mihomoctl latency [-h] [--config CONFIG] [--json] node
+usage: mihomoctl latency [-h] [--provider PROVIDER] [--global]
+                         [--config CONFIG] [--json]
+                         node
 
 positional arguments:
   node
 
 options:
-  -h, --help       show this help message and exit
+  -h, --help           show this help message and exit
+  --provider PROVIDER
+  --global
   --config CONFIG
-  --json           emit the mihomoctl/v1 JSON envelope
+  --json               emit the mihomoctl/v1 JSON envelope
 ```
 
 ## connections
@@ -840,7 +844,7 @@ options:
 ```text
 usage: mihomoctl subscription preview [-h] [--source-file SOURCE_FILE]
                                       [--url-file URL_FILE] [--stdin]
-                                      [--policy {auto,nodes,provider}]
+                                      [--policy {auto,nodes,provider,policy}]
                                       [--home-dir HOME_DIR] [--config CONFIG]
                                       [--json]
 
@@ -849,7 +853,7 @@ options:
   --source-file SOURCE_FILE
   --url-file URL_FILE
   --stdin
-  --policy {auto,nodes,provider}
+  --policy {auto,nodes,provider,policy}
   --home-dir HOME_DIR
   --config CONFIG
   --json                emit the mihomoctl/v1 JSON envelope
@@ -878,9 +882,9 @@ options:
 ```text
 usage: mihomoctl tui [-h] [--home-dir HOME_DIR] [--plain]
                      [--engine {curses,textual,plain}] [--theme {dark,light}]
-                     [--ascii] [--stdin] [--policy {auto,nodes,provider}]
-                     [--script SCRIPT] [--details] [--flclash-compat]
-                     [--config CONFIG] [--json]
+                     [--ascii] [--stdin]
+                     [--policy {auto,nodes,provider,policy}] [--script SCRIPT]
+                     [--details] [--flclash-compat] [--config CONFIG] [--json]
 
 options:
   -h, --help            show this help message and exit
@@ -890,7 +894,7 @@ options:
   --theme {dark,light}
   --ascii
   --stdin
-  --policy {auto,nodes,provider}
+  --policy {auto,nodes,provider,policy}
   --script SCRIPT
   --details
   --flclash-compat

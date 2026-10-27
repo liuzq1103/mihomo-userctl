@@ -20,6 +20,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_offline_tutorial_refuses_mixed_release_link_and_asset_versions(self):
+        from scripts.ci.check_docs_v1 import check_offline_versions
+        path=ROOT/'docs/en/offline-install.md'
+        errors=[]
+        body='mihomoctl-1.4.2-portable-linux-x86_64.tar.gz https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.4.1'
+        check_offline_versions(path,body,'1.4.2',errors)
+        self.assertEqual(len(errors),1)
+        errors=[]
+        check_offline_versions(path,body.replace('/v1.4.1','/v1.4.2'),'1.4.2',errors)
+        self.assertEqual(errors,[])
     def metadata(self, **changes):
         return dict({'tag_name': 'v9.0.0', 'draft': False, 'prerelease': False}, **changes)
 

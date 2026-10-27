@@ -35,7 +35,7 @@ mihomoctl --help
 | `v`、`?`、`:` | 结果详情、帮助、命令输入 |
 | Esc、`q` / Ctrl+C | 取消工作、退出界面 |
 
-快捷键在文本输入框未占用对应按键时生效。延迟测试通过该节点访问探测目标，不是带宽测试，也不代表真实业务请求成功。`unknown-node` 和 `node-not-in-core` 表示核心表中找不到准确名称；`node-unreachable` 表示探测失败，`delay-timeout` 表示超时。见 [测速排障](troubleshooting.md)。
+快捷键在文本输入框未占用对应按键时生效。延迟测试通过该节点访问探测目标，不是带宽测试，也不代表真实业务请求成功。`unknown-node` 表示全局/provider 合并目录中没有该名称；`node-not-in-core` 表示已解析的全局目标在发起请求时消失。同名来源需消歧，provider 刷新消失和接口不支持分别报告。`node-unreachable` 表示探测失败，`delay-timeout` 表示超时。见 [测速排障](troubleshooting.md)。
 
 “更多”保留连接、提供商、规则、日志、诊断及运行时控制。命令输入支持 `subscribe /absolute/private/subscription.yaml`，探测设置如 `health-check provider "ProviderName" --preset resilient`；Selector 需对其背后的 provider 配置探测。审阅预览后保存，按提示显式重启。终端订阅的“保存并启动”会在同一可恢复操作中完成两步；下面的高级 CLI preview/apply 不会自动启动。
 

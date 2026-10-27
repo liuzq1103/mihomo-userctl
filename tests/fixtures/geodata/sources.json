@@ -1,0 +1,20 @@
+[
+  {
+    "file": "GeoIP2-Country-Test.mmdb",
+    "commit": "d1551916cff0712d12ff602c309234471b0402a2",
+    "source": "https://github.com/maxmind/MaxMind-DB/blob/d1551916cff0712d12ff602c309234471b0402a2/test-data/GeoIP2-Country-Test.mmdb",
+    "sha256": "fc12d6470b35b70bd3e4534dd433d3e262a6c73f7682f85c344e832d4190f02b"
+  },
+  {
+    "file": "LICENSE-APACHE",
+    "commit": "d1551916cff0712d12ff602c309234471b0402a2",
+    "source": "https://github.com/maxmind/MaxMind-DB/blob/d1551916cff0712d12ff602c309234471b0402a2/LICENSE-APACHE",
+    "sha256": "aac73b3148f6d1d7111dbca32099f68d26c644c6813ae1e4f05f6579aa2663fe"
+  },
+  {
+    "file": "LICENSE-MIT",
+    "commit": "d1551916cff0712d12ff602c309234471b0402a2",
+    "source": "https://github.com/maxmind/MaxMind-DB/blob/d1551916cff0712d12ff602c309234471b0402a2/LICENSE-MIT",
+    "sha256": "91276db973f25602d1aa43491f59cbc84cb88e6f151e1d0cc82a755563ce0195"
+  }
+]

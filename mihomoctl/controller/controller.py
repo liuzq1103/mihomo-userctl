@@ -99,6 +99,10 @@ def main(argv=None, app=None):
         parser.add_argument(name, **settings)
     add_probe_options(parser)
     args = parser.parse_args(argv)
+    if args.provider is not None and args.command != 'latency':
+        raise ControlError('provider-option-requires-latency')
+    if args.global_node and (args.command != 'latency' or args.provider is not None):
+        raise ControlError('global-option-requires-latency-without-provider')
     health_options = probe_options(args)
     if health_options and args.command != "health-check":
         raise ControlError("probe-options-require-health-check")
@@ -252,9 +256,9 @@ def main(argv=None, app=None):
         elif args.command == "select":
             payload = select(client, *args.values)
         elif args.command == "latency":
-            if args.values[0] not in proxies(client):
-                raise ControlError("unknown-node", 1, detail=repr(str(args.values[0])))
-            payload = measure_delay(client, args.values[0])
+            from mihomoctl.controller.controller_service import latency_target
+            target = {'name':args.values[0], 'provider':None} if args.global_node else args.values[0]
+            payload = latency_target(client, target, args.provider)
         elif args.command == "tui":
             if args.json:
                 raise ControlError("tui-does-not-support-json")

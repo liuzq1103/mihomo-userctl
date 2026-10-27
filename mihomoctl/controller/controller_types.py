@@ -1,5 +1,10 @@
 """User-level controller component; no global proxy or daemon."""
 import argparse
+import hashlib
+import hmac
+import json
+import re
+import secrets
 import unicodedata
 
 SCHEMA = "mihomo-userctl.controller/v1"
@@ -9,6 +14,12 @@ TEST_URL = "https://www.gstatic.com/generate_204"
 TUI_INSTALL_COMMAND = "bash install.sh --user --python <python> --wheelhouse <wheelhouse-dir> --extras tui"
 
 ERROR_LABELS = {
+    'validation-inputs-changed':'校验后核心或依赖资源已变化；请重新预览并保存',
+    'probe-unverified':'测速结果未确认',
+    'controller-capability-unsupported':'当前核心不支持此控制器接口',
+    'subscription-cleanup-incomplete':'预览临时材料清理失败；请检查私有目录并重新预览',
+    'ambiguous-node': '节点名称有多个来源；请指定 --provider 或在界面选择来源',
+    'node-disappeared': '节点在 provider 刷新后已消失；请刷新列表',
     "node-not-in-core": "节点不在核心代理表中",
     "node-unreachable": "节点存在但探测失败",
     "delay-timeout": "探测超时",
@@ -37,6 +48,12 @@ class ControlError(Exception):
         super().__init__(error_text(code, detail))
 
 
+def safe_failure(error):
+    """Only explicitly safe projections may leave filesystem/runtime code."""
+    detail = getattr(error, 'safe_detail', '')
+    return detail if isinstance(detail, str) and len(detail) <= 2048 else ''
+
+
 class Parser(argparse.ArgumentParser):
     def error(self, message):
         raise ControlError("invalid-options")
@@ -46,6 +63,21 @@ def label(value):
     if not isinstance(value, str) or len(value) > 512 or any(unicodedata.category(c) in ("Cc", "Cf") for c in value):
         raise ControlError("controller-response-invalid-label")
     return value
+
+
+def request_label(value):
+    if value is None: return None
+    sensitive = len(value) > 512 or re.search(r'(?i)[a-z][a-z0-9+.-]*://|(?:password|secret|token|uuid|key)\s*[:=]|[^\s:]+:[^\s@]+@', value)
+    return '[redacted request]' if sensitive else value
+
+
+_NODE_ID_KEY = secrets.token_bytes(32)
+
+
+def node_identity(name, provider=None):
+    # Per-process correlation only; no public hash verifier for a redacted URL
+    # or a weak credential-shaped request label.
+    return hmac.new(_NODE_ID_KEY,json.dumps([provider,name],ensure_ascii=True).encode('ascii'),hashlib.sha256).hexdigest()
 
 
 def number(value):

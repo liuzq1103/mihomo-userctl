@@ -28,13 +28,28 @@ EVIDENCE_LABELS = {
 }
 
 
+def valid_status(value):
+    return bool(isinstance(value, str) and re.fullmatch(r'[1-5][0-9]{2}(?:-[1-5][0-9]{2})?(?:/[1-5][0-9]{2}(?:-[1-5][0-9]{2})?)*', value)
+                and all(int(part.split('-')[0]) <= int(part.split('-')[-1]) for part in value.split('/')))
+
+
 def settings(value):
     """Safe DTO: imported probe URLs may contain account-specific tokens."""
-    result = {key: value[key] for key in FIELDS if key in value}
-    if "enable" in value:
-        result["enable"] = value["enable"]
-    if "url" in result and not acceptance.public_https_url(result["url"]):
-        result["url"] = "[redacted: non-public-or-credential-url]"
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    for key in (*FIELDS, 'enable'):
+        if key not in value: continue
+        item = value[key]
+        if key == 'url':
+            result[key] = item if isinstance(item, str) and acceptance.public_https_url(item) else '[redacted: non-public-or-credential-url]'
+        elif key in ('enable', 'lazy'):
+            result[key] = item if type(item) is bool else '[invalid]'
+        elif key == 'expected-status':
+            valid = type(item) is int and 100 <= item <= 599 or valid_status(item)
+            result[key] = item if valid else '[invalid]'
+        else:
+            result[key] = item if type(item) is int and 0 <= item <= 2**31-1 else '[invalid]'
     return result
 
 
@@ -66,6 +81,8 @@ def selected_chain(rows, start):
         row = rows.get(name)
         if row is None:
             return chain, "missing-reference"
+        if row.get('ambiguous'):
+            return chain, 'ambiguous-reference'
         if "members" not in row:
             return chain, "complete"
         name = row.get("selected")
@@ -239,9 +256,7 @@ def health_candidate(config, scope, name, options=None):
             raise ControlError("invalid-health-check-lazy", 1)
     if "expected-status" in updates:
         status = str(updates["expected-status"])
-        if not re.fullmatch(r"[1-5][0-9]{2}(?:-[1-5][0-9]{2})?(?:/[1-5][0-9]{2}(?:-[1-5][0-9]{2})?)*", status):
-            raise ControlError("invalid-health-check-expected-status", 1)
-        if any(int(part.split("-")[0]) > int(part.split("-")[-1]) for part in status.split("/")):
+        if not valid_status(status):
             raise ControlError("invalid-health-check-expected-status", 1)
         updates["expected-status"] = status
     target.update(updates)
@@ -259,8 +274,8 @@ def health_candidate(config, scope, name, options=None):
               "provider_settings": probe_providers,
               "warnings": (["provider-scheduling-may-control-use-members"] if probe_providers else [])}
     if scope == "provider":
-        result["before"]["enable"] = before.get("enable", False)
-        result["after"]["enable"] = target.get("enable", False)
+        result['before'].setdefault('enable', False)
+        result['after'].setdefault('enable', False)
         result["warnings"].append("shared-provider-probes-affect-referencing-groups")
         if updates and not target.get("enable"):
             result["warnings"].append("provider-health-check-disabled-use-resilient-preset-to-enable")

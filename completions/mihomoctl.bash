@@ -18,7 +18,7 @@ _mihomoctl_complete() {
   action=${COMP_WORDS[command_index+1]}
   case "$previous" in
     --archive|--config|--core|--file|--home-dir|--output|--output-dir|--path|--python|--script|--source-file|--url-file|--wheelhouse) mapfile -t COMPREPLY < <(compgen -f -- "$current"); return ;;
-    --allow-non-loopback|--binding|--egress-url|--engine|--expected-status|--extras|--interval|--lazy|--lines|--policy|--port|--preset|--profile|--sha256|--target|--theme|--timeout|--tolerance|--url|--version) return ;;
+    --allow-non-loopback|--binding|--egress-url|--engine|--expected-status|--extras|--interval|--lazy|--lines|--policy|--port|--preset|--profile|--provider|--sha256|--target|--theme|--timeout|--tolerance|--url|--version) return ;;
   esac
   case "$command" in
     init) words='--core --port --config --allow-non-loopback --json --help' ;;
@@ -134,7 +134,7 @@ _mihomoctl_complete() {
     nodes) words='--config --json --help' ;;
     groups) words='--config --json --help' ;;
     select) words='--config --json --help' ;;
-    latency) words='--config --json --help' ;;
+    latency) words='--provider --global --config --json --help' ;;
     connections) words='--details --config --json --help' ;;
     traffic) words='--config --json --help' ;;
     subscription)

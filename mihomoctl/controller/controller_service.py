@@ -27,22 +27,24 @@ except ImportError:
     import probes as acceptance
     import files
 try:
-    from .controller_types import ControlError, LIMIT, TEST_URL, label, number
+    from .controller_types import ControlError, LIMIT, TEST_URL, label, number, request_label, node_identity
     from .controller_health import annotate, affected_groups, health_candidate, observed
 except ImportError:
-    from controller_types import ControlError, LIMIT, TEST_URL, label, number
+    from controller_types import ControlError, LIMIT, TEST_URL, label, number, request_label, node_identity
     from controller_health import annotate, affected_groups, health_candidate, observed
 
 # Unit name used when neither the Application nor an owned legacy file names one.
 DEFAULT_UNIT = "mihomo"
-DELAY_ERROR_CODES = {404: "node-not-in-core", 503: "node-unreachable", 504: "delay-timeout"}
+DELAY_ERROR_CODES = {404: "node-not-in-core", 405: "controller-capability-unsupported", 501: "controller-capability-unsupported", 503: "node-unreachable", 504: "delay-timeout"}
 
 
-def measure_delay(client, node, timeout_ms=5000):
-    raw = client.request("/proxies/" + quote(label(node), safe="") + "/delay?" +
+def measure_delay(client, node, timeout_ms=5000, provider=None):
+    prefix = ('/providers/proxies/' + quote(label(provider), safe='') + '/' if provider is not None else '/proxies/')
+    path = prefix + quote(label(node), safe='') + ('/healthcheck' if provider is not None else '/delay')
+    raw = client.request(path + '?' +
                          urlencode({"url": TEST_URL, "timeout": timeout_ms}),
                          status_codes=DELAY_ERROR_CODES)
-    return {"name": node, "delay_ms": number(raw.get("delay")), "target": TEST_URL,
+    return {"name": node, "provider": provider, "delay_ms": number(raw.get("delay")), "target": TEST_URL,
             "model_request": "UNVERIFIED", "sampled_at": time.time()}
 
 
@@ -104,14 +106,19 @@ def application_context(operation):
             from controller_transaction import runtime_application
         token = runtime_application.set(self.app)
         try:
-            return operation(self, *args, **kwargs)
+            from mihomoctl.lifecycle.runner import validation_session
+            with validation_session(getattr(self, '_validation_cache', {})):
+                return operation(self, *args, **kwargs)
         except MihomoctlError as error:
-            raise ControlError(error.code, error.exit_code) from error
+            failure = ControlError(error.code, error.exit_code)
+            failure.safe_detail = getattr(error, 'safe_detail', '')
+            failure.operation_state = getattr(error, 'operation_state', None)
+            raise failure from error
         finally:
             runtime_application.reset(token)
     return invoke
 
-def proxies(client):
+def _global_proxies(client):
     raw = client.request("/proxies", optional=True).get("proxies")
     if not isinstance(raw, dict):
         raise ControlError("controller-proxies-invalid")
@@ -139,11 +146,106 @@ def proxies(client):
             row["selected"] = label(item["now"]) if item.get("now") else None
             row["selectable"] = row["type"] == "Selector"
         result[name] = row
-    annotate(result)
-    for row in result.values():
-        row.pop("_probe_states", None)
-        row.pop("_test_url", None)
     return result
+
+
+def node_directory(client):
+    """Sanitized identities; duplicate names never overwrite provider entries."""
+    global_rows = _global_proxies(client)
+    targets = [dict({k:v for k,v in row.items() if not k.startswith('_')}, provider=None) for row in global_rows.values() if 'members' not in row]
+    capability = 'supported'
+    try:
+        source = client.request('/providers/proxies', optional=True).get('providers', {})
+    except ControlError as error:
+        if error.code != 'controller-capability-unsupported':
+            raise
+        source, capability = {}, 'unsupported'
+    if not isinstance(source, dict):
+        raise ControlError('controller-providers-invalid')
+    for provider, data in source.items():
+        label(provider)
+        if not isinstance(data, dict) or not isinstance(data.get('proxies', []), list):
+            raise ControlError('controller-providers-invalid')
+        # The core's implicit Compatible provider mirrors the global table.
+        if data.get('vehicleType') == 'Compatible':
+            continue
+        seen = set()
+        for item in data.get('proxies', []):
+            if not isinstance(item, dict):
+                raise ControlError('controller-providers-invalid')
+            name = label(item.get('name'))
+            if name in seen:
+                raise ControlError('controller-provider-node-ambiguous')
+            seen.add(name)
+            row = {'name': name, 'provider': provider, 'type': label(item.get('type', 'unknown')),
+                   'probe_observed': observed(item.get('history'))}
+            if type(item.get('alive')) is bool:
+                row['alive'] = item['alive']
+            targets.append(row)
+    return global_rows, targets, capability
+
+
+def proxies(client):
+    rows, targets, capability = node_directory(client)
+    for target in targets:
+        name = target['name']
+        matches = [t for t in targets if t['name'] == name]
+        if name not in rows:
+            rows[name] = dict(target, ambiguous=len(matches) > 1)
+        elif 'members' not in rows[name] and len(matches) > 1:
+            rows[name]['ambiguous'] = True
+    for row in rows.values():
+        if 'members' in row:
+            members = [dict(name=name, provider=t.get('provider'))
+                                    for name in row['members']
+                                    for t in ([rows[name]] if name in rows and 'members' in rows[name] else
+                                              [t for t in targets if t['name'] == name] or [{'name': name}])]
+            row['member_targets'] = list({(t['provider'],t['name']):t for t in members}.values())
+            row['provider_capability'] = capability
+    annotate(rows)
+    for row in rows.values():
+        row.pop('_probe_states', None)
+        row.pop('_test_url', None)
+    return rows
+
+
+def _node_target(directory, node, provider=None):
+    qualified = isinstance(node, dict) or provider is not None
+    if isinstance(node, dict):
+        if set(node) - {'name', 'provider'}:
+            raise ControlError('invalid-node-target')
+        provider, node = node.get('provider'), node.get('name')
+    if not isinstance(node, str):
+        raise ControlError('invalid-node-target')
+    if provider is not None:
+        label(provider)
+    rows, targets, capability = directory
+    choices = [t for t in targets if t['name'] == node and (not qualified or t['provider'] == provider)]
+    if provider is None and node in rows and 'members' in rows[node]:
+        choices.append(dict(name=node, provider=None))
+    if not choices:
+        if provider is not None and capability == 'unsupported':
+            raise ControlError('controller-capability-unsupported')
+        safe_name=request_label(node)
+        raise ControlError('unknown-node', 1, detail=safe_name if safe_name != node else repr(node))
+    if len(choices) != 1:
+        raise ControlError('ambiguous-node', 1)
+    return choices[0]
+
+
+def latency_target(client, node, provider=None):
+    chosen = _node_target(node_directory(client), node, provider)
+    node = chosen['name']
+    try:
+        return measure_delay(client, node, provider=chosen['provider'])
+    except ControlError as error:
+        if error.code != 'node-not-in-core' or chosen['provider'] is None:
+            raise
+        # A provider 404 can mean refresh removal or an unsupported route.
+        _, fresh, fresh_capability = node_directory(client)
+        exists = any(t['name'] == node and t['provider'] == chosen['provider'] for t in fresh)
+        raise ControlError('controller-capability-unsupported' if exists or fresh_capability == 'unsupported'
+                           else 'node-disappeared', 1) from None
 
 
 def select(client, group, node):
@@ -153,6 +255,8 @@ def select(client, group, node):
         raise ControlError("selection-requires-Selector-group", 1)
     if node not in rows[group]["members"]:
         raise ControlError("node-not-in-group", 1)
+    if sum(t['name'] == node for t in rows[group].get('member_targets', [])) > 1:
+        raise ControlError('ambiguous-node', 1)
     client.request("/proxies/" + quote(group, safe=""), "PUT", {"name": node}, optional=True)
     if proxies(client).get(group, {}).get("selected") != node:
         raise ControlError("selection-not-confirmed", 1)
@@ -162,6 +266,8 @@ def select(client, group, node):
 
 def snapshot(client, command, details=False, id_key=None):
     if command in ("nodes", "groups"):
+        if command == 'nodes':
+            return {'nodes': node_directory(client)[1]}
         rows = proxies(client)
         return {command: [row for row in rows.values() if ("members" in row) == (command == "groups")]}
     if command == "traffic":
@@ -208,6 +314,7 @@ class ConsoleService:
         self.home_dir, self.details = home_dir, details
         self.script, self.flclash = script, flclash
         self.app = app
+        self._validation_cache = {}
         self._connection_key = secrets.token_bytes(32)
         self.pending_restart = False
         import threading
@@ -756,27 +863,65 @@ class ConsoleService:
     def choose(self, group, node):
         return select(self.client(), group, node)
 
-    def latency(self, node):
-        client = self.client()
-        if node not in proxies(client):
-            raise ControlError("unknown-node", 1, detail=repr(str(node)))
-        return measure_delay(client, node)
+    def latency(self, node, provider=None):
+        return latency_target(self.client(), node, provider)
 
     def batch_latency(self, nodes, cancelled=None, progress=None):
         from concurrent.futures import ThreadPoolExecutor, as_completed
         import threading
         cancelled = cancelled or threading.Event()
-        targets = tuple(dict.fromkeys(nodes))
+        canonical=[]
+        for target in nodes:
+            if isinstance(target, dict):
+                if set(target) - {'name','provider'} or not isinstance(target.get('name'),str) \
+                        or target.get('provider') is not None and not isinstance(target['provider'],str):
+                    raise ControlError('invalid-node-target')
+                label(target['name'])
+                if target.get('provider') is not None:
+                    label(target['provider'])
+                canonical.append({'name':target['name'],'provider':target.get('provider')})
+            elif not isinstance(target,str):
+                raise ControlError('invalid-node-target')
+            else:
+                label(target)
+                canonical.append(target)
+        # Bare names are queries, not global identities. Resolve overlapping
+        # representations without hiding an ambiguous query as a global node.
+        overlap = {n for n in canonical if isinstance(n,str)} & {n['name'] for n in canonical if isinstance(n,dict)}
+        if overlap:
+            try:
+                directory=node_directory(self.client())
+                for i,target in enumerate(canonical):
+                    if isinstance(target,str) and target in overlap:
+                        try:
+                            chosen=_node_target(directory,target)
+                            canonical[i]={'name':chosen['name'],'provider':chosen['provider']}
+                        except ControlError:pass
+            except ControlError:
+                pass
+        targets = tuple({('node',n.get('provider'),n['name']) if isinstance(n,dict) else ('query',None,n):n for n in canonical}.values())
         if not targets or len(targets) > 1000:
             raise ControlError("invalid-batch-targets")
         results = []
+        def outcome(node, state, error=None):
+            result=dict(node) if isinstance(node,dict) else {'name':node}
+            name,provider=result['name'],result.get('provider')
+            result['name']=request_label(name)
+            if 'provider' in result:result['provider']=request_label(provider)
+            if result['name'] != name or result.get('provider') != provider:
+                result['target_id']=node_identity(name,provider)
+            result['state']=state
+            if error:result['error']=error
+            return result
         def test(node):
             if cancelled.is_set():
-                return {"name": node, "state": "cancelled"}
+                return outcome(node,'cancelled')
             try:
                 return dict(self.latency(node), state="success")
             except ControlError as error:
-                return {"name": node, "state": "failed", "error": error.code}
+                return outcome(node,'failed',error.code)
+            except Exception:
+                return outcome(node,'failed','probe-unverified')
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = [executor.submit(test, node) for node in targets]
             for future in as_completed(futures):
@@ -1037,7 +1182,7 @@ class ConsoleService:
         result = Subscriptions(self.config, self.home_dir).preview(
             raw=raw, policy='provider' if simple else ('nodes' if policy == 'simple' else policy),
             guided=simple)
-        self._subscription_source = (result['id'], source_url)
+        self._subscription_source = (result['id'], source_url) if policy != 'policy' else None
         result['guided'] = simple
         return result
 

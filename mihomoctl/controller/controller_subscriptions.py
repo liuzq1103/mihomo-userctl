@@ -39,6 +39,15 @@ POLICY_FIELDS = {"proxies": list, "proxy-providers": dict, "proxy-groups": list,
 # node list into a provider overlay that would default the policy fields the
 # source did not supply.
 ROUTING_FIELDS = frozenset(key for key in POLICY_FIELDS if key != "proxies")
+OVERLAY_FIELDS = frozenset(('proxy-groups', 'rules', 'rule-providers'))
+
+
+def policy_overlay(incoming, current):
+    if not incoming or set(incoming) - OVERLAY_FIELDS:
+        raise ControlError('subscription-policy-overlay-fields-only', 1)
+    merged = dict(current, **incoming)
+    provider_policy(merged)  # Validate references against the complete result.
+    return dict(incoming)
 
 
 def provider_policy(incoming):
@@ -215,7 +224,7 @@ class Subscriptions:
 
     def preview(self, source_file=None, url_file=None, stdin=False, policy="auto", raw=None, guided=False):
         requested_policy = policy
-        if policy not in ("auto", "nodes", "provider"):
+        if policy not in ("auto", "nodes", "provider", "policy"):
             raise ControlError("subscription-policy-invalid", 1)
         if sum(bool(value) for value in (source_file, url_file, stdin)) + (raw is not None) != 1:
             raise ControlError("choose-one-private-subscription-source")
@@ -274,9 +283,10 @@ class Subscriptions:
                         raise ControlError('existing-routing-preserved-use-advanced')
                     changes = guided_policy(incoming)
                 else:
-                    changes = provider_policy(incoming) if policy == "provider" else {"proxies": list(merged.values())}
-                if policy == "provider":
-                    self.check_provider_paths(changes)
+                    changes = (policy_overlay(incoming, data) if policy == 'policy' else
+                               provider_policy(incoming) if policy == "provider" else {"proxies": list(merged.values())})
+                if policy in ("provider", "policy"):
+                    self.check_provider_paths(provider_policy(dict(data, **changes)))
                     validate_candidate(self.config, self.home_dir, patch_config(original, tree, changes))
                 candidate = patch_config(original, tree, changes).encode("utf-8")
                 candidate_hash = digest(candidate)
@@ -329,10 +339,10 @@ class Subscriptions:
             _, before, _ = read_config(self.config)
             _, after, _ = read_config(candidate_path)
             policy = plan.get("policy", "nodes")
-            if policy not in ("nodes", "provider"):
+            if policy not in ("nodes", "provider", "policy"):
                 raise ControlError("subscription-plan-invalid", 1)
-            allowed = set(POLICY_FIELDS) if policy == "provider" else {"proxies"}
-            if policy == "provider":
+            allowed = set(POLICY_FIELDS) if policy == "provider" else OVERLAY_FIELDS if policy == 'policy' else {"proxies"}
+            if policy in ("provider", "policy"):
                 self.check_provider_paths(provider_policy(after))
             if {k: v for k, v in before.items() if k not in allowed} != {k: v for k, v in after.items() if k not in allowed}:
                 raise ControlError("subscription-may-only-change-routing-policy" if policy == "provider" else "subscription-may-only-change-proxies", 1)
@@ -345,6 +355,24 @@ class Subscriptions:
                         tx.delete(path)
             result = apply_policy(self.config, original, candidate.decode("utf-8"), self.home_dir,
                                   after_write=save_source if source_url is not None else None, activate=activate)
-            for suffix in ('.json', '.candidate.yaml', '.raw.yaml'):
-                (self.root / (identifier + suffix)).unlink(missing_ok=True)
+            try:
+                for suffix in ('.json', '.candidate.yaml', '.raw.yaml'):
+                    (self.root / (identifier + suffix)).unlink(missing_ok=True)
+            except OSError:
+                state={'phase':'cleanup','config':'unverified','runtime':'unverified',
+                       'activation':'unverified' if activate else 'not-requested'}
+                try:
+                    state['config']='committed' if digest(self.config.read_bytes())==result.get('applied_sha256',expected_hash) else 'changed'
+                    if self.app is not None:
+                        observed=self.app.status();runtime=observed.get('runtime',{})
+                        if observed.get('overall')=='PASS' and runtime.get('running') is True:
+                            state['runtime']='running'
+                            if activate and state['config']=='committed':state['activation']='verified'
+                        elif runtime.get('running') is False and runtime.get('detail')!='stale-state' and runtime.get('state') in (None,'inactive','failed'):
+                            state['runtime']='stopped'
+                except Exception:pass
+                error=ControlError('subscription-cleanup-incomplete')
+                error.operation_state=state
+                error.safe_detail='phase={phase}; config={config}; runtime={runtime}; activation={activation}'.format(**state)
+                raise error from None
             return {"id": identifier, "sha256": expected_hash, **result}

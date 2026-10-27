@@ -10,10 +10,10 @@ mihomoctl 为 Linux 上的 Mihomo 提供用户级运行管理、认证代理环�
 
 它不提供订阅服务，也不保证客户端遵守代理变量；不管理 Codex/Paseo 等第三方应用的生命周期。需要全机透明代理时，须由管理员明确配置 system 作用域及 TUN。
 
-## 系统要求和当前稳定版本
+## 系统要求和本源码版本
 
-<!-- stable-version: 1.4.1 -->
-当前稳定版本：**1.4.1**。面向多人共享服务器，每人使用独立 Linux 账号。新增完整发行包内置 Python、Textual、依赖与固定核心，面向 Ubuntu 22.04/24.04 x86_64；无需创建虚拟环境、单独安装界面或使用端口转发。从 [v1.4.1 发布页](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.4.1) 下载完整包及摘要。源码和旧式 wheelhouse 套件仍需自行准备运行环境。
+<!-- stable-version: 1.4.2 -->
+本源码版本：**1.4.2**。面向多人共享服务器，每人使用独立 Linux 账号。新增完整发行包内置 Python、Textual、依赖与固定核心，面向 Ubuntu 22.04/24.04 x86_64；无需创建虚拟环境、单独安装界面或使用端口转发。仅在[发布流程](docs/zh-CN/operations/release.md)要求的审核、CI 门禁及正式发布完成后，从 [v1.4.2 发布页](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.4.2) 下载完整包及摘要；公开最新版本以 GitHub Releases 为准。源码和旧式 wheelhouse 套件仍需自行准备运行环境。
 
 ## 最短 Quick Start
 

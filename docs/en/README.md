@@ -12,3 +12,5 @@ For advanced CLI setup, follow [setup](setup.md) → [subscriptions](subscriptio
 - [Local installation prompt (OpenCode/Codex)](agent-local-install-prompt.md) · [Installer proxy troubleshooting](first-run.md#install-a-third-party-cli-through-the-proxy)
 - [Installation and runtime troubleshooting](troubleshooting.md)
 - [Agent instructions](agent-install-prompt.md) · [Release acceptance](operations/release.md)
+
+[Scripts and server policy](overrides.md)

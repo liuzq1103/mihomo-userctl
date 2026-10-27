@@ -11,3 +11,7 @@
 LICENSE text eol=lf
 mihomoctl text eol=lf
 .shellcheckrc text eol=lf
+# Pinned upstream fixtures are verified against their original byte digests.
+tests/fixtures/** -text
+# Locally maintained provenance inventories are text, unlike pinned upstream bytes.
+tests/fixtures/**/sources.json text eol=lf

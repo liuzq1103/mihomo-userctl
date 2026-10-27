@@ -52,6 +52,18 @@ class Service:
 
 
 class TextualTests(unittest.IsolatedAsyncioTestCase):
+    def test_all_delay_identities_use_unambiguous_keys(self):
+        from mihomoctl.controller.controller_textual import delay_key
+        global_target={'provider':None,'name':'["p", "n"]'}
+        provider_target={'provider':'p','name':'n'}
+        self.assertNotEqual(delay_key(global_target),delay_key(provider_target))
+        self.assertEqual(delay_key(global_target),delay_key(global_target['name']))
+        values={delay_key(global_target):'失败：探测超时',delay_key(provider_target):37}
+        self.assertEqual(len(values),2)
+        from mihomoctl.controller.controller_types import node_identity
+        target={'name':'https://example.test/PRIVATE-PASSWORD','provider':'p'}
+        safe={'name':'[redacted request]','provider':'p','target_id':node_identity(target['name'],'p')}
+        self.assertEqual(delay_key(target),delay_key(safe))
     def test_delay_codes_are_translated_in_results_and_hints(self):
         from mihomoctl.controller.controller_types import ERROR_LABELS, error_text
         from mihomoctl.controller.controller_textual import summarize
@@ -86,6 +98,55 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
             rendered = str(app.query_one('#hint', Static).render())
             self.assertIn('delay-timeout', rendered)
             self.assertIn(ERROR_LABELS['delay-timeout'], rendered)
+
+    async def test_batch_failure_cancellation_and_progress_never_look_untested(self):
+        import threading
+        from textual.widgets import Static
+        finished=threading.Event()
+        class Mixed(Service):
+            def batch_latency(self,targets,cancel,progress=None):
+                finished.wait(5)
+                return {'results':[{'name':'[red]A','state':'success','delay_ms':42},
+                                   {'name':'B','state':'failed','error':'delay-timeout'},
+                                   {'name':'q','state':'cancelled'}]}
+        app=Console(Mixed())
+        async with app.run_test(size=(120,28)) as pilot:
+            app.change_page('proxies');await self.settle(pilot,app,'proxies')
+            self.assertTrue(all(str(row[2])=='未测试' for row in [app.query_one('#nodes',DataTable).get_row_at(i) for i in range(3)]))
+            from mihomoctl.controller.controller_textual import delay_key
+            app.latencies[delay_key('B')]='123'  # A new failed attempt must replace stale success.
+            app.start_batch(('[red]A','B','q'))
+            self.assertEqual(app.latencies[delay_key('B')],'测速中')
+            finished.set()
+            await self.wait_for(pilot,lambda:'operation' not in app.store.pending,'batch results')
+            await pilot.pause(.2)
+            rows={str(row[0]):str(row[2]) for row in [app.query_one('#nodes',DataTable).get_row_at(i) for i in range(3)]}
+            self.assertEqual(rows['[red]A'],'42')
+            self.assertIn('超时',rows['B']);self.assertIn('delay-timeout',rows['B'])
+            self.assertEqual(rows['q'],'已取消')
+            hint=str(app.query_one('#hint',Static).render())
+            self.assertIn('成功 1，失败 1，取消 1',hint)
+            app.render_page()
+            self.assertIn('成功 1，失败 1，取消 1',str(app.query_one('#hint',Static).render()))
+            revision=app.store.state.snapshots['proxies'].revision
+            app.action_refresh()
+            await self.wait_for(pilot,lambda:app.store.state.snapshots['proxies'].revision>revision and 'proxies' not in app.store.pending,'fresh proxy snapshot')
+            await pilot.pause(.2)
+            self.assertIn('成功 1，失败 1，取消 1',str(app.query_one('#hint',Static).render()))
+            rows={str(row[0]):str(row[2]) for row in [app.query_one('#nodes',DataTable).get_row_at(i) for i in range(3)]}
+            self.assertIn('delay-timeout',rows['B']);self.assertEqual(rows['q'],'已取消')
+            from mihomoctl.controller.controller_types import ControlError
+            def activation_failure():
+                error=ControlError('core-timeout')
+                error.operation_state={'phase':'activate','config':'restored','runtime':'running','activation':'failed'}
+                raise error
+            app.schedule('operation',activation_failure)
+            await self.wait_for(pilot,lambda:app.store.state.snapshots['operation'].error=='core-timeout','subsequent activation error')
+            await pilot.pause(.2);app.render_page()
+            notice=str(app.query_one('#hint',Static).render())
+            self.assertIn('core-timeout',notice)
+            self.assertIn('已恢复原配置',notice)
+            self.assertNotIn('成功 1，失败 1，取消 1',notice)
 
     async def test_health_preview_requires_confirmed_save_and_journal_filters(self):
         class Tasks(Service):
@@ -139,6 +200,54 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertEqual(len(app.screen_stack), 2)
             await pilot.press("escape")
+
+    async def test_preview_success_save_failure_shows_phase_and_recovered_state(self):
+        from mihomoctl.controller.controller_types import ControlError
+        class FailedSave(Service):
+            def subscription_save_and_start(self, identifier, digest):
+                error = ControlError('core-timeout')
+                error.safe_detail = 'stage=core-validation; elapsed_ms=60000; cache_files=1'
+                error.operation_state = {'phase':'activate','config':'restored','runtime':'running','activation':'failed'}
+                raise error
+        preview = {'state':'preview','id':'a'*32,'sha256':'b'*64,'policy':'policy','nodes':0,'groups':1,'rules':1}
+        app = Console(FailedSave(), initial_preview=preview)
+        async with app.run_test(size=(100,28)) as pilot:
+            await pilot.pause()
+            app.action_save(); await pilot.pause(); await pilot.click('#yes')
+            await self.wait_for(pilot, lambda: bool(app.store.state.snapshots['operation'].error), 'save failure observed')
+            snap=app.store.state.snapshots['operation']
+            self.assertEqual(snap.error,'core-timeout')
+            self.assertIn('已恢复原配置，新配置未提交',snap.error_message)
+            self.assertIn('仍在运行',snap.error_message)
+            self.assertIn('启动或重启',snap.error_message)
+            self.assertNotEqual(app.page,'proxies')
+
+    async def test_provider_row_identity_survives_single_and_batch_latency(self):
+        class Providers(Service):
+            def read(self,page):
+                if page=='proxies':
+                    return {'Proxy':{'name':'Proxy','type':'Selector','members':['duplicate'],'selected':'duplicate','selectable':True,
+                                     'member_targets':[{'name':'duplicate','provider':'first'},{'name':'duplicate','provider':'second'}]}}
+                return super().read(page)
+            def latency(self,target):
+                self.calls.append(('latency',target))
+                return dict(target,delay_ms=32)
+            def batch_latency(self,targets,cancel,progress=None):
+                self.calls.append(('batch',targets))
+                return {'results':[dict(t,delay_ms=32) for t in targets]}
+        service=Providers();app=Console(service)
+        async with app.run_test(size=(100,28)) as pilot:
+            app.change_page('proxies');await self.settle(pilot,app,'proxies')
+            app.query_one('#nodes',DataTable).move_cursor(row=1)
+            app.action_latency()
+            await self.wait_for(pilot,lambda:any(c[0]=='latency' for c in service.calls),'provider single target')
+            self.assertIn(('latency',{'name':'duplicate','provider':'second'}),service.calls)
+            app.action_batch();await pilot.pause();await pilot.click('#yes')
+            await self.wait_for(pilot,lambda:any(c[0]=='batch' for c in service.calls),'provider batch targets')
+            targets=next(c[1] for c in service.calls if c[0]=='batch')
+            self.assertEqual({t['provider'] for t in targets},{'first','second'})
+            app.query_one('#nodes',DataTable).focus();await pilot.press('enter');await pilot.pause()
+            self.assertFalse(any(c[0]=='select' for c in service.calls))
 
     async def test_subscription_buttons_preview_save_restart_and_compact_fit(self):
         class Tasks(Service):

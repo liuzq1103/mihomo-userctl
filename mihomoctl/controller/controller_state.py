@@ -50,10 +50,21 @@ class Snapshot:
     error: str = ""
     error_label: str = ""
     revision: int = 0
+    safe_detail: str = ""
+    operation_state: object = None
 
     @property
     def error_message(self):
-        return self.error + ("（" + self.error_label + "）" if self.error_label else "")
+        text = self.error + ("（" + self.error_label + "）" if self.error_label else "") + (": " + self.safe_detail if self.safe_detail else "")
+        if isinstance(self.operation_state, dict):
+            phases = {'validate':'校验', 'save':'写入', 'activate':'启动或重启', 'commit':'提交', 'recover':'恢复','cleanup':'清理临时材料'}
+            configs = {'restored':'已恢复原配置，新配置未提交', 'committed':'新配置已提交', 'changed':'配置已变化，请重新检查', 'unverified':'未确认'}
+            runtimes = {'running':'仍在运行', 'stopped':'已停止', 'unverified':'未确认'}
+            text += '；失败阶段：{}；配置：{}；核心：{}'.format(
+                phases.get(self.operation_state.get('phase'), '未确认'),
+                configs.get(self.operation_state.get('config'), '未确认'),
+                runtimes.get(self.operation_state.get('runtime'), '未确认'))
+        return text
 
 
 @dataclass
@@ -101,15 +112,20 @@ class Store:
             return False
 
     def _run(self, key, revision, operation):
+        detail, state = '', None
         try:
             value, error = operation(), ""
         except Exception as exc:
             value, error = None, getattr(exc, "code", "operation-unverified")
+            from .controller_types import safe_failure
+            detail = safe_failure(exc)
+            state = getattr(exc, 'operation_state', None)
         with self.lock:
             if self.closed or self.pending.get(key) != revision:
                 return
             self.pending.pop(key, None)
             snap = self.state.snapshots[key]
+            snap.safe_detail, snap.operation_state = detail, state
             if error:
                 snap.freshness = "unsupported" if error == "controller-capability-unsupported" else "stale" if snap.value is not None else "error"
                 snap.error = error

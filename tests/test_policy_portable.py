@@ -72,19 +72,19 @@ class PolicyTests(unittest.TestCase):
 
     def test_validation_failure_and_concurrent_edit_do_not_commit(self):
         original, updated, _ = c.policy_candidate(self.config, group='Proxy')
-        with patch.object(c.shutil, 'which', return_value='/fake/mihomo'), patch.object(c.files, 'atomic_bytes', side_effect=lambda p, b: Path(p).write_bytes(b)), patch.object(c.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1)):
+        with patch.object(c.shutil, 'which', return_value='/usr/bin/true'), patch.object(c.files, 'atomic_bytes', side_effect=lambda p, b: Path(p).write_bytes(b)), patch.object(c.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1)):
             with self.assertRaisesRegex(c.ControlError, 'validation-failed'):
                 c.apply_policy(self.config, original, updated, str(self.root))
         self.assertEqual(self.config.read_text(encoding='utf-8'), original)
         self.config.write_text(original + '# concurrent\n', encoding='utf-8')
-        with patch.object(c.shutil, 'which', return_value='/fake/mihomo'), patch.object(c.files, 'atomic_bytes', side_effect=lambda p, b: Path(p).write_bytes(b)), patch.object(c.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)):
+        with patch.object(c.shutil, 'which', return_value='/usr/bin/true'), patch.object(c.files, 'atomic_bytes', side_effect=lambda p, b: Path(p).write_bytes(b)), patch.object(c.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)):
             with self.assertRaisesRegex(c.ControlError, 'config-changed'):
                 c.apply_policy(self.config, original, updated, str(self.root))
         self.assertEqual(list(self.root.glob('*.before-policy-*')), [])
 
     def test_success_has_backup_and_requires_restart(self):
         original, updated, _ = c.policy_candidate(self.config, group='Proxy')
-        with patch.object(c.shutil, 'which', return_value='/fake/mihomo'), patch.object(c.files, 'atomic_bytes', side_effect=lambda p, b: Path(p).write_bytes(b)), patch.object(c.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)):
+        with patch.object(c.shutil, 'which', return_value='/usr/bin/true'), patch.object(c.files, 'atomic_bytes', side_effect=lambda p, b: Path(p).write_bytes(b)), patch.object(c.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)):
             result = c.apply_policy(self.config, original, updated, str(self.root))
         self.assertNotIn("backup", result)
         self.assertEqual(result['state'], 'restart-required')
@@ -115,14 +115,15 @@ class PolicyTests(unittest.TestCase):
         self.assertNotIn('private', json.dumps(summary))
         self.assertEqual(data['secret'], 'private')
 
-    @unittest.skipUnless(shutil.which('node') and os.environ.get('MIHOMO_USERCTL_TEST_OVERRIDE'), 'Optional real user script fixture')
+    @unittest.skipUnless(shutil.which('node'), 'Node required')
     def test_actual_flclash_rules_script(self):
         cache = self.root / 'subscription.yaml'
         cache.write_text('proxies:\n  - {name: "美国-BGP-01", type: ss}\n  - {name: "香港-BGP-01", type: ss}\n', encoding='utf-8')
         if sys.platform != 'win32':
             cache.chmod(0o600)
         self.config.write_text(self.original + 'proxy-providers:\n  subscription:\n    path: ' + str(cache).replace('\\', '/') + '\n', encoding='utf-8')
-        _, updated, _ = c.policy_candidate(self.config, script=os.environ['MIHOMO_USERCTL_TEST_OVERRIDE'], flclash=True)
+        script = self.script((Path(__file__).parent / 'fixtures/flclash/1.1.1-override.js').read_text(encoding='utf-8'))
+        _, updated, _ = c.policy_candidate(self.config, script=script, flclash=True)
         data = yaml.safe_load(updated)
         groups = {g['name']: g for g in data['proxy-groups']}
         self.assertEqual(groups['Ai+']['proxies'], ['Ai稳定选择', 'Ai测速备用'])

@@ -1,0 +1,120 @@
+proxy-groups:
+- name: PROXY
+  type: url-test
+  use:
+  - subscription
+  exclude-filter: (?i)(?:🇺🇳|剩余流量|流量剩余|距离下次重置|重置剩余|到期时间|过期时间|套餐到期|套餐提示|订阅信息|(?:^|[\s|_\-【】()（）])(?:expire|traffic|sync|reset|官网|套餐|订阅|更新|客服|网址)(?:[\s:：|_\-\d【】()（）]|$)|(?:到期|过期|重置)[:：\s_|-]*\d{4}|剩余[:：\s_|-]*\d)
+  url: https://www.gstatic.com/generate_204
+  interval: 300
+  tolerance: 50
+- name: Ai稳定选择
+  type: select
+  use:
+  - subscription
+  exclude-filter: (?i)(?:🇺🇳|剩余流量|流量剩余|距离下次重置|重置剩余|到期时间|过期时间|套餐到期|套餐提示|订阅信息|(?:^|[\s|_\-【】()（）])(?:expire|traffic|sync|reset|官网|套餐|订阅|更新|客服|网址)(?:[\s:：|_\-\d【】()（）]|$)|(?:到期|过期|重置)[:：\s_|-]*\d{4}|剩余[:：\s_|-]*\d)
+  filter: (?i)(?:🇺🇸|美国|美國|america|united[ -]?states|u\.s\.a\.?|(?:^|[^a-z])(?:us|usa)(?:[^a-z]|$))
+- name: Ai测速备用
+  type: url-test
+  use:
+  - subscription
+  exclude-filter: (?i)(?:🇺🇳|剩余流量|流量剩余|距离下次重置|重置剩余|到期时间|过期时间|套餐到期|套餐提示|订阅信息|(?:^|[\s|_\-【】()（）])(?:expire|traffic|sync|reset|官网|套餐|订阅|更新|客服|网址)(?:[\s:：|_\-\d【】()（）]|$)|(?:到期|过期|重置)[:：\s_|-]*\d{4}|剩余[:：\s_|-]*\d)
+  filter: (?i)(?:🇺🇸|美国|美國|america|united[ -]?states|u\.s\.a\.?|(?:^|[^a-z])(?:us|usa)(?:[^a-z]|$))
+  url: https://chatgpt.com/cdn-cgi/trace
+  interval: 300
+  tolerance: 50
+  lazy: true
+  timeout: 8000
+  max-failed-times: 2
+  expected-status: 200
+- name: Ai+
+  type: select
+  proxies:
+  - Ai稳定选择
+  - Ai测速备用
+- name: Dev+
+  type: select
+  use:
+  - subscription
+  exclude-filter: (?i)(?:🇺🇳|剩余流量|流量剩余|距离下次重置|重置剩余|到期时间|过期时间|套餐到期|套餐提示|订阅信息|(?:^|[\s|_\-【】()（）])(?:expire|traffic|sync|reset|官网|套餐|订阅|更新|客服|网址)(?:[\s:：|_\-\d【】()（）]|$)|(?:到期|过期|重置)[:：\s_|-]*\d{4}|剩余[:：\s_|-]*\d)
+  filter: (?i)(?:🇭🇰|香港|hong[ -]?kong|(?:^|[^a-z])hk(?:[^a-z]|$)|hkg|🇺🇸|美国|美國|america|united[ -]?states|u\.s\.a\.?|(?:^|[^a-z])(?:us|usa)(?:[^a-z]|$))
+  proxies:
+  - PROXY
+- name: 学术搜索
+  type: select
+  proxies:
+  - Ai+
+  - DIRECT
+- name: 学术访问
+  type: select
+  proxies:
+  - DIRECT
+  - Ai+
+rules:
+- DOMAIN,sea-ad-single-cell-profiling.s3.amazonaws.com,DIRECT
+- DOMAIN-SUFFIX,ncbi.nlm.nih.gov,DIRECT
+- DOMAIN,scholar.google.com,学术搜索
+- DOMAIN,scholar.google.com.hk,学术搜索
+- DOMAIN-SUFFIX,chatgpt.com,Ai+
+- DOMAIN-SUFFIX,openai.com,Ai+
+- DOMAIN-SUFFIX,oaistatic.com,Ai+
+- DOMAIN-SUFFIX,oaiusercontent.com,Ai+
+- DOMAIN-SUFFIX,oaistatsig.com,Ai+
+- DOMAIN-SUFFIX,openai.fm,Ai+
+- DOMAIN-SUFFIX,sora.com,Ai+
+- DOMAIN-SUFFIX,challenges.cloudflare.com,Ai+
+- DOMAIN-SUFFIX,sagepub.com,Ai+
+- DOMAIN,gene-structure.vercel.app,Ai+
+- DOMAIN-SUFFIX,synapse.org,Ai+
+- DOMAIN,repo-prod.prod.sagebase.org,Ai+
+- DOMAIN-SUFFIX,alphafoldserver.com,Ai+
+- DOMAIN-SUFFIX,google.com,Ai+
+- DOMAIN-SUFFIX,googleapis.com,Ai+
+- DOMAIN-SUFFIX,deepmind.com,Ai+
+- DOMAIN-SUFFIX,gstatic.com,Ai+
+- DOMAIN-SUFFIX,googleusercontent.com,Ai+
+- DOMAIN-SUFFIX,ggpht.com,Ai+
+- DOMAIN-SUFFIX,claude.ai,Ai+
+- DOMAIN-SUFFIX,claude.com,Ai+
+- DOMAIN-SUFFIX,anthropic.com,Ai+
+- DOMAIN-SUFFIX,claudeusercontent.com,Ai+
+- DOMAIN-SUFFIX,grok.com,Ai+
+- DOMAIN-SUFFIX,x.ai,Ai+
+- DOMAIN-SUFFIX,x.com,Ai+
+- DOMAIN-SUFFIX,perplexity.ai,Ai+
+- DOMAIN-SUFFIX,poe.com,Ai+
+- DOMAIN-SUFFIX,nemoarchive.org,Ai+
+- DOMAIN-SUFFIX,github.com,Dev+
+- DOMAIN-SUFFIX,githubusercontent.com,Dev+
+- DOMAIN-SUFFIX,githubassets.com,Dev+
+- DOMAIN-SUFFIX,github.io,Dev+
+- DOMAIN-SUFFIX,sourcegraph.com,Dev+
+- DOMAIN-SUFFIX,githubcopilot.com,Dev+
+- DOMAIN-SUFFIX,huggingface.co,Dev+
+- DOMAIN-SUFFIX,hf.co,Dev+
+- DOMAIN-SUFFIX,docker.io,Dev+
+- DOMAIN-SUFFIX,docker.com,Dev+
+- DOMAIN-SUFFIX,cursor.sh,Dev+
+- DOMAIN-SUFFIX,science.org,学术访问
+- DOMAIN-SUFFIX,pnas.org,学术访问
+- DOMAIN-SUFFIX,oup.com,学术访问
+- DOMAIN-SUFFIX,tandfonline.com,学术访问
+- DOMAIN-SUFFIX,cell.com,学术访问
+- DOMAIN-SUFFIX,wiley.com,学术访问
+- DOMAIN-SUFFIX,nature.com,学术访问
+- DOMAIN-SUFFIX,springer.com,学术访问
+- DOMAIN-SUFFIX,springernature.com,学术访问
+- DOMAIN-SUFFIX,acs.org,学术访问
+- DOMAIN-SUFFIX,ieee.org,学术访问
+- DOMAIN-SUFFIX,aps.org,学术访问
+- DOMAIN-SUFFIX,taylorandfrancis.com,学术访问
+- DOMAIN-SUFFIX,webofscience.com,学术访问
+- DOMAIN-SUFFIX,webofknowledge.com,学术访问
+- DOMAIN-SUFFIX,clarivate.com,学术访问
+- DOMAIN-SUFFIX,scopus.com,学术访问
+- DOMAIN-SUFFIX,sciencedirect.com,学术访问
+- DOMAIN-SUFFIX,sciencedirectassets.com,学术访问
+- DOMAIN-SUFFIX,els-cdn.com,学术访问
+- DOMAIN-SUFFIX,elsevier.com,学术访问
+- DOMAIN-SUFFIX,cellchat.org,学术访问
+- DOMAIN-SUFFIX,cancerserumatlas.com,学术访问
+- MATCH,DIRECT

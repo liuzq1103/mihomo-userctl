@@ -85,6 +85,8 @@ class SupplyChainTests(unittest.TestCase):
     def test_version_match_requires_complete_version_token(self):
         self.assertTrue(coreinstall._version_matches("Mihomo Meta v1.19.32 linux amd64", "v1.19.32"))
         self.assertFalse(coreinstall._version_matches("Mihomo v1.19.320", "v1.19.32"))
+        self.assertFalse(coreinstall._version_matches('Mihomo Meta v1.19.31 linux amd64 with go1.19.32','v1.19.32'))
+        self.assertFalse(coreinstall._version_matches('Mihomo Meta v1.19.320 linux amd64','v1.19.32'))
 
     def test_pinned_table_has_reviewed_digest_and_rejects_duplicate_entry(self):
         pin = digests.lookup("v1.19.32", "mihomo-linux-amd64-compatible-v1.19.32.gz")

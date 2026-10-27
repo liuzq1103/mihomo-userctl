@@ -260,10 +260,14 @@ with operation_lock(Scope()):
         app = Mock()
         app.resolve.return_value = (manager, [], None, None, {})
         app._backend.side_effect = [old, candidate, restored]
+        recovery_app=Mock()
+        recovery_app.lifecycle.side_effect=StateError('original-restart-failed')
         tx = Transaction(self.scope, 'core-activate')
-        with patch.object(coreinstall, '_application', return_value=app):
+        with patch.object(coreinstall, '_application', return_value=app), \
+                patch('mihomoctl.transaction._runtime_backend',return_value=(recovery_app,restored)):
             with self.assertRaisesRegex(RollbackFailedError, 'core-runtime-rollback-failed'):
                 coreinstall._publish_and_activate(self.scope, tx, manager, self.home / 'candidate')
+        recovery_app.lifecycle.assert_called_once_with('start',_locked=True,_transaction=tx)
         self.assertEqual(self.scope.manager_path.read_bytes(), original)
         self.assertTrue(tx.backup_root.exists())
         self.assertEqual(json.loads((tx.backup_root / 'journal.json').read_text())['state'], 'restored')

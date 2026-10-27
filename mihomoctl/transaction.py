@@ -117,6 +117,8 @@ class Transaction:
         record = {"op": "publish", "path": str(destination)}
         existed = destination.exists() or destination.is_symlink()
         if existed:
+            if not destination.is_file() or destination.is_symlink():
+                raise TransactionError('refuse-non-file-destination', 'file publication requires a regular destination')
             self._capture_metadata(record, destination)
             record["backup"] = str(self._backup(destination, record))
             record["existed"] = True
@@ -157,6 +159,8 @@ class Transaction:
         self._check_destination(path)
         if not (path.exists() or path.is_symlink()):
             return False
+        if path.is_dir() and not path.is_symlink():
+            raise TransactionError('refuse-directory-delete', 'transaction deletion requires a file')
         if require_managed_marker is not None:
             try:
                 text = path.read_text(encoding="utf-8")
@@ -284,12 +288,12 @@ class Transaction:
         _atomic_write_bytes(path, data, mode)
         uid, gid = record.get("uid"), record.get("gid")
         if uid is not None and gid is not None and hasattr(os, "geteuid"):
-            try:
-                current = os.stat(str(path))
-                if (current.st_uid, current.st_gid) != (uid, gid) and os.geteuid() == 0:
-                    os.chown(str(path), uid, gid)
-            except OSError:
-                pass  # ownership restore best-effort for non-root
+            current = os.stat(str(path))
+            if (current.st_uid, current.st_gid) != (uid, gid) and os.geteuid() == 0:
+                os.chown(str(path), uid, gid)
+            restored = os.stat(str(path))
+            if (restored.st_uid, restored.st_gid) != (uid, gid):
+                raise OSError('ownership restoration incomplete')
 
 
 def _atomic_write_bytes(destination: Path, data: bytes, mode):
@@ -334,6 +338,9 @@ def run_transaction(scope, name, action, allow_paths=()):
             tx.commit()
         except BaseException as exc:
             if not tx.finished:
+                if tx.runtime is not None and getattr(exc,'code','') in ('start-cleanup-failed','service-cleanup-unverified'):
+                    tx.runtime['phase']='unverified'
+                    tx._persist()
                 try:
                     restore_failed_operation(tx)
                 except RollbackFailedError as rollback_exc:
@@ -353,7 +360,12 @@ def _runtime_backend(tx):
 
 def restore_failed_operation(tx):
     """Restore files and any runtime changed by this unfinished operation."""
-    if tx.runtime is not None:
+    if tx.runtime is not None and tx.runtime.get('phase') == 'unverified':
+        raise RollbackFailedError('rollback-failed', 'runtime cessation is unverified; recovery journal retained; inspect the managed runtime')
+    if tx.runtime is not None and tx.runtime.get('phase') == 'prepared' and not tx.runtime.get('unit_reload'):
+        tx.rollback()
+        return
+    if tx.runtime is not None and tx.runtime.get('phase') != 'prepared':
         _app, backend = _runtime_backend(tx)
         if backend.status().get('running'):
             backend.stop()
@@ -365,10 +377,37 @@ def restore_failed_operation(tx):
 
 
 def _restore_runtime(tx):
+    if tx.runtime and tx.runtime.get('phase') == 'unverified':
+        raise RollbackFailedError('rollback-failed', 'runtime identity remains unverified; recovery journal retained')
+    if tx.runtime and tx.runtime.get('unit_reload'):
+        from .lifecycle.systemd import _systemctl
+        try:
+            _systemctl(tx.scope, 'daemon-reload')
+        except Exception:
+            raise RollbackFailedError('rollback-failed', 'restored unit reload remains unverified; recovery journal retained') from None
     if tx.runtime and tx.runtime['was_running']:
-        app, backend = _runtime_backend(tx)
-        if not backend.status().get('running'):
-            app.lifecycle('start', _locked=True)
+        try:
+            app, backend = _runtime_backend(tx)
+            if not backend.status().get('running'):
+                tx.runtime['phase'] = 'starting'
+                tx._persist('restored')
+                observed = app.lifecycle('start', _locked=True, _transaction=tx)
+            else:
+                observed = app.status()
+                # A live identity and owned listeners do not prove that the
+                # restored credentials are accepted after an interrupted
+                # recovery. Keep the restored journal until local auth gates
+                # are confirmed, without stopping or replacing this process.
+                _data, _checks, health = app._health_result()
+                if health != 'PASS':
+                    raise RollbackFailedError('rollback-failed', 'previous runtime authentication remains unverified; recovery journal retained')
+        except RollbackFailedError:
+            raise
+        except Exception:
+            raise RollbackFailedError('rollback-failed', 'previous runtime restoration failed; recovery journal retained') from None
+        if not isinstance(observed, dict) or observed.get('overall') != 'PASS' \
+                or observed.get('runtime', {}).get('running') is not True:
+            raise RollbackFailedError('rollback-failed', 'previous runtime restoration remains unverified; recovery journal retained')
 
 
 def restore_backup(scope, backup):
@@ -395,6 +434,9 @@ def recover_transactions(scope):
             raise TransactionError('transaction-journal-invalid')
         state = document.get('state')
         if state is None:  # Completed journals written by the old release.
+            if (set(document) != {'id','name','at','journal'} or type(document.get('at')) is not int
+                    or not isinstance(document.get('journal'), list)):
+                raise TransactionError('transaction-recovery-required', 'incomplete modern journal retained for inspection')
             shutil.rmtree(directory)
             continue
         if state not in ('pending', 'committed', 'restored'):
@@ -403,9 +445,11 @@ def recover_transactions(scope):
         tx.scope, tx.id, tx.name = scope, directory.name, document.get('name')
         tx.backup_root, tx.finished = directory, False
         tx.runtime = document.get('runtime')
-        if tx.runtime is not None and (tx.name not in ('policy-activate', 'core-install', 'core-activate', 'port-retry')
+        if tx.runtime is not None and (tx.name not in ('policy-activate', 'core-install', 'core-activate', 'port-retry','service-install','service-uninstall')
                 or not isinstance(tx.runtime, dict) or type(tx.runtime.get('was_running')) is not bool
-                or set(tx.runtime) != {'was_running'}):
+                or set(tx.runtime) - {'was_running','phase','unit_reload'}
+                or 'unit_reload' in tx.runtime and (type(tx.runtime['unit_reload']) is not bool or tx.name not in ('core-install','core-activate','service-install','service-uninstall'))
+                or 'phase' in tx.runtime and tx.runtime['phase'] not in ('prepared', 'stopping', 'starting', 'unverified')):
             raise TransactionError('transaction-journal-invalid')
         tx.staging = Path(document.get('staging', ''))
         if (tx.staging.parent != scope.staging_root or tx.staging.is_symlink()

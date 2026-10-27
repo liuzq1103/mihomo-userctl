@@ -163,12 +163,17 @@ class Application:
                 "%s=%s" % (c.name, c.status) for c in checks if c.status != env.PASS)
 
         from contextlib import nullcontext
+        def transition(phase):
+            if _transaction is not None and _transaction.runtime is not None:
+                _transaction.runtime['phase'] = phase
+                _transaction._persist()
+        options = {'runtime_transition': transition} if _transaction is not None and _transaction.runtime is not None else {}
         with (nullcontext() if _locked else operation_lock(self.scope)):
             manager, endpoints, controller, profile, _cfg = self.resolve()
             backend = self._backend(manager, endpoints, controller)
             if action == "start":
                 try:
-                    backend.start(health_check=local_health)
+                    backend.start(health_check=local_health, **options)
                 except MihomoctlError as error:
                     if error.code not in ('port-conflict', 'start-not-verified'):
                         raise
@@ -176,7 +181,7 @@ class Application:
             elif action == "stop":
                 backend.stop()
             else:
-                backend.restart(health_check=local_health)
+                backend.restart(health_check=local_health, **options)
         result = self.status()
         if action == 'stop' and not result.get('runtime', {}).get('running'):
             result['overall'] = env.PASS
@@ -210,17 +215,24 @@ class Application:
             updated = patch_config(original, tree, {'listeners': listeners,
                                   'external-controller': '127.0.0.1:%d' % controller_port})
             tx = transaction or Transaction(self.scope, 'port-retry')
+            if tx.runtime is None:
+                tx.runtime = {'was_running': False, 'phase': 'prepared'}
+                tx._persist()
+            def transition(phase):
+                tx.runtime['phase'] = phase
+                tx._persist()
             try:
                 tx.write_text(path, updated)
                 tx.write_text(marker, json.dumps({'proxy': proxy_port, 'controller': controller_port}))
                 manager, endpoints, controller, _profile, _cfg = self.resolve()
-                self._backend(manager, endpoints, controller).start(health_check=health_check)
+                self._backend(manager, endpoints, controller).start(health_check=health_check, runtime_transition=transition)
                 if transaction is None:
                     tx.commit()
                 return
             except BaseException as candidate_error:
                 if transaction is None and not tx.finished:
-                    tx.rollback()
+                    from .transaction import restore_failed_operation
+                    restore_failed_operation(tx)
                 if not isinstance(candidate_error, MihomoctlError) or candidate_error.code not in ('port-conflict', 'start-not-verified'):
                     raise
                 error = candidate_error

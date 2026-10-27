@@ -33,7 +33,7 @@ Network operations run in background workers. Esc cancels pending work, subject 
 | `v`, `?`, `:` | View result details, help, command input |
 | Esc, `q` / Ctrl+C | Cancel work; exit the interface |
 
-Shortcuts apply when a text field is not consuming the key. A delay is a request through the selected node to the configured probe target, not a bandwidth benchmark or proof of a successful application request. `unknown-node` and `node-not-in-core` mean the exact name is absent from the core table; `node-unreachable` means the probe failed and `delay-timeout` means it timed out. See [delay troubleshooting](troubleshooting.md).
+Shortcuts apply when a text field is not consuming the key. A delay is a request through the selected node to the configured probe target, not a bandwidth benchmark or proof of a successful application request. `unknown-node` means absent from the merged global/provider directory; `node-not-in-core` means a previously resolved global target is absent at probe time; `node-unreachable` means the probe failed and `delay-timeout` means it timed out. See [delay troubleshooting](troubleshooting.md).
 
 The secondary pages retain connections, providers, rules, logs, diagnostics and runtime controls. The command input accepts `subscribe /absolute/private/subscription.yaml` and probe settings such as `health-check provider "ProviderName" --preset resilient`; a Selector needs a probe on its underlying provider. Review the resulting preview before saving and explicitly restart where requested. The terminal's subscription save/start action performs both in one recoverable operation; the advanced CLI preview/apply commands below do not.
 

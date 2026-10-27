@@ -1,0 +1,26 @@
+[
+  {
+    "file": "1.1.0-override.js",
+    "commit": "8b507311a4cd53f4d7fdd01a6c0b10d2ed2ef9c7",
+    "source": "https://github.com/liuzq1103/FlClash-rules/blob/8b507311a4cd53f4d7fdd01a6c0b10d2ed2ef9c7/dist/override.js",
+    "sha256": "979f2f3203beefc837be9137aef8417ec619a91a701bcb96279c68d2bfdf2eb6"
+  },
+  {
+    "file": "1.1.1-override.js",
+    "commit": "383b36f7727500b08c70732344bf11baf28e7ca4",
+    "source": "https://github.com/liuzq1103/FlClash-rules/blob/383b36f7727500b08c70732344bf11baf28e7ca4/dist/override.js",
+    "sha256": "2b0dc41f5514c9551094c6e8a4fe52dcd7aede24fdb90cbf2bb4cdc433d45d3f"
+  },
+  {
+    "file": "1.1.1-server-policy.yaml",
+    "commit": "383b36f7727500b08c70732344bf11baf28e7ca4",
+    "source": "https://github.com/liuzq1103/FlClash-rules/blob/383b36f7727500b08c70732344bf11baf28e7ca4/dist/server-policy.yaml",
+    "sha256": "0ac9f6517c6bcb92d69c886b8fed9221e5a5b03b4810942f165055d481b6814a"
+  },
+  {
+    "file": "1.1.1-LICENSE",
+    "commit": "383b36f7727500b08c70732344bf11baf28e7ca4",
+    "source": "https://github.com/liuzq1103/FlClash-rules/blob/383b36f7727500b08c70732344bf11baf28e7ca4/LICENSE",
+    "sha256": "2a3ba180c56f5114325aaf7f8770b1a364151e491d6720f5351e21869ba915f9"
+  }
+]

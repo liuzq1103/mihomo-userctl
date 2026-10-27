@@ -12,3 +12,5 @@ SSH 新用户先阅读 [完整包安装](../../INSTALL.md) 和 [终端界面](co
 - [本地安装 prompt（OpenCode/Codex）](agent-local-install-prompt.md) · [代理安装与排障](first-run.md#通过代理安装第三方-cli)
 - [安装与运行排障](troubleshooting.md)
 - [Agent 安装指引](agent-install-prompt.md) · [发布验收](operations/release.md)
+
+[脚本与服务器策略](overrides.md)

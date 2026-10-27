@@ -18,8 +18,13 @@ Preview is private and does not activate configuration or restart the runtime. R
 
 ```bash
 mihomoctl subscription apply PREVIEW_ID --sha256 CANDIDATE_SHA256
-mihomoctl config validate
 mihomoctl restart
 ```
 
 Apply verifies the original active-config digest, the candidate SHA256 and the allowed changed fields, validates with the managed core, then saves transactionally without retained backups. Original-config drift, candidate tampering, forbidden fields or validation failure refuse activation. Start a fresh preview after any configuration change. Review custom rules again after later provider imports, which may replace routing policy. Never hand-edit a saved preview to bypass these gates.
+
+## Routing fragments and validation state
+
+Use `--policy policy` for a fragment containing only groups/rules/rule-providers. Supplied sections are replaced; omitted sections, nodes and proxy-providers remain intact. The TUI offers the same explicit overlay. Full `provider` import replaces all five routing sections, including empty defaults for omitted sections; `auto` does not detect fragment overlays. See [scripts and server policy](overrides.md).
+
+Provider/policy previews include a core check. A preview is not activation. TUI saving starts or restarts transactionally; CLI apply only saves. A failure identifies its stage, configuration recovery state and observed core state. Success removes temporary recovery material; historical backups are not retained.

@@ -34,6 +34,50 @@ def unused_port():
 
 @unittest.skipUnless(CORE and sys.platform == "linux", "real Mihomo core required")
 class ProcessAcceptance(unittest.TestCase):
+    def test_tui_preview_validation_failure_preserves_pid_and_activation_failure_recovers(self):
+        from mihomoctl.app import Application
+        from mihomoctl.controller.controller_service import ConsoleService
+        from mihomoctl.controller import controller_transaction as policy
+        from mihomoctl.controller.controller_types import ControlError
+        from mihomoctl.errors import ValidationError
+        self.cli('start')
+        with patch.dict(os.environ,self.env):
+            app=Application()
+            manager,endpoints,controller,_profile,_cfg=app.resolve()
+            backend=app._backend(manager,endpoints,controller)
+            original_identity=backend.running_identity()
+            original_bytes=self.core_path.read_bytes()
+            source=self.home/'subscription.yaml'
+            self.write_yaml(source,{'proxies':[{'name':'fixture-direct','type':'direct'}],
+                'proxy-groups':[{'name':'Fixture','type':'select','proxies':['fixture-direct']}],
+                'rules':['MATCH,DIRECT']})
+            service=ConsoleService(self.core_path,str(app.scope.core_home),app=app)
+            plan=service.subscription_preview(source,policy='provider')
+            with patch.object(policy,'validate_candidate',side_effect=ValidationError('core-timeout')):
+                with self.assertRaisesRegex(ControlError,'core-timeout') as caught:
+                    service.subscription_save_and_start(plan['id'],plan['sha256'])
+            self.assertEqual(self.core_path.read_bytes(),original_bytes)
+            self.assertEqual(backend.running_identity().to_json(),original_identity.to_json())
+            self.assertEqual(caught.exception.operation_state['runtime'],'running')
+            self.assertEqual(caught.exception.operation_state['phase'],'validate')
+            original_health=app._health_result
+            failed=[False]
+            def health(*args,**kwargs):
+                if not failed[0]:
+                    failed[0]=True
+                    return {},[], 'FAIL'
+                return original_health(*args,**kwargs)
+            with patch.object(app,'_health_result',side_effect=health):
+                with self.assertRaisesRegex(ControlError,'start-not-verified') as caught:
+                    service.subscription_save_and_start(plan['id'],plan['sha256'])
+            self.assertTrue(failed[0])
+            self.assertEqual(self.core_path.read_bytes(),original_bytes)
+            self.assertIsNotNone(backend.running_identity())
+            self.assertEqual(caught.exception.operation_state['config'],'restored')
+            self.assertEqual(caught.exception.operation_state['runtime'],'running')
+            self.assertEqual(caught.exception.operation_state['phase'],'activate')
+            service.client().verify()
+
     def test_documented_private_rules_with_manager_core_and_json(self):
         root = Path(__file__).resolve().parents[1]
         tutorial = (root / 'docs/en/rules.md').read_text()
@@ -301,6 +345,29 @@ class ProcessAcceptance(unittest.TestCase):
         self.write_yaml(self.core_path, config)
         self.cli("start", expected=2)
         self.cli("tun", "enable", expected=2)
+
+    def test_interrupted_recovery_rechecks_live_auth_before_discarding_journal(self):
+        from mihomoctl import transaction
+        from mihomoctl.app import Application
+        from mihomoctl.errors import RollbackFailedError
+        from mihomoctl.scope import Scope
+        self.cli('start')
+        pid=self.cli('status')['data']['runtime']['pid']
+        with patch.dict(os.environ,self.env,clear=True):
+            scope=Scope();app=Application()
+            tx=transaction.Transaction(scope,'policy-activate')
+            tx.runtime={'was_running':True,'phase':'starting'};tx._persist()
+            tx.write_bytes(self.core_path,self.core_path.read_bytes(),mode=0o600)
+            tx.rollback(finish=False)
+            self.assertEqual(app.status()['overall'],'PASS')
+            with patch('mihomoctl.app.http_authenticated_accepted',return_value=(False,'injected-auth-failure')):
+                with self.assertRaisesRegex(RollbackFailedError,'rollback-failed'):
+                    transaction.recover_transactions(scope)
+            self.assertTrue(tx.backup_root.exists())
+            self.assertEqual(app.status()['runtime']['pid'],pid)
+            transaction.recover_transactions(scope)
+            self.assertFalse(tx.backup_root.exists())
+            self.assertEqual(app.status()['runtime']['pid'],pid)
 
     def test_core_install_rolls_back_failed_activation_and_replaces_only_managed_binary(self):
         from mihomoctl import coreinstall

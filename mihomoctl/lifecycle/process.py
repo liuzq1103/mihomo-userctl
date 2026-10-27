@@ -99,13 +99,14 @@ class ProcessBackend:
         return recorded
 
     # -- lifecycle -----------------------------------------------------
-    def start(self, health_check=None):
+    def start(self, health_check=None, runtime_transition=None):
         if self.running_identity() is not None:
             raise ObservedStateError("already-running", "managed process backend is active")
         binary = self.manager.core.binary
         require_executable_file(binary, as_root=False)
         ports.check_ports_free(self.surfaces)
-        runner.validate_config(binary, Path(self.manager.core.config).read_text(encoding='utf-8'), self.scope.core_home)
+        candidate = Path(self.manager.core.config).read_text(encoding='utf-8')
+        proof = runner.validate_config(binary, candidate, self.scope.core_home)
         home = self.scope.core_home
         require_private_dir(home, create=True)
         logs = self.scope.logs_dir
@@ -121,12 +122,24 @@ class ProcessBackend:
         previous_umask = os.umask(0o077)
         try:
             try:
+                if Path(self.manager.core.config).read_text(encoding='utf-8') != candidate:
+                    log.close()
+                    raise StateError('config-changed-after-validation', 'configuration changed before process start')
+                try:
+                    proof.ensure_current()
+                except BaseException:
+                    log.close()
+                    raise
+                if runtime_transition:
+                    runtime_transition('unverified')
                 process = subprocess.Popen(
                     [binary, "-d", str(home), "-f", str(self.manager.core.config)],
                     stdout=log, stderr=log, stdin=subprocess.DEVNULL,
                     env=runner.child_environment(), start_new_session=True)
             except OSError as exc:
                 log.close()
+                if runtime_transition:
+                    runtime_transition('starting')  # Popen did not create a child.
                 raise StateError("start-failed", str(exc.strerror or exc)) from None
         finally:
             os.umask(previous_umask)
@@ -139,28 +152,41 @@ class ProcessBackend:
             ports.wait_listening(self.surfaces, identity.uid,
                                  START_TIMEOUT, expect_pid=identity)
             self._write_state(identity)
+            if runtime_transition:
+                runtime_transition('starting')
             if health_check is not None:
                 ok, detail = health_check()
                 if not ok:
                     raise ObservedStateError('start-not-verified', 'post-start health gate failed: %s' % detail)
         except BaseException as original:
             try:
+                if runtime_transition:
+                    runtime_transition('unverified')
                 _terminate_child(process, identity)
                 self._clear_state()
+                if runtime_transition:
+                    runtime_transition('starting')  # Verified child cessation.
             except BaseException as cleanup:
                 raise RollbackFailedError('start-cleanup-failed', 'managed child or runtime receipt could not be cleaned safely',
                     remediation='inspect PID %d and the managed state directory; no unknown process was signaled' % process.pid) from cleanup
             raise original
         return identity
 
-    def restart(self, health_check=None):
+    @runner.validation_operation
+    def restart(self, health_check=None, runtime_transition=None):
         # Reject invalid candidates before disturbing the running old instance.
         self.running_identity()
-        runner.validate_config(self.manager.core.binary,
-                               Path(self.manager.core.config).read_text(encoding='utf-8'),
+        candidate = Path(self.manager.core.config).read_text(encoding='utf-8')
+        proof = runner.validate_config(self.manager.core.binary,
+                               candidate,
                                self.scope.core_home)
+        if Path(self.manager.core.config).read_text(encoding='utf-8') != candidate:
+            raise StateError('config-changed-after-validation', 'configuration changed before stopping the old core')
+        proof.ensure_current()
+        if runtime_transition:
+            runtime_transition('stopping')
         self.stop()
-        return self.start(health_check=health_check)
+        return self.start(health_check=health_check, **({'runtime_transition': runtime_transition} if runtime_transition else {}))
 
     def stop(self):
         state = self.read_state()

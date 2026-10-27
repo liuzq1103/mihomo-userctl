@@ -23,6 +23,25 @@ import yaml
 
 
 class GraphTests(unittest.TestCase):
+    def test_malformed_probe_fields_never_leak_through_provider_preview(self):
+        private={'password':'PRIVATE-SECRET'}
+        settings={key:dict(private) for key in ('url','expected-status','interval','timeout','lazy','tolerance','enable')}
+        config={'proxy-providers':{'subscription':{'type':'file','path':'nodes.yaml','health-check':settings}}}
+        text=yaml.safe_dump(config)
+        parsed=health.read_config
+        from mihomoctl.controller.controller_config import parse_config
+        with patch.object(health,'read_config',return_value=parse_config(text)):
+            _,_,result=health.health_candidate('/unused','provider','subscription',{})
+        self.assertNotIn('PRIVATE-SECRET',json.dumps(result))
+        self.assertEqual(result['before']['enable'],'[invalid]')
+        self.assertNotIn('PRIVATE-SECRET',json.dumps(health.probe_overwrites(config,{'proxy-providers':{}})))
+
+    def test_status_dto_and_candidate_use_the_same_strict_range_grammar(self):
+        for value in ('405-200','500-100','200-204-300','200/private'):
+            self.assertEqual(health.settings({'expected-status':value})['expected-status'],'[invalid]')
+            self.assertFalse(health.valid_status(value))
+        for value in ('204','200-299/304','200/300-399'):
+            self.assertEqual(health.settings({'expected-status':value})['expected-status'],value)
     def test_dangling_members_have_counts_warning_and_guidance(self):
         rows = self.rows()
         rows['Entry']['members'].extend('Gone' + str(i) for i in range(7))
@@ -199,7 +218,7 @@ rules: ["MATCH,Entry"]
 
     def test_transaction_core_failure_and_config_drift(self):
         old, new, _ = health.health_candidate(self.config, "group", "Auto", {"preset": "resilient"})
-        with patch.object(tx, "find_core", return_value="fixture"), patch.object(tx.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)):
+        with patch.object(tx, "find_core", return_value="/usr/bin/true"), patch.object(tx.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)):
             with self.assertRaisesRegex(ControlError, "validation-failed"):
                 tx.apply_policy(self.config, old, new, str(self.root))
         self.assertEqual(self.config.read_bytes(), old.encode())

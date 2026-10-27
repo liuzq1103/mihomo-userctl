@@ -20,7 +20,7 @@ from pathlib import Path
 from ..config import Manager
 from ..errors import ConfigError, ObservedStateError, PermissionScopeError, StateError
 from ..trust import require_executable_file
-from . import ports
+from . import ports, runner
 
 UNIT_NAME = "mihomoctl.service"
 SERVICE_ACCOUNT = "mihomoctl"
@@ -28,6 +28,8 @@ SERVICE_GROUP = "mihomoctl"
 UNIT_MARKER = "# mihomoctl managed unit v1"
 TUN_DROPIN = "50-mihomoctl-tun.conf"
 NAMESPACE_DROPIN = '60-mihomoctl-namespace.conf'
+LEGACY_CORE_ENVIRONMENT = 'UnsetEnvironment=CLASH_HOME_DIR CLASH_CONFIG_FILE CLASH_CONFIG_STRING CLASH_AGE_SECRET_KEY CLASH_OVERRIDE_EXTERNAL_CONTROLLER CLASH_OVERRIDE_EXTERNAL_CONTROLLER_UNIX CLASH_OVERRIDE_EXTERNAL_CONTROLLER_TLS CLASH_OVERRIDE_SECRET CLASH_POST_UP CLASH_POST_DOWN LD_PRELOAD LD_LIBRARY_PATH'
+CORE_ENVIRONMENT = 'UnsetEnvironment=CLASH_HOME_DIR CLASH_CONFIG_FILE CLASH_CONFIG_STRING CLASH_AGE_SECRET_KEY CLASH_OVERRIDE_EXTERNAL_UI_DIR CLASH_OVERRIDE_EXTERNAL_CONTROLLER CLASH_OVERRIDE_EXTERNAL_CONTROLLER_UNIX CLASH_OVERRIDE_EXTERNAL_CONTROLLER_TLS CLASH_OVERRIDE_EXTERNAL_CONTROLLER_PIPE CLASH_OVERRIDE_EXTERNAL_CONTROLLER_ROUTING_MARK CLASH_OVERRIDE_SECRET CLASH_POST_UP CLASH_POST_DOWN LD_PRELOAD LD_LIBRARY_PATH http_proxy https_proxy all_proxy no_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY'
 
 
 def namespace_dropin_text(path):
@@ -153,7 +155,9 @@ def unit_text(manager: Manager, scope):
         "Restart=on-failure",
         "RestartSec=3",
         "UMask=0077",
-        "UnsetEnvironment=CLASH_HOME_DIR CLASH_CONFIG_FILE CLASH_CONFIG_STRING CLASH_AGE_SECRET_KEY CLASH_OVERRIDE_EXTERNAL_CONTROLLER CLASH_OVERRIDE_EXTERNAL_CONTROLLER_UNIX CLASH_OVERRIDE_EXTERNAL_CONTROLLER_TLS CLASH_OVERRIDE_SECRET CLASH_POST_UP CLASH_POST_DOWN LD_PRELOAD LD_LIBRARY_PATH",
+        # Complete CLASH flag vocabulary in the pinned v1.19.32 main.go.
+        # systemd does not support prefix wildcards in UnsetEnvironment.
+        CORE_ENVIRONMENT,
     ]
     if scope.system:
         account = ensure_service_account(create=True)
@@ -175,9 +179,22 @@ def _quote(value):
     return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%") + '"'
 
 
+def _record_unit_change(tx):
+    if tx.runtime is None:
+        # Unit-only operations never stop/start a runtime. Recovery restores
+        # cached definitions while leaving any untouched process alone.
+        tx.runtime = {'was_running':False,'phase':'prepared'}
+    if not tx.runtime.get('unit_reload'):
+        tx.runtime['unit_reload']=True
+        tx._persist()
+
+
 def install_unit(manager: Manager, scope, tx=None):
     """Write the managed unit (marked) and daemon-reload.  Never enable,
     start or set linger.  Refuses to replace an unowned/drifted file."""
+    if tx is None:
+        scope.require_mutation()
+        return unit_transaction(scope,'service-install',lambda transaction:install_unit(manager,scope,tx=transaction))
     if not systemd_available(scope):
         raise StateError("systemd-unavailable",
                          "systemd user manager is not running; no silent fallback")
@@ -190,14 +207,16 @@ def install_unit(manager: Manager, scope, tx=None):
         if not current.startswith(UNIT_MARKER):
             raise StateError("unit-not-managed",
                              "%s exists and is not managed by mihomoctl" % path)
-        if current != text:
+        legacy = text.replace(CORE_ENVIRONMENT, LEGACY_CORE_ENVIRONMENT)
+        if current != text and current != legacy:
             raise StateError('unit-drifted', 'managed unit differs from the generated definition; inspect before replacing')
+        if current != text:
+            _record_unit_change(tx)
+            tx.write_text(path,text,mode=0o644 if scope.system else 0o600)
     else:
-        if tx is not None:
-            tx.write_text(path, text, mode=0o644 if scope.system else 0o600)
-        else:
-            from ..credentials import write_atomic
-            write_atomic(path, text, mode=0o644 if scope.system else 0o600)
+        _record_unit_change(tx)
+        tx.write_text(path, text, mode=0o644 if scope.system else 0o600)
+    _record_unit_change(tx)
     _systemctl(scope, "daemon-reload")
     if scope.system:
         _prepare_system_paths(scope, manager)
@@ -232,6 +251,7 @@ def uninstall_unit(scope, tx=None):
     if path.exists() or path.is_symlink():
         if path.is_symlink() or not path.is_file() or not path.read_text(encoding="utf-8").startswith(UNIT_MARKER):
             raise StateError("unit-not-managed", "%s is not managed by mihomoctl" % path)
+        _record_unit_change(tx)
         tx.delete(path, require_managed_marker=UNIT_MARKER)
         removed.append(str(path))
     dropins = dropin_dir(scope)
@@ -242,15 +262,17 @@ def uninstall_unit(scope, tx=None):
             if item.is_symlink():
                 raise StateError('unit-not-managed', 'unit drop-in contains a symlink')
             if item.is_file() and item.read_text(encoding='utf-8').startswith(UNIT_MARKER):
+                _record_unit_change(tx)
                 tx.delete(item, require_managed_marker=UNIT_MARKER)
                 removed.append(str(item))
+    _record_unit_change(tx)
     _systemctl(scope, "daemon-reload")
     return {'unit': str(path), 'removed': removed}
 
 
 def unit_transaction(scope, name, action):
     """Rollback files and refresh cached definitions under the same lock."""
-    from ..transaction import Transaction
+    from ..transaction import Transaction, restore_failed_operation
     from ..locks import operation_lock
     with operation_lock(scope):
         tx = Transaction(scope, name)
@@ -260,12 +282,7 @@ def unit_transaction(scope, name, action):
             return result
         except BaseException as original:
             if not tx.finished:
-                tx.rollback()
-            try:
-                _systemctl(scope, 'daemon-reload')
-            except BaseException as recovery:
-                from ..errors import RollbackFailedError
-                raise RollbackFailedError('rollback-failed', 'restored service files could not be reloaded') from recovery
+                restore_failed_operation(tx)
             raise original
 
 
@@ -344,7 +361,7 @@ class SystemdBackend:
         props = self._main_pid()
         return props.get("ActiveState") == "active", props
 
-    def start(self, health_check=None):
+    def start(self, health_check=None, runtime_transition=None):
         if not unit_path(self.scope).exists():
             raise StateError("unit-not-installed",
                              "run: mihomoctl service install",
@@ -357,9 +374,20 @@ class SystemdBackend:
         if not self.running()[0]:
             ports.check_ports_free(surfaces)
         from . import runner
-        runner.validate_config(self.manager.core.binary, Path(self.manager.core.config).read_text(encoding='utf-8'),
+        candidate = Path(self.manager.core.config).read_text(encoding='utf-8')
+        proof = runner.validate_config(self.manager.core.binary, candidate,
                                self.scope.core_home, as_uid=service_account_uid() if self.scope.system else None)
-        _systemctl(self.scope, "start", UNIT_NAME, timeout=60)
+        if Path(self.manager.core.config).read_text(encoding='utf-8') != candidate:
+            raise StateError('config-changed-after-validation', 'configuration changed before service start')
+        proof.ensure_current()
+        if runtime_transition:
+            runtime_transition('unverified')
+        try:
+            _systemctl(self.scope, "start", UNIT_NAME, timeout=60)
+        except BaseException:
+            if runtime_transition and self._main_pid().get('ActiveState') in ('inactive', 'failed'):
+                runtime_transition('starting')
+            raise
         uid = service_account_uid() if self.scope.system else os.geteuid()
         expect_pid = None
         deadline = time.monotonic() + 10
@@ -379,11 +407,15 @@ class SystemdBackend:
             if self.manager.tun.enabled:
                 from .tun import synchronize_receipt
                 synchronize_receipt(self.scope, self.manager)
+            if runtime_transition:
+                runtime_transition('starting')
         except BaseException as original:
             if self.running_identity() is not None:
                 self.stop()
             elif self._main_pid().get('ActiveState') not in ('inactive', 'failed'):
                 raise ObservedStateError('service-cleanup-unverified', 'started unit identity differs; refusing to stop an unknown service') from original
+            if runtime_transition:
+                runtime_transition('starting')
             raise
         return expect_pid
 
@@ -401,17 +433,24 @@ class SystemdBackend:
                              remediation="another process owns the port; no process was killed")
         return True
 
-    def restart(self, health_check=None):
+    @runner.validation_operation
+    def restart(self, health_check=None, runtime_transition=None):
         props = self._require_owned_unit()
         if props.get("ActiveState") not in ("inactive", "failed") and self.running_identity() is None:
             raise ObservedStateError("service-identity-unverified", "refusing to restart a unit whose core identity differs")
         from . import runner
-        runner.validate_config(self.manager.core.binary,
-                               Path(self.manager.core.config).read_text(encoding='utf-8'),
+        candidate = Path(self.manager.core.config).read_text(encoding='utf-8')
+        proof = runner.validate_config(self.manager.core.binary,
+                               candidate,
                                self.scope.core_home,
                                as_uid=service_account_uid() if self.scope.system else None)
+        if Path(self.manager.core.config).read_text(encoding='utf-8') != candidate:
+            raise StateError('config-changed-after-validation', 'configuration changed before stopping the old core')
+        proof.ensure_current()
+        if runtime_transition:
+            runtime_transition('stopping')
         self.stop()
-        return self.start(health_check=health_check)
+        return self.start(health_check=health_check, **({'runtime_transition': runtime_transition} if runtime_transition else {}))
 
     def running_identity(self):
         from ..identity import read_identity

@@ -25,6 +25,85 @@ from mihomoctl.controller import controller_runtime as runtime
 
 
 class RealCoreTests(unittest.TestCase):
+    def test_trusted_geodata_copy_validates_offline_and_missing_or_corrupt_cache_fails_safely(self):
+        from mihomoctl.lifecycle.runner import validate_config
+        from mihomoctl.errors import MihomoctlError
+        import hashlib
+        import json
+        fixture = Path(__file__).parent/'fixtures/geodata'
+        for record in json.loads((fixture/'sources.json').read_text()):
+            self.assertEqual(hashlib.sha256((fixture/record['file']).read_bytes()).hexdigest(), record['sha256'])
+        with tempfile.TemporaryDirectory(prefix='muc-real-geodata-') as folder:
+            home = Path(folder)
+            data = (fixture/'GeoIP2-Country-Test.mmdb').read_bytes()
+            cache = home/'geoip.metadb'; cache.write_bytes(data); cache.chmod(0o600)
+            text = ('geo-auto-update: false\ngeodata-mode: false\ngeox-url:\n'
+                    '  mmdb: http://127.0.0.1:9/PRIVATE-CACHE-URL\n'
+                    'rules: ["GEOIP,GB,DIRECT,no-resolve", "MATCH,DIRECT"]\n')
+            self.assertTrue(validate_config(CORE, text, home, timeout=8))
+            self.assertEqual(cache.read_bytes(), data)
+            cache.unlink()
+            for content in (None, b'corrupt-database'):
+                if content is not None: cache.write_bytes(content); cache.chmod(0o600)
+                with self.assertRaises(MihomoctlError) as caught:
+                    validate_config(CORE, text, home, timeout=8)
+                self.assertNotIn('PRIVATE-CACHE-URL', str(caught.exception))
+                self.assertIn('stage=core-validation', caught.exception.detail)
+
+    def test_provider_only_nodes_real_single_batch_duplicate_names_and_refresh_removal(self):
+        import yaml
+        from mihomoctl.controller.controller_api import Client
+        from mihomoctl.controller import controller_service as svc
+        from mihomoctl.controller.controller_types import ControlError
+        class Target(BaseHTTPRequestHandler):
+            def do_GET(self):
+                time.sleep(.02); self.send_response(204); self.end_headers()
+            do_HEAD = do_GET
+            def log_message(self, *args): pass
+        target = ThreadingHTTPServer(('127.0.0.1',0), Target)
+        threading.Thread(target=target.serve_forever,daemon=True).start()
+        self.addCleanup(target.server_close); self.addCleanup(target.shutdown)
+        with tempfile.TemporaryDirectory(prefix='muc-real-provider-') as folder:
+            root=Path(folder)
+            def write_provider(path, nodes):
+                path.write_text(yaml.safe_dump({'proxies':[{'name':n,'type':'direct'} for n in nodes]}));path.chmod(0o600)
+            names=['节点 / +?% '+str(i) for i in range(44)]
+            first,second=root/'first.yaml',root/'second.yaml'
+            write_provider(first,names);write_provider(second,[names[0]])
+            with socket.socket() as sock:
+                sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
+            secret=secrets.token_urlsafe(32)
+            config={'external-controller':'127.0.0.1:'+str(port),'secret':secret,'geo-auto-update':False,
+                    'proxy-providers':{'订阅 /?%':{'type':'file','path':'first.yaml'},'second':{'type':'file','path':'second.yaml'}},
+                    'proxy-groups':[{'name':'Ai+','type':'select','use':['订阅 /?%']}], 'rules':['MATCH,DIRECT']}
+            path=root/'config.yaml';path.write_text(yaml.safe_dump(config,allow_unicode=True));path.chmod(0o600)
+            from mihomoctl.lifecycle.runner import child_environment
+            process=subprocess.Popen([CORE,'-d',str(root),'-f',str(path)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env=child_environment())
+            try:
+                client=Client(port,secret)
+                deadline=time.monotonic()+8
+                while True:
+                    try: client.verify();break
+                    except ControlError:
+                        if time.monotonic()>deadline: raise
+                        time.sleep(.05)
+                self.assertEqual(client.request('/version')['version'].lstrip('v'),'1.19.32')
+                service=ConsoleService(path,str(root))
+                with patch.object(service,'client',return_value=client), patch.object(svc,'TEST_URL','http://127.0.0.1:'+str(target.server_port)+'/'):
+                    nodes=svc.snapshot(client,'nodes')['nodes']
+                    self.assertEqual(sum(n.get('provider')=='订阅 /?%' for n in nodes),44)
+                    self.assertEqual(svc.proxies(client)['Ai+']['missing_member_count'],0)
+                    self.assertGreater(service.latency(names[1])['delay_ms'],0)
+                    with self.assertRaisesRegex(ControlError,'ambiguous-node'): service.latency(names[0])
+                    batch=service.batch_latency([{'name':names[0],'provider':p} for p in ('订阅 /?%','second')])
+                    self.assertEqual(batch['target_count'],2)
+                    self.assertTrue(all(r['state']=='success' for r in batch['results']))
+                    write_provider(first,[names[1]])
+                    service.provider_refresh('订阅 /?%')
+                    with self.assertRaisesRegex(ControlError,'unknown-node'): service.latency(names[2])
+            finally:
+                process.terminate();process.wait(timeout=10)
+
     def test_local_url_test_failover_and_all_failed_evidence(self):
         """Two controllable CONNECT proxies, a local target, and a real core."""
         class Target(BaseHTTPRequestHandler):

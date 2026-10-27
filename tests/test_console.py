@@ -34,7 +34,7 @@ class StoreTests(unittest.TestCase):
                 patch.object(controller, 'read_config', return_value=(None, {}, None)), \
                 patch.object(controller, 'endpoint', return_value=(1234, 'token')), \
                 patch.object(controller, 'Client', return_value=client), \
-                patch.object(controller, 'proxies', return_value={'A': {}}) as core:
+                patch('mihomoctl.controller.controller_service.node_directory', return_value=({}, [{'name': 'A', 'provider': None}], 'supported')) as core:
             for code in ('node-not-in-core', 'node-unreachable', 'delay-timeout', 'controller-unreachable'):
                 client.request.side_effect = ControlError(code, 1)
                 with contextlib.redirect_stdout(io.StringIO()) as output:
@@ -46,7 +46,7 @@ class StoreTests(unittest.TestCase):
                     self.assertNotIn(code, error['detail'])
                 else:
                     self.assertNotIn('detail', error)
-            core.return_value = {}
+            core.return_value = ({}, [], 'supported')
             name = '👩\u200d💻\ufeff\u200b'
             with contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(main(['latency', name, '--json']), 1)
@@ -117,7 +117,7 @@ class StoreTests(unittest.TestCase):
         client = Client(server.server_port, 'fixture')
         service = ConsoleService.__new__(ConsoleService)
         with patch.object(service, 'client', return_value=client), \
-                patch('mihomoctl.controller.controller_service.proxies', return_value={'A /旗': {}}):
+                patch('mihomoctl.controller.controller_service.node_directory', return_value=({}, [{'name': 'A /旗', 'provider': None}], 'supported')):
             for status, code in ((404, 'node-not-in-core'), (503, 'node-unreachable'), (504, 'delay-timeout')):
                 Handler.status = status
                 with self.subTest(status=status):
@@ -145,7 +145,7 @@ class StoreTests(unittest.TestCase):
     def test_unknown_node_includes_exact_requested_spelling(self):
         service = ConsoleService.__new__(ConsoleService)
         name = '🇺🇸 US / 节点\u200d\u200b\ufeff'
-        with patch.object(service, 'client'), patch('mihomoctl.controller.controller_service.proxies', return_value={}):
+        with patch.object(service, 'client'), patch('mihomoctl.controller.controller_service.node_directory', return_value=({}, [], 'supported')):
             with self.assertRaises(ControlError) as caught:
                 service.latency(name)
         self.assertEqual(caught.exception.code, 'unknown-node')
@@ -448,7 +448,7 @@ class SubscriptionTests(unittest.TestCase):
         self.assertNotIn("PRIVATE", json.dumps(plan))
         for path in self.service.root.iterdir():
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
-        with patch.dict(os.environ, {"MIHOMO_CORE_BIN": "/fake/core"}), patch.object(transaction.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
+        with patch.dict(os.environ, {"MIHOMO_CORE_BIN": "/usr/bin/true"}), patch.object(transaction.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
             result = self.service.apply(plan["id"], plan["sha256"])
         self.assertEqual(result["state"], "restart-required")
         self.assertNotIn("backup", result)
@@ -478,7 +478,7 @@ class SubscriptionTests(unittest.TestCase):
         with self.assertRaisesRegex(ControlError, "subscription-config-changed"):
             self.service.apply(plan["id"], plan["sha256"])
         self.write(self.config, self.original)
-        with patch.dict(os.environ, {"MIHOMO_CORE_BIN": "/fake/core"}), patch.object(transaction.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)):
+        with patch.dict(os.environ, {"MIHOMO_CORE_BIN": "/usr/bin/true"}), patch.object(transaction.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)):
             with self.assertRaisesRegex(ControlError, "validation-failed"):
                 self.service.apply(plan["id"], plan["sha256"])
         candidate = self.service.root / (plan["id"] + ".candidate.yaml")
@@ -505,7 +505,7 @@ class SubscriptionTests(unittest.TestCase):
             if Path(path) == self.config and not failed:
                 failed = True
                 raise OSError("simulated directory fsync failure")
-        with patch.dict(os.environ, {"MIHOMO_CORE_BIN": "/fake/core"}), patch.object(transaction.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)), patch.object(transaction.files, "atomic_bytes", side_effect=fail_after_replace):
+        with patch.dict(os.environ, {"MIHOMO_CORE_BIN": "/usr/bin/true"}), patch.object(transaction.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)), patch.object(transaction.files, "atomic_bytes", side_effect=fail_after_replace):
             with self.assertRaisesRegex(ControlError, "original-restored"):
                 self.service.apply(plan["id"], plan["sha256"])
         self.assertEqual(self.config.read_text(), self.original)
@@ -515,7 +515,7 @@ class SubscriptionTests(unittest.TestCase):
         original = self.original.replace("\n", "\r\n").encode()
         self.config.write_bytes(original)
         plan = self.service.preview(source_file=self.source)
-        with patch.dict(os.environ, {"MIHOMO_CORE_BIN": "/fake/core"}), patch.object(transaction.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
+        with patch.dict(os.environ, {"MIHOMO_CORE_BIN": "/usr/bin/true"}), patch.object(transaction.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
             result = self.service.apply(plan["id"], plan["sha256"])
         self.assertNotIn("backup", result)
         self.assertIn(b"mixed-port: 17890\r\nsecret: unchanged-secret\r\n", self.config.read_bytes())

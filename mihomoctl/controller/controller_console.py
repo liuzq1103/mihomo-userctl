@@ -14,13 +14,13 @@ except ImportError:
     import files
 try:
     from .controller_types import ControlError, error_text, TUI_INSTALL_COMMAND
-    from .controller_service import select, snapshot, measure_delay
+    from .controller_service import select, snapshot, latency_target as measure_delay
     from .controller_policy import policy_candidate
     from .controller_transaction import apply_policy
     from .controller_health import guidance, parse_console
 except ImportError:
     from controller_types import ControlError, error_text, TUI_INSTALL_COMMAND
-    from controller_service import select, snapshot, measure_delay
+    from controller_service import select, snapshot, latency_target as measure_delay
     from controller_policy import policy_candidate
     from controller_transaction import apply_policy
     from controller_health import guidance, parse_console

@@ -179,9 +179,12 @@ def _run_bridge(scope, args, json_mode=False):
         try:
             code = controller.main(forward, app=app)
         except controller.ControlError as error:
-            failure = BridgeError(error.code)
+            from .controller.controller_types import safe_failure
+            failure = BridgeError(error.code, safe_failure(error))
             failure.exit_code = getattr(error, 'rc', 2)
             raise failure from None
+        except controller.files.InstallError as error:
+            raise BridgeError(error.code, error.safe_detail) from None
         return {'passthrough': True}, None if code in (None, 0) else BridgeError('controller-exit')
     with bridge_environment(scope) as values:
         token = runtime_application.set(app)
@@ -202,14 +205,16 @@ def _run_bridge(scope, args, json_mode=False):
                     code = exc.code if isinstance(exc.code, int) else 0
             output = buffer.getvalue()
         except controller.ControlError as exc:
-            from .controller.controller_types import error_detail
+            from .controller.controller_types import error_detail, safe_failure
             error = BridgeError(getattr(exc, "code", "controller-error"),
-                                error_detail(exc.code, getattr(exc, "detail", "")))
+                                error_detail(exc.code, safe_failure(exc) or getattr(exc, "detail", "")))
             error.exit_code = getattr(exc, 'rc', 2)
             raise error from None
         except MihomoctlError:
             raise
-        except (controller.files.InstallError, OSError, ValueError, TypeError, KeyError) as exc:
+        except controller.files.InstallError as exc:
+            raise BridgeError(exc.code, exc.safe_detail) from None
+        except (OSError, ValueError, TypeError, KeyError) as exc:
             raise BridgeError('controller-operation-unavailable', exc.__class__.__name__) from None
         finally:
             runtime_application.reset(token)

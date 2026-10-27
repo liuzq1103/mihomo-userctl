@@ -10,10 +10,10 @@ Use it on servers, development machines and CI to explicitly route selected comm
 
 It supplies no subscription service and cannot force clients to honor proxy variables. It does not manage Codex/Paseo application lifecycles. Machine-wide transparent routing requires an administrator's explicit system scope and TUN configuration.
 
-## Requirements and stable version
+## Requirements and source version
 
-<!-- stable-version: 1.4.1 -->
-Current stable version: **1.4.1**. The new complete bundle targets Ubuntu 22.04/24.04 x86_64 and includes Python, Textual, dependencies and a pinned core. Separate Linux accounts own independent instances. No venv, pip, UI installation or port forwarding is needed. Download the complete bundle and checksum from the [v1.4.1 release](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.4.1). Source archives and legacy wheelhouse kits still need a prepared Python environment.
+<!-- stable-version: 1.4.2 -->
+This source version is **1.4.2**. The new complete bundle targets Ubuntu 22.04/24.04 x86_64 and includes Python, Textual, dependencies and a pinned core. Separate Linux accounts own independent instances. No venv, pip, UI installation or port forwarding is needed. Download the complete bundle and checksum from the [v1.4.2 release](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.4.2) only after the reviews required by the [release process](docs/en/operations/release.md), CI gates and formal publication complete; GitHub Releases identifies the latest public version. Source archives and legacy wheelhouse kits still need a prepared Python environment.
 
 ## Quick Start
 

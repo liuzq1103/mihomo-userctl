@@ -55,7 +55,7 @@ class Server(BaseHTTPRequestHandler):
         elif self.path == "/rules":
             data = {"rules": [{"type": "Domain", "payload": "PRIVATE-HOST"}, {"type": "Match"}]}
         elif self.path == "/providers/proxies":
-            data = {"providers": {"provider / fixture": {"vehicleType": "HTTP", "updatedAt": "now", "proxies": [{"password": "DO-NOT-PRINT"}], "url": "PRIVATE-URL"}}}
+            data = {"providers": {"provider / fixture": {"vehicleType": "HTTP", "updatedAt": "now", "proxies": [{"name": "provider node", "type": "Shadowsocks", "password": "DO-NOT-PRINT"}], "url": "PRIVATE-URL"}}}
         elif self.path == "/providers/rules":
             data = {"providers": {"rules fixture": {"vehicleType": "Inline", "behavior": "Domain", "ruleCount": 7, "updatedAt": "now", "payload": ["PRIVATE-HOST"], "url": "PRIVATE-URL"}}}
         elif self.path == "/configs":
@@ -318,7 +318,7 @@ class ConfigTests(unittest.TestCase):
         return c.argparse.Namespace(home_dir=str(self.home), port=None, archive=None, sha256=None)
 
     def test_setup_backup_and_preservation_no_service_restart(self):
-        with patch.dict(os.environ, {"MIHOMO_CORE_BIN": "/fake/mihomo"}), patch.object(c.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
+        with patch.dict(os.environ, {"MIHOMO_CORE_BIN": "/usr/bin/true"}), patch.object(c.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
             result = c.setup(self.args(), self.config)
         self.assertEqual(run.call_args.args[0][1], "-t")
         self.assertNotIn("backup", result)
@@ -332,7 +332,7 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue((Path(data["external-ui"]) / "index.html").is_file())
 
     def test_validation_failure_leaves_config_unchanged_and_no_assets(self):
-        with patch.dict(os.environ, {"MIHOMO_CORE_BIN": "/fake/mihomo"}), patch.object(c.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)):
+        with patch.dict(os.environ, {"MIHOMO_CORE_BIN": "/usr/bin/true"}), patch.object(c.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)):
             with self.assertRaises(c.ControlError): c.setup(self.args(), self.config)
         self.assertEqual(self.config.read_text(), self.original)
         self.assertEqual(list(self.home.iterdir()), [])

@@ -42,7 +42,7 @@ class TaskTests(unittest.TestCase):
         self.source = self.root / "subscription.yaml"
         self.write(self.config, 'mixed-port: 25000\nsecret: local-secret\nproxies: []\nproxy-groups: [{name: Old, type: select, proxies: [DIRECT]}]\nrules: ["MATCH,Old"]\n')
         self.original = self.config.read_bytes()
-        self.env = patch.dict(os.environ, {"XDG_DATA_HOME": str(self.root / "data"), "MIHOMO_CORE_BIN": "/fixture/mihomo"})
+        self.env = patch.dict(os.environ, {"XDG_DATA_HOME": str(self.root / "data"), "MIHOMO_CORE_BIN": "/usr/bin/true"})
         self.env.start(); self.addCleanup(self.env.stop)
         self.core = patch.object(transaction.subprocess, "run", return_value=subprocess.CompletedProcess([], 0))
         self.run = self.core.start(); self.addCleanup(self.core.stop)

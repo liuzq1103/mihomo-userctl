@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.4.2] - 2026-10-27
+
+- Render edited policy containers as readable block YAML while preserving types, comments and untouched text.
+- Validate in private staging with trusted resource copies; reuse only process-local proofs bound to unchanged inputs. Reject changes before stopping the old core.
+- Discover provider nodes and use provider-scoped healthcheck routes, including duplicate-name disambiguation and safe failure categories.
+- Show batch latency failures, cancellations and completion counts; replace stale numeric results and support explicit global targets with `--global`.
+- Sanitize the complete pinned-core systemd override vocabulary and proxy environment; regenerate existing units with `service install` after upgrading.
+- Preserve specific private-path errors and report save/activation/recovery state without raw core diagnostics.
+- Strip the known FlClash status marker without widening host-setting permissions. Add explicit `--policy policy` overlays for server routing fragments.
+- Keep current-only retention, fixed Mihomo v1.19.32 and all existing two-Ubuntu delivery gates. Production incident root cause and remote business availability remain unverified.
+
 ## [1.4.1] - 2026-10-24
 
 - Remove duplicate Python executables and the development libpython alias while retaining the complete offline terminal experience.

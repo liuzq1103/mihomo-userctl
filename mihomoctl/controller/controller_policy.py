@@ -90,6 +90,9 @@ def policy_candidate(config, script=None, group=None, flclash=False, home_dir=No
             raise ControlError("override-result-invalid") from None
         if not isinstance(changed, dict):
             raise ControlError("override-result-invalid")
+        # This desktop status marker is metadata, never core configuration or
+        # an authorization to change other host settings. Ignore only this key.
+        changed.pop('__flclashRules', None)
         if flclash:
             if changed.get("proxies") != input_data.get("proxies"):
                 raise ControlError("flclash-script-must-preserve-nodes")
@@ -109,7 +112,7 @@ def policy_candidate(config, script=None, group=None, flclash=False, home_dir=No
                     g["type"] = "select"
                     g.pop("use", None)
         # Prevent a desktop script from replacing listeners/auth/TUN/server policy.
-        if any(changed.get(k) != data.get(k) for k in set(data) | set(changed) if k not in POLICY_KEYS):
+        if any(changed.get(k) != data.get(k) for k in set(data) | set(changed) if k not in POLICY_KEYS and k != '__flclashRules'):
             raise ControlError("override-may-only-change-groups-rules-rule-providers")
         changes = {k: changed[k] for k in POLICY_KEYS if k in changed and changed[k] != data.get(k)}
         if any(k in data and k not in changed for k in POLICY_KEYS):
@@ -126,7 +129,7 @@ def policy_candidate(config, script=None, group=None, flclash=False, home_dir=No
     profile = data.get("profile", {})
     if not isinstance(profile, dict):
         raise ControlError("config-profile-invalid")
-    if changes:
+    if changes and not script:
         changes["profile"] = dict(profile, **{"store-selected": True})
     updated = patch_config(text, tree, changes) if changes else text
     if len(updated.encode()) > LIMIT:

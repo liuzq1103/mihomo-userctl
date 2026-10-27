@@ -317,6 +317,53 @@ class PrivilegedAcceptance(unittest.TestCase):
                 self.assertTrue((home / filename).read_bytes() == self.shell_before[(name, filename)],
                                 "shell-startup-file-changed")
 
+    def test_05_validator_drops_root_and_does_not_trust_another_user_cache(self):
+        from mihomoctl.lifecycle import runner
+        from mihomoctl.errors import MihomoctlError
+        from mihomoctl.trust import require_executable_file
+        _name, uid, home = self.accounts[0]
+        cache_home=home/'validation-cache';cache_home.mkdir(mode=0o700)
+        account=pwd.getpwuid(uid);os.chown(cache_home,uid,account.pw_gid)
+        config='rules: ["MATCH,DIRECT"]\n'
+        original=runner.run_core
+        observations=[]
+        def observe(binary,args,**kwargs):
+            self.assertEqual(kwargs.get('as_uid'),uid)
+            # Use the same native Popen credential parameters as the validator
+            # and directly observe the child identity, not just call arguments.
+            child=subprocess.run(['/usr/bin/id','-u'],capture_output=True,text=True,
+                                 user=uid,group=account.pw_gid,extra_groups=[account.pw_gid],check=True)
+            observations.append(int(child.stdout))
+            return original(binary,args,**kwargs)
+        with patch.object(runner,'run_core',side_effect=observe):
+            self.assertTrue(runner.validate_config(self.core,config,cache_home,as_uid=uid))
+        self.assertEqual(observations,[uid])
+        with self.assertRaisesRegex(MihomoctlError,'core-root-execution-refused'):
+            runner.run_core(self.core,['-v'])
+        geo=cache_home/'geoip.metadb';geo.write_bytes(b'untrusted-other-account')
+        other=pwd.getpwnam(self.accounts[1][0]);os.chown(geo,other.pw_uid,other.pw_gid);geo.chmod(0o600)
+        with patch.object(runner,'run_core') as run:
+            with self.assertRaisesRegex(MihomoctlError,'validation-cache-untrusted'):
+                runner.validate_config(self.core,config,cache_home,as_uid=uid)
+            run.assert_not_called()
+        geo.unlink()
+        private=cache_home/'root-private';private.mkdir(mode=0o700)
+        (private/'sub.yaml').write_bytes(b'ROOT-PRIVATE-SENTINEL');(private/'sub.yaml').chmod(0o600)
+        with self.assertRaisesRegex(MihomoctlError,'validation-cache-untrusted'):
+            runner._trusted_bytes(private/'sub.yaml',{0,uid},reader_uid=uid)
+        providers=cache_home/'providers';providers.mkdir(mode=0o700);os.chown(providers,uid,account.pw_gid)
+        source=providers/'sub.yaml';source.write_bytes(b'trusted-service-cache');source.chmod(0o600);os.chown(source,uid,account.pw_gid)
+        original_open=os.open;swapped=[]
+        def swap(name,*args,**kwargs):
+            fd=original_open(name,*args,**kwargs)
+            if name=='providers' and kwargs.get('dir_fd') is not None and not swapped:
+                providers.rename(cache_home/'pinned-providers');providers.symlink_to(private,target_is_directory=True);swapped.append(True)
+            return fd
+        with patch.object(os,'open',side_effect=swap):
+            self.assertEqual(runner._trusted_bytes(source,{0,uid},reader_uid=uid),b'trusted-service-cache')
+        self.assertTrue(swapped)
+        providers.unlink()
+
     def test_10_user_process_and_isolation(self):
         alice, bob = self.accounts
         for account in self.accounts:
@@ -376,6 +423,22 @@ class PrivilegedAcceptance(unittest.TestCase):
             self.cli(account, "stop")
             self.cli(account, "status", expected=1)
 
+    @contextmanager
+    def dirty_core_manager_environment(self, account):
+        variables={'CLASH_OVERRIDE_SECRET':'PRIVATE-OVERRIDE','CLASH_OVERRIDE_EXTERNAL_CONTROLLER_PIPE':'PRIVATE-PIPE',
+                   'CLASH_CONFIG_STRING':'PRIVATE-BASE64','http_proxy':'http://PRIVATE-PROXY/',
+                   'HTTP_PROXY':'http://PRIVATE-PROXY/','HTTPS_PROXY':'http://PRIVATE-PROXY/',
+                   'ALL_PROXY':'http://PRIVATE-PROXY/','NO_PROXY':'PRIVATE-PROXY'}
+        systemctl=lambda *args: self.user_systemctl(account,*args) if account else command(['systemctl',*args])
+        systemctl('set-environment',*[key+'='+value for key,value in variables.items()])
+        try: yield
+        finally: systemctl('unset-environment',*variables)
+
+    def assert_sanitized_core_environment(self, pid):
+        keys={item.split(b'=',1)[0].decode() for item in Path('/proc/'+str(pid)+'/environ').read_bytes().split(b'\0') if item}
+        self.assertFalse(keys & {'http_proxy','https_proxy','all_proxy','no_proxy','HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','NO_PROXY'})
+        self.assertFalse(any(key.startswith(('CLASH_','LD_')) for key in keys))
+
     def test_20_real_user_systemd_and_environment_binding(self):
         import yaml
         account = self.accounts[0]
@@ -385,12 +448,22 @@ class PrivilegedAcceptance(unittest.TestCase):
         self.user_sessions.add(uid)
         self.user_systemctl(account, "show-environment")
         self.cli(account, "service", "install")
+        from mihomoctl.lifecycle import systemd
+        user_unit=home/'.config/systemd/user/mihomoctl.service'
+        generated=user_unit.read_text()
+        user_unit.write_text(generated.replace(systemd.CORE_ENVIRONMENT,systemd.LEGACY_CORE_ENVIRONMENT))
+        user_unit.chmod(0o600)
+        self.cli(account,'service','install')
+        self.assertEqual(user_unit.read_text(),generated,'known-legacy-unit-not-migrated')
         self.assertEqual(command(["runuser", "-u", name, "--", "env",
                                   "XDG_RUNTIME_DIR=/run/user/" + str(uid),
                                   "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/" + str(uid) + "/bus",
                                   "systemctl", "--user", "is-active", "mihomoctl.service"], allowed=(3,)).strip(), "inactive")
-        for action in ("start", "restart"):
-            self.cli(account, "service", action)
+        with self.dirty_core_manager_environment(account):
+            for action in ("start", "restart"):
+                self.cli(account, "service", action)
+        pid=int(self.user_systemctl(account,'show','mihomoctl.service','-p','MainPID','--value').strip())
+        self.assert_sanitized_core_environment(pid)
         unitdir = home / ".config/systemd/user"
         unitdir.mkdir(parents=True, exist_ok=True, mode=0o700)
         unit = unitdir / "mihomoctl-test-worker.service"
@@ -457,10 +530,12 @@ class PrivilegedAcceptance(unittest.TestCase):
         self.cli(None, "init", "--core", self.core, "--port", port())
         self.cli(None, "service", "install")
         self.__class__.system_installed = True
-        self.cli(None, "service", "start")
-        self.cli(None, "service", "restart")
+        with self.dirty_core_manager_environment(None):
+            self.cli(None, "service", "start")
+            self.cli(None, "service", "restart")
         pid = int(command(["systemctl", "show", "mihomoctl.service", "-p", "MainPID", "--value"]).strip())
         self.assertNotEqual(pwd.getpwnam("mihomoctl").pw_uid, 0)
+        self.assert_sanitized_core_environment(pid)
         self.assertTrue(Path("/proc/" + str(pid)).stat().st_uid == pwd.getpwnam("mihomoctl").pw_uid,
                         "system-core-ran-as-root")
         command(["systemctl", "kill", "--signal=SIGKILL", "--kill-who=main", "mihomoctl.service"])
@@ -474,6 +549,48 @@ class PrivilegedAcceptance(unittest.TestCase):
         self.assertTrue(replacement not in (0, pid), "systemd-crash-recovery-failed")
         self.wait_cli(None, "status")
         self.cli(None, "service", "stop")
+
+    def test_35_unit_reload_recovery_restores_real_cached_definition(self):
+        from mihomoctl import config
+        from mihomoctl.scope import Scope
+        from mihomoctl.lifecycle import systemd
+        from mihomoctl.locks import operation_lock
+        from mihomoctl.errors import StateError,RollbackFailedError
+        self.assertTrue(self.system_installed,'system-fixture-required')
+        scope=Scope(system=True)
+        unit=systemd.unit_path(scope);current=unit.read_text()
+        self.assertTrue(current.startswith(systemd.UNIT_MARKER+'\n'))
+        self.assertIn(systemd.CORE_ENVIRONMENT,current)
+        legacy=current.replace(systemd.CORE_ENVIRONMENT,systemd.LEGACY_CORE_ENVIRONMENT)
+        unit.write_text(legacy);unit.chmod(0o644)
+        original=systemd._systemctl
+        original(scope,'daemon-reload')
+        manager=config.load_manager(scope)
+        attempts=[]
+        def reload_then_fail(*args,**kwargs):
+            self.assertEqual(args[1:],('daemon-reload',))
+            attempts.append(args)
+            if len(attempts)==1:
+                original(*args,**kwargs)
+                raise StateError('injected-post-reload-failure')
+            raise StateError('injected-restored-reload-failure')
+        with patch.object(systemd,'systemd_available',return_value=True),patch.object(systemd,'_systemctl',side_effect=reload_then_fail):
+            with self.assertRaises(RollbackFailedError):
+                systemd.unit_transaction(scope,'service-install',lambda tx:systemd.install_unit(manager,scope,tx=tx))
+        self.assertEqual(len(attempts),2)
+        self.assertEqual(unit.read_text(),legacy)
+        self.assertTrue(list(scope.backups_root.glob('*/journal.json')),'reload-recovery-journal-lost')
+        with operation_lock(scope):pass
+        self.assertFalse(list(scope.backups_root.glob('*/journal.json')),'verified-reload-journal-not-cleaned')
+        props=dict(line.split('=',1) for line in original(scope,'show',systemd.UNIT_NAME,
+                   '--property=NeedDaemonReload,FragmentPath,UnsetEnvironment,ActiveState').stdout.splitlines() if '=' in line)
+        self.assertEqual(props.get('FragmentPath'),str(unit))
+        self.assertEqual(props.get('NeedDaemonReload'),'no')
+        self.assertIn('CLASH_HOME_DIR',props.get('UnsetEnvironment','').split())
+        self.assertNotIn('CLASH_OVERRIDE_EXTERNAL_UI_DIR',props.get('UnsetEnvironment','').split())
+        self.assertIn(props.get('ActiveState'),('inactive','failed'))
+        self.cli(None,'service','install')
+        self.assertEqual(unit.read_text(),current)
 
     def test_40_tun_in_isolated_network_namespace(self):
         if not self.system_installed:
