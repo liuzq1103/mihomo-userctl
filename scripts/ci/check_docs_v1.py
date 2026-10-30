@@ -17,7 +17,7 @@ from mihomoctl import command_spec as spec
 from mihomoctl.errors import UsageError
 from mihomoctl.release_identity import check as check_version
 
-BILINGUAL_TOPICS = ('README.md', 'setup.md', 'subscriptions.md', 'overrides.md', 'rules.md', 'first-run.md',
+BILINGUAL_TOPICS = ('README.md', 'python-install.md', 'setup.md', 'subscriptions.md', 'overrides.md', 'rules.md', 'first-run.md',
                     'security.md', 'update.md', 'offline-install.md', 'agent-install-prompt.md',
                     'agent-local-install-prompt.md', 'codex-install-prompt.md', 'troubleshooting.md',
                     'operations/integrations.md', 'operations/release.md',
@@ -175,8 +175,8 @@ def check_installer_options(path, text, errors):
 
 def check_offline_versions(path, body, version, errors):
     if path.name != 'offline-install.md': return
-    versions = re.findall(r'mihomoctl-(\d+\.\d+\.\d+)', body)
-    versions += re.findall(r'github\.com/liuzq1103/mihomo-userctl/releases/(?:tag|download)/v(\d+\.\d+\.\d+)', body)
+    versions = re.findall(r'mihomo(?:ctl|-userctl|_userctl)-(\d+\.\d+\.\d+(?:\.dev\d+)?)', body)
+    versions += re.findall(r'github\.com/liuzq1103/mihomo-userctl/releases/(?:tag|download)/v(\d+\.\d+\.\d+(?:\.dev\d+)?)', body)
     if not versions or any(value != version for value in versions):
         errors.append('offline-document-version-mismatch: ' + relative(path))
 

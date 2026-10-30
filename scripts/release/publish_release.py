@@ -16,6 +16,8 @@ sys.path.insert(0, str(ROOT))
 from scripts.release.portable_policy import BASELINE, file_digest
 from scripts.release.verify_release import verify
 
+from mihomoctl.release_identity import source_stem, wheel_name, asset_names, distribution
+
 
 def command(*args):
     result = subprocess.run(list(map(str, args)), capture_output=True, text=True,
@@ -99,7 +101,7 @@ def assemble(download, output, commit, run_id, repo):
     second = json.loads((download / 'validation-ubuntu-24.04/artifact-install.json').read_text())
     if receipts[1]['sha256'] != second.get('artifact_sha256'):
         raise ValueError('secondary-build-report-mismatch')
-    portable_sum = 'mihomoctl-' + version + '-portable-linux-x86_64.tar.gz.sha256'
+    portable_sum = source_stem(version) + '-portable-linux-x86_64.tar.gz.sha256'
     if (c22 / portable_sum).read_bytes() != (c24 / portable_sum).read_bytes():
         raise ValueError('secondary-portable-checksum-mismatch')
     assets = output / 'assets'
@@ -120,6 +122,8 @@ def assemble(download, output, commit, run_id, repo):
                for ubuntu in ('22.04', '24.04')}
     expected = {'unit', 'real-core', 'privileged', 'artifact-install', 'offline-bundle-install',
                 'release-acquisition', 'portable-acceptance'}
+    if receipts[0].get('distribution') == 'mihomo-userctl':
+        expected.add('python-install')
     for rows in reports.values():
         if set(rows) != expected or any(row.get('commit') != commit or row.get('success') is not True for row in rows.values()):
             raise ValueError('evidence-inventory-or-identity-mismatch')
@@ -205,7 +209,7 @@ def deliver(repo, commit, version, output, inventory, publish):
 
 def smoke_published(output, version):
     from mihomoctl.portable import source_tree
-    archive = output / 'published-download' / ('mihomoctl-' + version + '-portable-linux-x86_64.tar.gz')
+    archive = output / 'published-download' / (source_stem(version) + '-portable-linux-x86_64.tar.gz')
     previous = output / 'previous' / BASELINE['name']
     if file_digest(previous) != BASELINE['sha256']:
         raise ValueError('public-upgrade-baseline-mismatch')

@@ -36,6 +36,12 @@ class FetchTests(unittest.TestCase):
             ('HOME', 'home'), ('XDG_STATE_HOME', 'state'), ('XDG_DATA_HOME', 'data'),
             ('XDG_CONFIG_HOME', 'config'), ('XDG_CACHE_HOME', 'cache'), ('XDG_RUNTIME_DIR', 'runtime'))})
         self.env.start()
+        # These tests exercise acquisition/transactions with synthetic installed
+        # generations while executing source code. CLI ownership is separately
+        # covered by real standard-install and external-source refusal tests.
+        ownership = patch.object(installation, 'require_managed_update')
+        ownership.start()
+        self.addCleanup(ownership.stop)
         self.addCleanup(self.env.stop)
         for target in ('ubuntu22.04-x86_64-py310', 'ubuntu24.04-x86_64-py312'):
             build_offline_bundle.build(self.assets, fixture.wheelhouse, target, self.base / 'kits')

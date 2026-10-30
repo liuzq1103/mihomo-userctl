@@ -41,6 +41,8 @@ def private_creation_mask():
     finally:
         os.umask(previous)
 
+from mihomoctl.release_identity import source_stem, wheel_name, asset_names, distribution
+
 
 def digest(path):
     result = hashlib.sha256()
@@ -173,7 +175,7 @@ def verify_case(kind, artifacts, wheelhouse, python, version):
             path = home / dirname
             path.mkdir(mode=0o700, exist_ok=True)
             env[variable] = str(path)
-        root_name = "mihomoctl-" + version
+        root_name = source_stem(version)
         archive = artifacts / (root_name + (".zip" if kind == "zip" else ".tar.gz"))
         source = unpack(archive, base / "unpacked", root_name)
         bootstrap = source / "scripts" / "bootstrap.py"
@@ -181,7 +183,7 @@ def verify_case(kind, artifacts, wheelhouse, python, version):
         if kind == "wheel":
             payload = base / "wheel-source"
             payload.mkdir(mode=0o700)
-            wheel = artifacts / (root_name + "-py3-none-any.whl")
+            wheel = artifacts / (wheel_name(version))
             shutil.copyfile(wheel, payload / wheel.name)
             shutil.copyfile(source / "release-manifest.json", payload / "release-manifest.json")
         first = invoke([python, "-I", bootstrap, "install", "--source", payload,
@@ -241,7 +243,7 @@ def verify_previous_upgrade(previous, artifacts, wheelhouse, python, version):
                       '--wheelhouse', wheelhouse, '--python', python], env, 'previous-install')
         launcher = Path(old['bin_link'])
         version_check(launcher, env, previous_version)
-        source = unpack(artifacts / ('mihomoctl-' + version + '.tar.gz'), base / 'new', 'mihomoctl-' + version)
+        source = unpack(artifacts / (source_stem(version) + '.tar.gz'), base / 'new', source_stem(version))
         new = invoke([python, '-I', source / 'scripts/bootstrap.py', 'install', '--source', source,
                       '--wheelhouse', wheelhouse, '--python', python], env, 'new-installer-upgrade')
         version_check(launcher, env, version)

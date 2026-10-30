@@ -31,7 +31,7 @@ Subscriptions, rules and probe settings are layered one key at a time onto the c
 
 ```bash
 mihomoctl reset --dry-run
-mihomoctl reset --apply
+mihomoctl reset --apply --plan-sha256 REVIEWED_PLAN_SHA256
 mihomoctl config validate
 mihomoctl restart
 ```
@@ -79,3 +79,5 @@ The default backend is a user process; root and systemd are unnecessary. `init` 
 | Runtime | `$XDG_RUNTIME_DIR/mihomoctl/`, or private state/runtime fallback |
 
 New configuration defaults to `MATCH,DIRECT`. Proceed to [subscriptions](subscriptions.md), [custom rules](rules.md), then [verification](first-run.md).
+
+[Python installation / 标准 Python 安装](python-install.md)

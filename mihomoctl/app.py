@@ -434,7 +434,10 @@ class Application:
         import os
         from .trust import require_executable_file, require_private_file
         manager = self._require_manager()
-        binary = str(Path(core or manager.core.binary).absolute())
+        selected_binary = core or manager.core.binary
+        if not selected_binary:
+            raise ConfigError('core-required', 'supply a trusted replacement using --core')
+        binary = str(Path(selected_binary).absolute())
         require_executable_file(binary, as_root=self.scope.system)
         preview = {"state": "preview", "scope": self.scope.name,
                 "core": binary,
@@ -444,8 +447,8 @@ class Application:
                               str(self.scope.credentials_dir / (manager.default_profile + ".yaml"))],
                 "preserved": [str(self.scope.cores_root), str(self.scope.backups_root),
                               str(self.scope.logs_dir)]}
-        paths = sorted(set(preview['removed'] + preview['replaced'] +
-                           [str(self.scope.runtime_state), manager.core.config, binary]))
+        paths = sorted({name for name in preview['removed'] + preview['replaced'] +
+                        [str(self.scope.runtime_state), manager.core.config, binary] if name is not None})
         fingerprints = []
         for name in paths:
             path = Path(name)
@@ -478,9 +481,9 @@ class Application:
         and the default configuration is published again.  The Mihomo
         core binary, the subscription previews and the logs are kept.
 
-        A running runtime is stopped first — and a runtime that cannot be
-        resolved at all is only reported, because recovering from an
-        unreadable configuration is exactly what reset is for.
+        A running runtime must stop successfully. Invalid configuration can
+        be repaired when the owned runtime is confirmed inactive; an active
+        runtime with unresolvable configuration requires an explicit stop.
         """
         scope = self.scope
         scope.require_mutation()
@@ -501,13 +504,20 @@ class Application:
             binary = preview['core']
             plan = self._plan_runtime(core=binary, allow_non_loopback=(),
                                       profile_name=manager.default_profile)
-            manager, endpoints, controller, _profile, _cfg = self.resolve()
-            tx.runtime = {'was_running': bool(self._backend(manager, endpoints, controller).status().get('running')),
-                          'phase': 'prepared'}
-            tx._persist()
-            tx.runtime['phase'] = 'stopping'
-            tx._persist()
-            self.lifecycle('stop', _locked=True)
+            try:
+                manager, endpoints, controller, _profile, _cfg = self.resolve()
+            except ConfigError:
+                # Repair malformed/missing configuration without bypassing PID
+                # ownership or attempting to stop an unresolvable live core.
+                if self._backend(manager, [], None).status().get('running'):
+                    raise StateError('reset-runtime-unverified', 'stop the owned runtime explicitly before repairing invalid configuration') from None
+            else:
+                tx.runtime = {'was_running': bool(self._backend(manager, endpoints, controller).status().get('running')),
+                              'phase': 'prepared'}
+                tx._persist()
+                tx.runtime['phase'] = 'stopping'
+                tx._persist()
+                self.lifecycle('stop', _locked=True)
             for path in preview['removed']:
                 tx.delete(Path(path))
             _publish_runtime(tx, scope, plan)

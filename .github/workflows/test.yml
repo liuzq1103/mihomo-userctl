@@ -21,7 +21,7 @@ jobs:
             python: '3.12'
             offline_target: ubuntu24.04-x86_64-py312
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash --noprofile --norc -eo pipefail {0}
@@ -37,17 +37,22 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-python@v5
+        id: standard-python
+        with:
+          python-version: ${{ matrix.python }}
       - name: Prepare build and optional UI dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y shellcheck python3-venv iproute2 dbus-user-session openssh-server binutils
+          sudo apt-get install -y shellcheck python3-venv python3-pip iproute2 dbus-user-session openssh-server binutils
           /usr/bin/python3 -m venv /tmp/mihomoctl-v1-ci-python
           source /tmp/mihomoctl-v1-ci-python/bin/activate
           echo /tmp/mihomoctl-v1-ci-python/bin >> "$GITHUB_PATH"
           python -c "import sys; assert '.'.join(map(str, sys.version_info[:2])) == '${{ matrix.python }}'"
-          python -m pip install --upgrade pip setuptools wheel build
+          python -m pip install pip==25.3 setuptools==80.9.0 wheel==0.45.1 build==1.6.1
           python -m pip install .
           python -m pip install --require-hashes --only-binary=:all: -r scripts/textual-requirements.txt
+          python -m pip install ruff==0.17.3 pyright==1.1.414
       - name: Syntax and reviewed-content checks
         run: |
           python scripts/release/version.py --check
@@ -56,6 +61,8 @@ jobs:
           python -m compileall -q mihomoctl scripts tests || rc=$?
           printf 'compileall_rc=%s\n' "$rc"
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+          ruff check
+          pyright
           rc=0
           find . -type f \( -name '*.sh' -o -name '*.bash' \) -not -path './.git/*' -print0 | xargs -0 -n1 bash -n || rc=$?
           printf 'bash_syntax_rc=%s\n' "$rc"
@@ -104,7 +111,15 @@ jobs:
           printf 'build_release_rc=%s\n' "$rc"
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
           python -m pip download --only-binary=:all: --require-hashes -r requirements-lock.txt --dest "$RUNNER_TEMP/wheelhouse"
-          cp dist/mihomoctl-*.whl "$RUNNER_TEMP/wheelhouse/"
+          cp dist/mihomo_userctl-*.whl "$RUNNER_TEMP/wheelhouse/"
+          python -m pip download --only-binary=:all: --dest "$RUNNER_TEMP/python-install-wheelhouse" uv==0.9.5 pipx==1.8.0 setuptools==80.9.0 wheel==0.45.1 pip==25.3
+          python -m pip download --only-binary=:all: --require-hashes -r scripts/textual-requirements.txt --dest "$RUNNER_TEMP/python-install-wheelhouse"
+          cp "$RUNNER_TEMP/wheelhouse/"*.whl "$RUNNER_TEMP/python-install-wheelhouse/"
+      - name: Standard Python install, run, upgrade and uninstall under isolated UIDs
+        env:
+          STANDARD_PYTHON: ${{ steps.standard-python.outputs.python-path }}
+        run: |
+          sudo unshare --net -- bash -c 'ip link set lo up; export MIHOMO_V1_DISPOSABLE_VM=1; exec /usr/bin/python3 "$@"' -- scripts/release/verify_python_install.py --artifacts dist --wheelhouse "$RUNNER_TEMP/python-install-wheelhouse" --python "$STANDARD_PYTHON" --report "$RUNNER_TEMP/python-install.json"
           cd dist
           rc=0
           sha256sum --check --strict SHA256SUMS || rc=$?
@@ -170,6 +185,7 @@ jobs:
             ${{ runner.temp }}/real-core.json
             ${{ runner.temp }}/privileged.json
             ${{ runner.temp }}/artifact-install.json
+            ${{ runner.temp }}/python-install.json
             ${{ runner.temp }}/offline-bundle-install.json
             ${{ runner.temp }}/release-acquisition.json
             ${{ runner.temp }}/portable-acceptance.json

@@ -31,7 +31,7 @@ mihomoctl init --core /absolute/path/to/mihomo --config /absolute/path/to/config
 
 ```bash
 mihomoctl reset --dry-run
-mihomoctl reset --apply
+mihomoctl reset --apply --plan-sha256 REVIEWED_PLAN_SHA256
 mihomoctl config validate
 mihomoctl restart
 ```
@@ -79,3 +79,5 @@ mihomoctl health check
 | 运行态 | `$XDG_RUNTIME_DIR/mihomoctl/`；未设置时回退私有 state/runtime |
 
 默认新配置为 `MATCH,DIRECT`。接下来依次阅读 [订阅](subscriptions.md)、[规则](rules.md)、[实际验证](first-run.md)。
+
+[Python installation / 标准 Python 安装](python-install.md)

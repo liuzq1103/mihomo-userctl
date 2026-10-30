@@ -27,6 +27,8 @@ TARGETS = {
     "ubuntu24.04-x86_64-py312": ("24.04", (3, 12), "2.39"),
 }
 
+from mihomoctl.release_identity import source_stem, wheel_name, asset_names, distribution
+
 
 def digest(path):
     with Path(path).open("rb") as stream:
@@ -55,7 +57,7 @@ def build(artifacts, wheelhouse, target, output, worktree=False):
     artifacts, wheelhouse, output = map(Path, (artifacts, wheelhouse, output))
     receipt, dependencies = checked_payload(artifacts, wheelhouse, target, worktree)
     version = receipt["version"]
-    root = "mihomoctl-" + version + "-offline-" + target
+    root = source_stem(version) + "-offline-" + target
     output.mkdir(parents=True, exist_ok=True)
     bundle = output / (root + ".tar.gz")
     sums = output / (bundle.name + ".sha256")
@@ -75,7 +77,7 @@ def build(artifacts, wheelhouse, target, output, worktree=False):
         "mihomoctl offline control-plane kit\n"
         "Verify the outer digest against an independently trusted release record BEFORE running code.\n"
         "Safely extract into a new private directory, then run sha256sum --check --strict SHA256SUMS.\n"
-        "Extract and review release/mihomoctl-%s.tar.gz; read INSTALL.md and docs/en/offline-install.md.\n"
+        "Extract and review release/%s.tar.gz; read INSTALL.md and docs/en/offline-install.md.\n"
         "Run bash install.sh --python /usr/bin/python3 --wheelhouse /ABSOLUTE/KIT/wheelhouse --dry-run,\n"
         "then repeat without --dry-run. Installation never downloads dependencies or starts services.\n"
         "This kit installs the controller/dependencies only; Mihomo, OpenCode, Codex and Node are not included.\n"
@@ -86,10 +88,14 @@ def build(artifacts, wheelhouse, target, output, worktree=False):
         "without a trusted core explicitly install fixed v1.19.32, then init and config validate.\n"
         "The built-in core digest covers amd64-compatible only; other architectures need a checked digest.\n"
         "Preserve existing managers; do not repeat init or proactively core install (it may restart the runtime).\n"
-        "The enclosed receipt/checksums alone do not independently authenticate the source.\n" % version
+        "The enclosed receipt/checksums alone do not independently authenticate the source.\n" % source_stem(version)
     ).encode()
+    payload['README.txt'] += (
+        'The hyphenated mihomo-userctl-VERSION.tar.gz is the reviewed GitHub source tree for install.sh.\n'
+        'The underscored mihomo_userctl-VERSION.tar.gz is the standard Python sdist for pip/build tools.\n'
+        'These formats have separate exact inventories; do not substitute one for the other.\n').encode()
     provenance = {"format": 1, "version": version, "commit": receipt["commit"], "target": target,
-                  "source": receipt["source"], "publishable": receipt["publishable"],
+                  "source": receipt["source"], "publishable": receipt["publishable"], "distribution": distribution(receipt),
                   "dependencies": dependencies,
                   "files": {name: hashlib.sha256(body).hexdigest() for name, body in sorted(payload.items())}}
     payload["bundle-manifest.json"] = (json.dumps(provenance, indent=2, sort_keys=True) + "\n").encode()

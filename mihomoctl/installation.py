@@ -59,6 +59,7 @@ from pathlib import Path, PurePosixPath
 from . import locks
 from .errors import MihomoctlError, PermissionScopeError
 from .scope import Scope
+from .release_identity import distribution, version_order, VERSION_PATTERN
 from .trust import (require_executable_file, require_private_dir, require_private_file,
                     require_trusted_dir)
 
@@ -69,10 +70,10 @@ ENTRY_POINT = "mihomoctl.cli:main"
 REQUIRES_PYTHON = ">=3.10"
 
 GENERATION_RE = re.compile(r"[a-f0-9]{32}$")
-VERSION_RE = re.compile(r"\d+(\.\d+)*((a|b|rc)\d+)?$")
+VERSION_RE = re.compile(VERSION_PATTERN + r'\Z')
 MANIFEST_KEYS = frozenset({"format", "version", "update_protocol", "validation_profile",
                            "requires_python", "console_script", "entry_point", "dependencies",
-                           "packages", "inventory"})
+                           "packages", "inventory", "distribution"})
 INVENTORY_KEYS = frozenset({"roots", "files", "runtime_files", "comment"})
 IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -141,15 +142,10 @@ def normalize_name(name):
 
 def parse_version(text):
     """PEP 440 subset: N(.N)* with optional a/b/rc pre-release."""
-    text = str(text).strip()
-    match = re.fullmatch(r"(\d+(?:\.\d+)*)((?:a|b|rc)\d+)?", text)
-    if not match:
-        raise InstallationError("unsupported-version-format", str(text))
-    numbers = tuple(int(n) for n in match[1].split("."))
-    while len(numbers) > 1 and numbers[-1] == 0:
-        numbers = numbers[:-1]
-    pre = re.fullmatch(r"(a|b|rc)(\d+)", match[2] or "")
-    return (numbers, ({"a": 0, "b": 1, "rc": 2}[pre[1]], int(pre[2])) if pre else (3, 0))
+    try:
+        return version_order(str(text).strip())
+    except ValueError:
+        raise InstallationError('unsupported-version-format', str(text)) from None
 
 
 def _specifier_satisfied(spec, version_key):
@@ -229,10 +225,14 @@ def load_manifest(directory):
         raise OldProtocolError("unsupported-installation-protocol",
                                repr(raw.get("update_protocol")), "no files were changed")
     unknown = set(raw) - MANIFEST_KEYS
-    missing = (MANIFEST_KEYS - set(raw)) | ({"inventory"} - set(raw))
+    missing = (MANIFEST_KEYS - {'distribution'} - set(raw)) | ({"inventory"} - set(raw))
     if unknown or missing:
         raise InstallationError("release-manifest-invalid",
                                 "unexpected keys: %s; missing: %s" % (sorted(unknown), sorted(missing)))
+    try:
+        distribution(raw)
+    except ValueError:
+        raise InstallationError('release-manifest-invalid', 'unsupported distribution') from None
     if not isinstance(raw["version"], str) or not VERSION_RE.fullmatch(raw["version"]):
         raise InstallationError("release-manifest-invalid", "bad version %r" % raw["version"])
     if (raw["validation_profile"] != "installation-v2"
@@ -381,6 +381,8 @@ def _array_chunk(text, items):
 
 def cross_check_pyproject(source_root, manifest):
     values = parse_pyproject(Path(source_root) / "pyproject.toml")
+    if values.get(('project', 'name')) != distribution(manifest):
+        raise InstallationError('source-distribution-disagrees-with-manifest', 'pyproject.toml')
     if values.get(("project", "version")) != manifest["version"]:
         raise InstallationError("source-version-markers-disagree", "pyproject.toml")
     for name, marker in (("mihomoctl/__init__.py", "__version__"),):
@@ -1158,7 +1160,7 @@ def _copy_source_packages(source_root, lib_dir, manifest):
 
 def _stage_wheels(source, lib_dir, manifest, target=None):
     main_candidates = [w for w in source.wheels
-                       if parse_wheel_filename(w)["name"] == PROJECT_NAME]
+                       if parse_wheel_filename(w)["name"] == distribution(manifest)]
     if len(main_candidates) != 1:
         raise InstallationError("wheel-source-needs-exactly-one-main-wheel",
                                 sorted(w.name for w in main_candidates))
@@ -1170,7 +1172,7 @@ def _stage_wheels(source, lib_dir, manifest, target=None):
         raise InstallationError("wheel-incompatible-with-this-interpreter", main_path.name)
     with zipfile.ZipFile(main_path) as zf:
         meta = _read_wheel_metadata(zf, main_info)
-        if normalize_name(meta["name"]) != PROJECT_NAME or meta["version"] != manifest["version"]:
+        if normalize_name(meta["name"]) != distribution(manifest) or meta["version"] != manifest["version"]:
             raise InstallationError("wheel-metadata-disagrees-with-filename", main_path.name)
         if meta["requires_python"] and not _specifier_satisfied(
                 meta["requires_python"], parse_version(".".join(map(str, target["version"] if target else sys.version_info[:3])))):
@@ -1940,6 +1942,16 @@ def prune_generations(scope, keep=3, *, lock=True):
                 lease.unlink()
             removed.append(name)
         return removed
+
+
+def require_managed_update(scope):
+    """An unrelated per-user receipt never authorizes this executing package."""
+    paths = InstallPaths(scope)
+    expected = paths.install_root / 'current' / 'lib' / 'mihomoctl' / 'installation.py'
+    if not expected.exists() or Path(__file__).resolve() != expected.resolve():
+        raise InstallationError('external-installation-managed-externally',
+                                'use the original uv/pipx/pip environment to upgrade or uninstall mihomo-userctl; an old mihomoctl distribution must be uninstalled there before renaming')
+    verify_installed(scope)
 
 
 def update(scope, source=None, **kwargs):

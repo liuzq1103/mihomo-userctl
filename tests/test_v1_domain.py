@@ -281,6 +281,29 @@ class DomainFiles(unittest.TestCase):
         Path(core).write_text(Path(core).read_text() + '\n# replaced core\n')
         self.assertNotEqual(second, app.reset_preview()['plan_sha256'])
 
+    def test_reset_repairs_malformed_config_when_owned_runtime_is_inactive(self):
+        from mihomoctl.app import Application
+        app = Application()
+        app.initialize(self._fake_core())
+        path = Path(app.load_manager().core.config)
+        path.write_text('not: [valid YAML\n')
+        proof = app.reset_preview()['plan_sha256']
+        result = app.reset(plan_sha256=proof)
+        self.assertEqual(result['state'], 'restart-required')
+        self.assertIn('MATCH,DIRECT', path.read_text())
+
+    def test_reset_preview_handles_manager_without_config_path(self):
+        from mihomoctl.app import Application
+        app = Application()
+        app.initialize(self._fake_core())
+        body = self.scope.manager_path.read_text()
+        body = '\n'.join(line for line in body.splitlines() if not line.strip().startswith('config:')) + '\n'
+        self.scope.manager_path.write_text(body)
+        preview = app.reset_preview()
+        self.assertEqual(len(preview['plan_sha256']), 64)
+        result = app.reset(plan_sha256=preview['plan_sha256'])
+        self.assertEqual(result['state'], 'restart-required')
+
     def test_reset_restores_the_initial_default_configuration(self):
         from mihomoctl.app import Application
         from mihomoctl.yamlutil import strict_load

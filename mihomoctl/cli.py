@@ -893,6 +893,8 @@ def cmd_installation(command, app, args, json_mode):
         values = parser.parse_args(args)
         if values.latest and values.source:
             raise UsageError('usage-error', 'SOURCE and --latest are mutually exclusive')
+        if values.source or values.latest:
+            installation.require_managed_update(app.scope)
         if values.latest:
             from .release import update_latest
             data = update_latest(app.scope, dry_run=values.dry_run,

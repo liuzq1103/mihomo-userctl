@@ -30,7 +30,7 @@ class PublicGrammarTests(unittest.TestCase):
             target = 'mihomoctl.release.update_latest' if latest else 'mihomoctl.installation.update'
             for flags, selection in (([], None), (['--extras', 'tui', '--extras', 'other'], ['tui', 'other']),
                                      (['--no-extras'], [])):
-                with patch(target, return_value={}) as update, contextlib.redirect_stdout(io.StringIO()):
+                with patch(target, return_value={}) as update, patch('mihomoctl.installation.require_managed_update'), contextlib.redirect_stdout(io.StringIO()):
                     code = main(['update', *(['--latest'] if latest else ['/source']), *flags, '--json'])
                 self.assertEqual(code, 0)
                 self.assertEqual(update.call_args.kwargs['extras'], selection)
@@ -339,12 +339,12 @@ else:
 
     def test_both_offline_layout_recipes_resolve_private_dependencies(self):
         version = version_from_pyproject(ROOT)
-        bundle = 'mihomoctl-' + version + '-offline-ubuntu22.04-x86_64-py310'
+        bundle = 'mihomo-userctl-' + version + '-offline-ubuntu22.04-x86_64-py310'
         payload = self.home / 'payload'
         (payload / 'release').mkdir(parents=True)
         (payload / 'wheelhouse').mkdir()
         (payload / 'wheelhouse/dependency.whl').write_bytes(b'fixture')
-        source = self.home / ('mihomoctl-' + version)
+        source = self.home / ('mihomo-userctl-' + version)
         source.mkdir()
         (source / 'install.sh').write_text('#!/usr/bin/env bash\nset -eu\n[[ "$*" == *"$HOME/"* ]]\nprintf "%s\\n" "$*" >> "$HOME/install-commands"\n')
         archive = payload / 'release' / (source.name + '.tar.gz')

@@ -33,3 +33,9 @@ release gate 必须同时检查两个系统的完整包报告及一致的完整�
 十进制门槛为下载 65,000,000 字节、解压普通文件 160,000,000 字节、初始化核心后的首次安装逻辑占用 225,000,000 字节。`installed_bytes` 继续表示逻辑大小，目录及 generation 另记录分配块数。安装、初始化和跨版本升级峰值为 home 内每 50ms 采样观测；home 外输入包及验收器临时解压源单独记录。升级峰值不受首次安装门槛约束。
 
 先以成功的 main push 测试 run ID 调度 `publish.yml`，设置 `publish=false`。发布器核验该既有 CI run，重新验证其发布门禁与证据、精确提交/版本及资产名称、大小、摘要，再恢复或创建草稿并下载全部资产逐字节核验；它不重新执行完整 CI 测试矩阵。两方审查实际草稿证据后，以同一 run ID 和 `publish=true` 再次调度。已有 tag 必须对应验收提交，正式资产与说明不得覆盖。发布后在隔离 home 验证公开下载、获取及从 v1.4.0 执行 `update --latest`。公开烟测失败时保留证据并通过后续修复版本处理，不替换已发布文件。
+
+## Python distribution and development candidates
+
+Distribution/new assets use `mihomo-userctl`; import, CLI and XDG paths stay `mihomoctl`. Wheel/sdist names use normalized `mihomo_userctl`. The old pinned upgrade baseline keeps its old name. Standard sdist must rebuild a reviewed wheel outside the checkout. Python installation evidence is required for both Ubuntu targets.
+
+Development version `1.5.0.dev0` may build and pass candidate acceptance but must never be formally published. PyPI uses only manual Trusted Publishing from the exact successful main CI artifacts, with protected `pypi` environment approval and minimal OIDC permissions. No tag automatically uploads. The PyPI project/pending publisher and GitHub environment must be configured by the authorized maintainer before a separately authorized formal release. A PyPI 404 does not reserve the name. Public-index install verification occurs only after publication.

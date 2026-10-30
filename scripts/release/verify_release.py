@@ -17,6 +17,8 @@ from scripts.release.portable_policy import BASELINE, MAX_DOWNLOAD, MAX_EXPANDED
 class GateError(ValueError):
     pass
 
+from mihomoctl.release_identity import source_stem, wheel_name, asset_names, distribution
+
 
 def document(path):
     try:
@@ -41,10 +43,10 @@ def verify(artifacts, evidence, commit, offline_artifacts=None, portable_artifac
     if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.]+)?", version):
         raise GateError("build-receipt-version-invalid")
     hashes = receipt.get("sha256")
-    wheels = list(artifacts.glob("mihomoctl-" + version + "-*.whl"))
+    wheels = list(artifacts.glob(wheel_name(version, distribution(receipt))))
     if len(wheels) != 1:
         raise GateError("exactly-one-versioned-wheel-required")
-    names = {"mihomoctl-" + version + ".tar.gz", "mihomoctl-" + version + ".zip", wheels[0].name}
+    names = asset_names(version, distribution(receipt))
     if not isinstance(hashes, dict) or set(hashes) != names:
         raise GateError("release-asset-inventory-mismatch")
     for name, digest in hashes.items():
@@ -93,8 +95,22 @@ def verify(artifacts, evidence, commit, offline_artifacts=None, portable_artifac
             if tested_hashes[name] != hashes[name]:
                 raise GateError("installed-source-artifact-differs: " + ubuntu)
         installed_artifact_sets.append(tested_hashes)
+        if distribution(receipt) == 'mihomo-userctl':
+            python_install = document(folder / 'python-install.json')
+            users = python_install.get('users', [])
+            required_cases = {'uv-tool', 'pipx', 'pip-user', 'wheel', 'sdist', 'source', 'editable', 'index', 'tui-extra'}
+            if (python_install.get('commit') != commit or python_install.get('version') != version
+                    or python_install.get('success') is not True or python_install.get('network_isolated') is not True
+                    or python_install.get('source_dirty') is not False or python_install.get('ubuntu') != ubuntu
+                    or python_install.get('artifact_sha256') != hashes or len(users) != 2
+                    or len({row.get('uid') for row in users}) != 2
+                    or any(row.get('success') is not True or row.get('protected_files_unchanged') is not True
+                           or row.get('external_update_refused') is not True or set(row.get('cases', [])) != required_cases
+                           or ubuntu == '24.04' and row.get('pep668') != 'refused'
+                           for row in users)):
+                raise GateError('python-install-acceptance-incomplete: ' + ubuntu)
         target = "ubuntu" + ubuntu + "-x86_64-py" + ("310" if ubuntu == "22.04" else "312")
-        bundle_name = "mihomoctl-" + version + "-offline-" + target + ".tar.gz"
+        bundle_name = source_stem(version) + "-offline-" + target + ".tar.gz"
         bundle_path = (offline_artifacts or artifacts) / bundle_name
         try:
             bundle, _ = load_bundle(bundle_path, target)
@@ -144,7 +160,7 @@ def verify(artifacts, evidence, commit, offline_artifacts=None, portable_artifac
         raise GateError("tested-core-differs-between-acceptance-environments")
     portable_assets = set()
     if portable_artifacts is not None:
-        name = 'mihomoctl-' + version + '-portable-linux-x86_64.tar.gz'
+        name = source_stem(version) + '-portable-linux-x86_64.tar.gz'
         archive = portable_artifacts / name
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         if archive.stat().st_size > MAX_DOWNLOAD:

@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import __version__
+from .release_identity import source_stem, wheel_name, asset_names, version_order
 from .errors import MihomoctlError
 
 REPOSITORY = 'liuzq1103/mihomo-userctl'
@@ -102,7 +103,7 @@ def metadata(version=None, timeout=30):
 def observation(data, current_version=__version__):
     version = data['tag_name'][1:]
     return {'current_version': current_version, 'observed_version': version,
-            'newer_available': version_key(version) > version_key(current_version),
+            'newer_available': version_order(version) > version_order(current_version),
             'checked_at': int(time.time()), 'release_url': WEB + '/releases/tag/v' + version}
 
 
@@ -172,7 +173,7 @@ def _validate_release(directory, version):
     receipt, _ = load_artifacts(directory, False)
     if receipt['version'] != version:
         raise ReleaseError('release-version-mismatch')
-    source = directory / ('mihomoctl-' + version + '.tar.gz')
+    source = directory / (source_stem(version) + '.tar.gz')
     with tempfile.TemporaryDirectory(prefix='mihomoctl-release-validate-') as temporary:
         root = installation.extract_archive(source, Path(temporary))
         manifest = installation.load_manifest(root)
@@ -181,14 +182,18 @@ def _validate_release(directory, version):
         if manifest['version'] != version:
             raise ReleaseError('release-version-mismatch')
         for suffix in ('.tar.gz', '.zip'):
-            verify_source_inventory(directory / ('mihomoctl-' + version + suffix), manifest)
+            verify_source_inventory(directory / (source_stem(version) + suffix), manifest)
         from zipfile import ZipFile
-        with ZipFile(directory / ('mihomoctl-' + version + '.zip')) as package:
+        with ZipFile(directory / (source_stem(version) + '.zip')) as package:
             for relative in manifest['inventory']['files']:
-                if package.read('mihomoctl-' + version + '/' + relative) != (root / relative).read_bytes():
+                if package.read(source_stem(version) + '/' + relative) != (root / relative).read_bytes():
                     raise ReleaseError('release-source-formats-disagree')
-        wheel = directory / ('mihomoctl-' + version + '-py3-none-any.whl')
+        wheel = directory / (wheel_name(version))
         verify_wheel_inventory(wheel, manifest)
+        if manifest.get('distribution') == 'mihomo-userctl':
+            from .release_identity import sdist_name
+            from .release_artifacts import verify_sdist_inventory
+            verify_sdist_inventory(directory / sdist_name(version), manifest)
         # Complete wheel metadata/RECORD checks without executing any payload.
         info = installation.parse_wheel_filename(wheel)
         with ZipFile(wheel) as package:
@@ -258,7 +263,7 @@ def _fetch(scope, output_dir, version=None, target=None, *, selected=None, timeo
         stage.mkdir(mode=0o700)
         gate_path = _asset(data, assets, 'release-gate.json', stage, deadline, MAX_METADATA)
         if target:
-            name = 'mihomoctl-' + selected_version + '-offline-' + target + '.tar.gz'
+            name = source_stem(selected_version) + '-offline-' + target + '.tar.gz'
             bundle = _asset(data, assets, name, stage, deadline, MAX_RELEASE_BYTES)
             _asset(data, assets, name + '.sha256', stage, deadline, 1024)
             manifest, payload = load_bundle(bundle, target, max_bytes=MAX_KIT_EXPANDED_BYTES)
@@ -279,8 +284,7 @@ def _fetch(scope, output_dir, version=None, target=None, *, selected=None, timeo
         else:
             folder = stage / 'release'
             folder.mkdir(mode=0o700)
-            names = ['mihomoctl-' + selected_version + suffix for suffix in
-                     ('.tar.gz', '.zip', '-py3-none-any.whl')]
+            names = sorted(asset_names(selected_version))
             for name in names + ['SHA256SUMS', 'build-receipt.json']:
                 _asset(data, assets, name, folder, deadline,
                        MAX_METADATA if name in ('SHA256SUMS', 'build-receipt.json') else MAX_RELEASE_BYTES)
@@ -297,7 +301,7 @@ def _fetch(scope, output_dir, version=None, target=None, *, selected=None, timeo
                 or len(gate['assets']) != len(set(gate['assets'])) or not required <= set(gate['assets'])
                 or gate.get('ubuntu') != ['22.04', '24.04']):
             raise ReleaseError('release-gate-mismatch')
-        source = (folder / ('mihomoctl-' + selected_version + '.tar.gz')).relative_to(stage).as_posix()
+        source = (folder / (source_stem(selected_version) + '.tar.gz')).relative_to(stage).as_posix()
         record = {'version': selected_version, 'commit': commit, 'source': source,
                   'wheelhouse': wheelhouse, 'target': target, 'release_url': WEB + '/releases/tag/' + tag,
                   'github_digest_checks': {name: row['_digest_verified'] for name, row in assets.items()
@@ -332,6 +336,7 @@ def update_latest(scope, **options):
     """Acquisition followed by the unchanged offline transactional updater."""
     from . import installation
     from .trust import require_private_dir
+    installation.require_managed_update(scope)
     scope.require_mutation()
     record = installation.current_record(scope)
     current = installation.verify_installed(scope)['version'] if record else __version__
@@ -380,7 +385,7 @@ def _fetch_portable(scope, output_dir, version=None, *, selected=None, timeout=3
     data = selected if selected is not None else metadata(version, min(30, timeout))
     tag = data['tag_name']
     commit, assets = tag_commit(tag, deadline), _assets(data)
-    name = 'mihomoctl-' + tag[1:] + '-portable-linux-x86_64.tar.gz'
+    name = source_stem(tag[1:]) + '-portable-linux-x86_64.tar.gz'
     with tempfile.TemporaryDirectory(prefix='.mihomoctl-fetch-', dir=destination.parent) as temporary:
         stage = Path(temporary) / 'payload'
         stage.mkdir(mode=0o700)
