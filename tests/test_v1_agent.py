@@ -4,6 +4,7 @@ import io
 import json
 import unittest
 from unittest.mock import patch
+from unittest.mock import Mock
 
 from mihomoctl.command_spec import command_parser, grouped_help
 from mihomoctl.controller.controller_service import select
@@ -35,6 +36,20 @@ class SelectionClient:
 
 
 class AgentContractTests(unittest.TestCase):
+    def test_ui_authorization_never_bypasses_scope_before_controller_access(self):
+        from types import SimpleNamespace
+        from mihomoctl.controller.controller_service import ConsoleService
+        from mihomoctl.errors import PermissionScopeError
+        service = ConsoleService.__new__(ConsoleService)
+        service.app = SimpleNamespace(scope=SimpleNamespace(
+            require_mutation=Mock(side_effect=PermissionScopeError('scope-violation'))))
+        service.client = Mock(side_effect=AssertionError('unauthorized controller access'))
+        for action in (lambda: service.choose('Entry', 'leaf', allow_cross_level=True),
+                       lambda: service.provider_refresh('nodes'), lambda: service.mode('direct')):
+            with self.assertRaises(PermissionScopeError):
+                action()
+        service.client.assert_not_called()
+
     def test_aggregate_leaf_requires_authorization_and_can_be_restored(self):
         client = SelectionClient()
         with self.assertRaisesRegex(ControlError, 'cross-level-selection-refused'):
@@ -84,3 +99,11 @@ class AgentContractTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertNotIn('PRIVATE-PASSWORD', json.dumps(payload))
         self.assertIn('mihomoctl select', payload['errors'][0]['detail'])
+
+    def test_private_unknown_command_is_not_reflected_in_envelope(self):
+        from mihomoctl.cli import main
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            code = main(['https://private.invalid/PRIVATE-PASSWORD', '--json'])
+        self.assertEqual(code, 2)
+        self.assertNotIn('PRIVATE-PASSWORD', output.getvalue())
+        self.assertEqual(json.loads(output.getvalue())['command'], 'mihomoctl')

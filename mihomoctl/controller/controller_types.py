@@ -11,7 +11,8 @@ SCHEMA = "mihomo-userctl.controller/v1"
 COMMANDS = ("controller", "nodes", "groups", "select", "latency", "connections", "traffic", "ui", "dashboard", "tui", "override", "manual", "providers", "provider", "dns", "mode", "subscription", "health-check")
 LIMIT = 8 * 1024 * 1024
 TEST_URL = "https://www.gstatic.com/generate_204"
-TUI_INSTALL_COMMAND = "bash install.sh --user --python <python> --wheelhouse <wheelhouse-dir> --extras tui"
+TUI_INSTALL_COMMAND = ("bash install.sh --user --python <python> --wheelhouse <wheelhouse-dir> --extras tui"
+                       "; Python installs: add [tui] using the original uv/pipx/pip environment")
 
 ERROR_LABELS = {
     'cross-level-selection-refused': '聚合组禁止直接选择叶子；先切子组再切入口。明确授权后才可使用 --allow-cross-level',

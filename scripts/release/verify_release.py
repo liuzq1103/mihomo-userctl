@@ -107,6 +107,7 @@ def verify(artifacts, evidence, commit, offline_artifacts=None, portable_artifac
                     or any(row.get('success') is not True or row.get('protected_files_unchanged') is not True
                            or row.get('external_update_refused') is not True or set(row.get('cases', [])) != required_cases
                            or ubuntu == '24.04' and row.get('pep668') != 'refused'
+                           or not str(row.get('python', '')).startswith('3.10.' if ubuntu == '22.04' else '3.12.')
                            for row in users)):
                 raise GateError('python-install-acceptance-incomplete: ' + ubuntu)
         target = "ubuntu" + ubuntu + "-x86_64-py" + ("310" if ubuntu == "22.04" else "312")

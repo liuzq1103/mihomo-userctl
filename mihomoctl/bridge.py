@@ -164,7 +164,7 @@ def _run_bridge(scope, args, json_mode=False):
     from .app import Application
     from mihomoctl.controller.controller_transaction import runtime_application
     app = Application(system=scope.system, config_dir=str(scope.config_root))
-    if args[0] in ('select', 'mode', 'subscription', 'manual', 'override', 'health-check') or \
+    if args[0] in ('select', 'mode', 'provider', 'subscription', 'manual', 'override', 'health-check') or \
             args[0] == 'controller' and args[1:] in (['setup'], ['initialize'], ['token']):
         scope.require_mutation()
     passthrough = args and args[0] == "tui"

@@ -64,7 +64,8 @@ def prepare(scope):
                         and version_key(version) > version_key(data.get('notified', '0.0.0'))):
                     data['notified'] = version
                     notice = ('mihomoctl: newer release observed: %s (checked_at=%s)\n%s\n'
-                              'Upgrade: mihomoctl update --latest' %
+                              'Upgrade complete installations: mihomoctl update --latest\n'
+                              'Python installs: upgrade using the original uv/pipx/pip environment.' %
                               (version, observed['checked_at'], expected_url))
             launch = (now - data.get('attempted_at', 0) >= INTERVAL
                       or data.get('attempted_at', 0) > now)

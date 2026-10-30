@@ -1,6 +1,6 @@
 # Install and initialize
 
-For the complete bundle, run `mihomoctl` and use the [terminal guide](console.md): the bundled core and dependencies need no system Python or virtual environment. Preview the subscription, then confirm saving and starting. The following explicit CLI steps are the advanced compatibility path for a prepared Linux/Python 3.10+ installation. Installation and init alone leave the runtime stopped. See [verified installation](../../INSTALL.md). For the current shell:
+For the complete bundle, run `mihomoctl` and use the [terminal guide](console.md): the bundled core and dependencies need no system Python or virtual environment. Preview the subscription, then confirm saving and starting. The following explicit CLI steps are a standard Python installation path for a prepared Linux/Python 3.10+ installation. Installation and init alone leave the runtime stopped. See [verified installation](../../INSTALL.md). For the current shell:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"

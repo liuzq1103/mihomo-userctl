@@ -56,6 +56,19 @@ class PythonDistributionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'gate-identity-mismatch'):
                 assemble(base, base / 'output', commit, '123', 'example/repository')
 
+    def test_pypi_publication_refuses_a_verified_development_candidate(self):
+        from scripts.release import prepare_pypi
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            gate_dir = base / 'release-gate'
+            gate_dir.mkdir()
+            commit = 'a' * 40
+            gate = {'version': '1.5.0.dev0', 'commit': commit, 'verified': True}
+            (gate_dir / 'release-gate.json').write_text(json.dumps(gate))
+            with patch.object(prepare_pypi, 'verify', return_value=gate):
+                with self.assertRaisesRegex(ValueError, 'development-version-publication-forbidden'):
+                    prepare_pypi.prepare(base, base / 'output', commit, publishing=True)
+
     @unittest.skipUnless(sys.platform == 'linux', 'trusted Linux source and build paths')
     def test_standard_sdist_rebuilds_reviewed_wheel_outside_checkout(self):
         manifest = json.loads((ROOT / 'release-manifest.json').read_text())

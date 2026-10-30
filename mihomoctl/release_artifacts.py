@@ -163,10 +163,10 @@ def verify_sdist_inventory(archive, manifest):
     names = set()
     used = 0
     with tarfile.open(archive, 'r:gz') as package:
-        for entry in package:
+        for index, entry in enumerate(package):
             safe_member(entry.name)
             used += max(0, entry.size)
-            if len(names) >= MAX_MEMBERS or used > MAX_BYTES or not (entry.isfile() or entry.isdir()):
+            if index >= MAX_MEMBERS or used > MAX_BYTES or not (entry.isfile() or entry.isdir()):
                 raise VerificationError('unsafe-sdist-member')
             if entry.isdir():
                 continue

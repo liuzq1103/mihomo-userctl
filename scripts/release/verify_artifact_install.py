@@ -239,8 +239,19 @@ def verify_previous_upgrade(previous, artifacts, wheelhouse, python, version):
             path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             path.write_bytes(('preserve existing user data: ' + name + '\n').encode())
             protected[path] = path.read_bytes()
+        # The real old installer parses every wheel version before dependency
+        # selection and cannot parse the new main wheel's .devN version. Its
+        # bootstrap needs dependencies only, not the new project's wheel.
+        previous_wheelhouse = base / 'previous-dependencies'
+        previous_wheelhouse.mkdir(mode=0o700)
+        for candidate in Path(wheelhouse).glob('*.whl'):
+            if candidate.name == wheel_name(version):
+                continue
+            if candidate.is_symlink() or not candidate.is_file():
+                raise VerificationError('unsafe-previous-dependency-wheel')
+            shutil.copyfile(candidate, previous_wheelhouse / candidate.name)
         old = invoke([python, '-I', previous / 'scripts/bootstrap.py', 'install', '--source', previous,
-                      '--wheelhouse', wheelhouse, '--python', python], env, 'previous-install')
+                      '--wheelhouse', previous_wheelhouse, '--python', python], env, 'previous-install')
         launcher = Path(old['bin_link'])
         version_check(launcher, env, previous_version)
         source = unpack(artifacts / (source_stem(version) + '.tar.gz'), base / 'new', source_stem(version))

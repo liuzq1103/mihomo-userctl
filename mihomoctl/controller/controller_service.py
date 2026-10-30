@@ -904,6 +904,8 @@ class ConsoleService:
 
 
     def choose(self, group, node, *, allow_cross_level=False):
+        if getattr(self, 'app', None) is not None:
+            self.app.scope.require_mutation()
         return select(self.client(), group, node, allow_cross_level=allow_cross_level)
 
     def latency(self, node, provider=None):
@@ -1021,6 +1023,8 @@ class ConsoleService:
         return report
 
     def provider_refresh(self, name):
+        if getattr(self, 'app', None) is not None:
+            self.app.scope.require_mutation()
         label(name)
         if name not in [row["name"] for row in self.read("providers")["providers"]]:
             raise ControlError("unknown-provider", 1)
@@ -1158,6 +1162,8 @@ class ConsoleService:
 
 
     def mode(self, mode):
+        if getattr(self, 'app', None) is not None:
+            self.app.scope.require_mutation()
         if mode not in ("rule", "global", "direct"):
             raise ControlError("invalid-core-mode", 1)
         client = self.client()

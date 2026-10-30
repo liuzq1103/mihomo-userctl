@@ -172,8 +172,12 @@ def worker(args):
         raise RuntimeError('protected-user-files-changed')
     if (home / 'config/mihomoctl/manager.yaml').exists():
         raise RuntimeError('package-install-initialized-manager')
+    tested_python = invoke([args.python, '-c', 'import platform; print(platform.python_version())'], env).stdout.strip()
     print(json.dumps({'uid': os.geteuid(), 'cases': cases, 'protected_files_unchanged': True,
-                      'external_update_refused': True, 'pep668': pep668, 'success': True}))
+                      'external_update_refused': True, 'pep668': pep668, 'python': tested_python,
+                      'tools': {'uv': invoke([uv, '--version'], env).stdout.strip(),
+                                'pipx': invoke([pipx, '--version'], env).stdout.strip()},
+                      'success': True}))
 
 
 def main():

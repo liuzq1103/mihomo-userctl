@@ -67,7 +67,13 @@ def main(argv=None):
                 from .command_spec import grouped_help
                 print(grouped_help())
             raise UsageError("usage-error", "a command is required", "run mihomoctl --help")
-        command = manager_args[0]
+        from .command_spec import NATIVE, BRIDGED, RETIRED
+        requested_command = manager_args[0]
+        if requested_command not in (*NATIVE, *BRIDGED, *RETIRED, 'help', '--help', '-h'):
+            # A mistyped command can itself be a private URL/token. Keep the
+            # envelope's command field as the canonical program name as well.
+            raise UsageError('unknown-command', 'unrecognized command; run mihomoctl --help')
+        command = requested_command
         app = Application(system=system)
         return dispatch(app, command, manager_args[1:], child_argv, json_mode)
     except MihomoctlError as exc:
