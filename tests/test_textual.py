@@ -20,7 +20,8 @@ class Service:
         self.pending_restart, self.backup = False, None
     def read(self, page):
         if page == "proxies":
-            return {"Proxy": {"name": "Proxy", "type": "Selector", "members": ["[red]A", "B", "q"], "selected": "B", "selectable": True},
+            return {'[red]A': {'type': 'Http'}, 'B': {'type': 'Http'}, 'q': {'type': 'Http'},
+                    "Proxy": {"name": "Proxy", "type": "Selector", "members": ["[red]A", "B", "q"], "selected": "B", "selectable": True},
                     "Auto": {"name": "Auto", "type": "URLTest", "members": ["B"], "selected": "B", "selectable": False}}
         if page == "connections":
             return {"connections": [{"chains": ["B", "Proxy"], "rule": "Match", "upload": 1, "download": 2}]}

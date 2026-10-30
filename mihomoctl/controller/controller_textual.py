@@ -936,11 +936,20 @@ class Console(App):
                 self.query_one("#hint", Static).update("自动组由核心选择节点，可使用测速。")
                 return
             impacts = (snapshot.value or {}).get(group, {}).get("affected_groups", [])
+            from .controller_service import cross_level_selection
+            try:
+                cross_level = cross_level_selection(snapshot.value or {}, group, node)
+            except ControlError:
+                self.query_one('#hint', Static).update('目标身份未确认；请刷新后重试。')
+                return
             message = "将 {} 切换为 {}？已有连接保持打开。".format(group, node)
+            if cross_level:
+                message += '\n此选择将跳过子组层级；确认即明确授权此次跨层切换。'
             if impacts:
                 message += "\n共享入口影响：" + ", ".join(impacts)
             self.push_screen(Confirm(message),
-                             lambda yes: self.schedule("operation", lambda: self.service.choose(group, node)) if yes else None)
+                             lambda yes: self.schedule("operation", lambda: self.service.choose(group, node, allow_cross_level=True)
+                                                       if cross_level else self.service.choose(group, node)) if yes else None)
 
     def selected_node(self):
         table = self.query_one("#nodes", DataTable)

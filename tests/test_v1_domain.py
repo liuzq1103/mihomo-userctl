@@ -254,6 +254,33 @@ class DomainFiles(unittest.TestCase):
         self.assertEqual(before, {str(path): path.read_bytes()
                                   for path in sorted(self.home.rglob('*')) if path.is_file()})
 
+    def test_reset_requires_proof_and_rejects_content_drift_before_stop(self):
+        from mihomoctl.app import Application
+        from mihomoctl.errors import UsageError
+        app = Application()
+        app.initialize(self._fake_core())
+        preview = app.reset_preview()
+        with patch.object(app, 'lifecycle', side_effect=AssertionError('stale reset stopped runtime')):
+            with self.assertRaisesRegex(UsageError, 'reset-preview-required'):
+                app.reset()
+            config = Path(app.load_manager().core.config)
+            config.write_text(config.read_text() + '\n# changed after preview\n')
+            with self.assertRaisesRegex(StateError, 'reset-preview-stale'):
+                app.reset(plan_sha256=preview['plan_sha256'])
+
+    def test_reset_proof_binds_credentials_and_effective_core(self):
+        from mihomoctl.app import Application
+        app = Application()
+        core = self._fake_core()
+        app.initialize(core)
+        first = app.reset_preview()['plan_sha256']
+        credential = self.scope.credentials_dir / 'default.yaml'
+        credential.write_text(credential.read_text() + '\n# private change\n')
+        self.assertNotEqual(first, app.reset_preview()['plan_sha256'])
+        second = app.reset_preview()['plan_sha256']
+        Path(core).write_text(Path(core).read_text() + '\n# replaced core\n')
+        self.assertNotEqual(second, app.reset_preview()['plan_sha256'])
+
     def test_reset_restores_the_initial_default_configuration(self):
         from mihomoctl.app import Application
         from mihomoctl.yamlutil import strict_load
@@ -264,7 +291,7 @@ class DomainFiles(unittest.TestCase):
         issued = (scope.credentials_dir / 'default.yaml').read_text(encoding='utf-8')
         config, _original, extra, backup, receipt = self._imported_subscription_state()
 
-        result = app.reset()
+        result = app.reset(plan_sha256=app.reset_preview()['plan_sha256'])
 
         self.assertEqual(result['state'], 'restart-required')
         self.assertEqual(result['service'], 'unchanged')
@@ -292,7 +319,7 @@ class DomainFiles(unittest.TestCase):
             path.write_text('preserved\n', encoding='utf-8')
             path.chmod(0o600)
             kept[path] = 'preserved\n'
-        app.reset()
+        app.reset(plan_sha256=app.reset_preview()['plan_sha256'])
         for path, body in kept.items():
             self.assertEqual(path.read_text(encoding='utf-8'), body, path)
 
@@ -306,7 +333,7 @@ class DomainFiles(unittest.TestCase):
         extra_body = extra.read_bytes()
         manager_body = self.scope.manager_path.read_bytes()
 
-        result = app.reset()
+        result = app.reset(plan_sha256=app.reset_preview()['plan_sha256'])
 
         self.assertEqual(list(self.scope.backups_root.iterdir()), [])
         self.assertNotIn('backup', result)
@@ -321,8 +348,8 @@ class DomainFiles(unittest.TestCase):
         app = Application()
         app.initialize(self._fake_core())
         self._imported_subscription_state()
-        self.assertNotEqual(app.reset()['removed'], [])
-        self.assertEqual(app.reset()['removed'], [])
+        self.assertNotEqual(app.reset(plan_sha256=app.reset_preview()['plan_sha256'])['removed'], [])
+        self.assertEqual(app.reset(plan_sha256=app.reset_preview()['plan_sha256'])['removed'], [])
         self.assertEqual(sorted(app.load_manager().profiles), ['default'])
 
     def test_reset_reports_a_missing_core_instead_of_writing_anything(self):
@@ -349,7 +376,7 @@ class DomainFiles(unittest.TestCase):
         self.assertTrue(self.scope.manager_path.exists(), 'preview must not publish')
 
         with contextlib.redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(main(['reset', '--apply', '--json']), 0)
+            self.assertEqual(main(['reset', '--apply', '--plan-sha256', preview['plan_sha256'], '--json']), 0)
         applied = json.loads(out.getvalue())['data']
         self.assertEqual(applied['state'], 'restart-required')
         self.assertIn('  - MATCH,DIRECT\n',

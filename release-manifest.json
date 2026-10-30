@@ -328,6 +328,7 @@
       "tests/test_tasks.py",
       "tests/test_textual.py",
       "tests/test_v1_acceptance.py",
+      "tests/test_v1_agent.py",
       "tests/test_v1_contract.py",
       "tests/test_v1_coreinstall.py",
       "tests/test_v1_domain.py",

@@ -14,6 +14,8 @@ TEST_URL = "https://www.gstatic.com/generate_204"
 TUI_INSTALL_COMMAND = "bash install.sh --user --python <python> --wheelhouse <wheelhouse-dir> --extras tui"
 
 ERROR_LABELS = {
+    'cross-level-selection-refused': '聚合组禁止直接选择叶子；先切子组再切入口。明确授权后才可使用 --allow-cross-level',
+    'selection-target-unverified': '目标身份尚未确认；刷新节点与分组后重试',
     'validation-inputs-changed':'校验后核心或依赖资源已变化；请重新预览并保存',
     'probe-unverified':'测速结果未确认',
     'controller-capability-unsupported':'当前核心不支持此控制器接口',

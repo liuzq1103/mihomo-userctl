@@ -872,10 +872,12 @@ def cmd_reset(app, args, json_mode):
     parser = _parser("reset")
     values = parser.parse_args(args)
     if values.dry_run:
-        data = app.reset_preview()
+        if values.plan_sha256 is not None:
+            raise UsageError('usage-error', '--plan-sha256 requires --apply')
+        data = app.reset_preview(core=values.core)
         return _finish("reset-preview", app.scope.name, env.PASS, data,
                        json_mode=json_mode, text=_kv_text(data))
-    data = app.reset(core=values.core)
+    data = app.reset(core=values.core, plan_sha256=values.plan_sha256)
     return _finish("reset-apply", app.scope.name, env.PASS, data,
                    json_mode=json_mode, text=_kv_text(data))
 

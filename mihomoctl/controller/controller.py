@@ -99,6 +99,8 @@ def main(argv=None, app=None):
         parser.add_argument(name, **settings)
     add_probe_options(parser)
     args = parser.parse_args(argv)
+    if args.allow_cross_level and args.command != 'select':
+        raise ControlError('cross-level-option-requires-select')
     if args.provider is not None and args.command != 'latency':
         raise ControlError('provider-option-requires-latency')
     if args.global_node and (args.command != 'latency' or args.provider is not None):
@@ -254,7 +256,7 @@ def main(argv=None, app=None):
         if args.command in ("nodes", "groups", "connections", "traffic"):
             payload = snapshot(client, args.command, args.details)
         elif args.command == "select":
-            payload = select(client, *args.values)
+            payload = select(client, *args.values, allow_cross_level=args.allow_cross_level)
         elif args.command == "latency":
             from mihomoctl.controller.controller_service import latency_target
             target = {'name':args.values[0], 'provider':None} if args.global_node else args.values[0]

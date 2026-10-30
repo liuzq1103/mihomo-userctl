@@ -248,7 +248,18 @@ def latency_target(client, node, provider=None, *, directory=None):
                            else 'node-disappeared', 1) from None
 
 
-def select(client, group, node):
+def cross_level_selection(rows, group, node):
+    """A direct leaf choice in an aggregate group skips its subgroup layer."""
+    row = rows.get(group, {})
+    target = rows.get(node)
+    if target is None:
+        raise ControlError('selection-target-unverified')
+    if 'members' in target or target.get('type') == 'Direct':
+        return False
+    return any('members' in rows.get(member, {}) for member in row.get('members', []))
+
+
+def select(client, group, node, *, allow_cross_level=False):
     client.verify()
     rows = proxies(client)
     if group not in rows or not rows[group].get("selectable"):
@@ -257,6 +268,8 @@ def select(client, group, node):
         raise ControlError("node-not-in-group", 1)
     if sum(t['name'] == node for t in rows[group].get('member_targets', [])) > 1:
         raise ControlError('ambiguous-node', 1)
+    if cross_level_selection(rows, group, node) and not allow_cross_level:
+        raise ControlError('cross-level-selection-refused')
     client.request("/proxies/" + quote(group, safe=""), "PUT", {"name": node}, optional=True)
     if proxies(client).get(group, {}).get("selected") != node:
         raise ControlError("selection-not-confirmed", 1)
@@ -890,8 +903,8 @@ class ConsoleService:
         return first
 
 
-    def choose(self, group, node):
-        return select(self.client(), group, node)
+    def choose(self, group, node, *, allow_cross_level=False):
+        return select(self.client(), group, node, allow_cross_level=allow_cross_level)
 
     def latency(self, node, provider=None):
         return latency_target(self.client(), node, provider)
