@@ -180,6 +180,7 @@ def verify(artifacts, evidence, commit, offline_artifacts=None, portable_artifac
                         or upgrade.get('previous_commit') != BASELINE['commit']
                         or upgrade.get('previous_bundle_sha256') != BASELINE['sha256']
                         or upgrade.get('version') != version
+                        or distribution(receipt) == 'mihomo-userctl' and upgrade.get('upgrade_method') != 'candidate-installer'
                         or any(upgrade.get(key) is not True for key in ('success', 'core_identity_unchanged',
                             'core_digest_unchanged', 'authentication_preserved', 'selection_preserved',
                             'protected_files_unchanged', 'no_history'))):

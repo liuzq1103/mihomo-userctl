@@ -75,7 +75,10 @@ def upgrade_scenario(previous, candidate, home):
             protected_paths.extend(p for p in directory.rglob('*') if p.is_file() and not p.is_symlink())
         protected = {str(p): p.read_bytes() for p in protected_paths}
         with PeakUsage(home) as peak:
-            run([command, 'update', candidate], env)
+            # 1.4.x cannot parse the renamed distribution/development version.
+            # Exercise the documented one-time new-installer migration while
+            # retaining the old real core, credentials and current selection.
+            run([candidate / 'install.sh'], env)
         new_version = json.loads(run([command, 'version', '--json'], env).stdout)['data']['mihomoctl']
         assert new_version == json.loads((candidate / 'bundle-manifest.json').read_text())['version']
         after = json.loads(app.scope.runtime_state.read_text())
@@ -98,6 +101,7 @@ def upgrade_scenario(previous, candidate, home):
         result = {'success': True, 'previous_version': BASELINE['version'],
                   'previous_commit': BASELINE['commit'], 'previous_bundle_sha256': BASELINE['sha256'],
                   'version': new_version, 'core_identity_unchanged': True,
+                  'upgrade_method': 'candidate-installer',
                   'core_digest_unchanged': True, 'authentication_preserved': True,
                   'selection_preserved': True, 'protected_files_unchanged': True, 'no_history': True,
                   'observed_upgrade_peak': peak.peak, 'peak_sample_interval_ms': 50}

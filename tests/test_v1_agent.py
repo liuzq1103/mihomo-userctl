@@ -49,6 +49,16 @@ class AgentContractTests(unittest.TestCase):
         select(client, 'Entry', 'DIRECT')
         select(client, 'Region', 'leaf')
 
+    def test_controller_cli_forwards_explicit_layer_authorization(self):
+        from mihomoctl.controller import controller
+        client = SelectionClient()
+        with patch.object(controller, 'read_config', return_value=('', {}, None)), \
+                patch.object(controller, 'endpoint', return_value=(1234, 'fixture-token')), \
+                patch.object(controller, 'Client', return_value=client), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(controller.main(['select', 'Entry', 'leaf', '--allow-cross-level', '--json']), 0)
+        self.assertEqual(json.loads(output.getvalue())['selected'], 'leaf')
+
     def test_authorization_does_not_bypass_membership_or_readback(self):
         client = SelectionClient()
         with self.assertRaisesRegex(ControlError, 'node-not-in-group'):
