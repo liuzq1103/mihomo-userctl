@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.3] - 2026-10-30
+
+- Expose all ten terminal pages directly, fit Chinese subscription labels and prevent placeholder/programmatic mode changes.
+- Show local connection destinations, chains and traffic on the home and connection pages through one bounded refresh path. CLI/log defaults remain redacted.
+- Reuse a node directory within each latency batch, run at most eight probes and display results as they finish. Preserve per-target controller ownership/authentication checks, provider identities and cancellation outcomes.
+- Stabilize fallback connection identities across traffic/routing changes and reject malformed connection collections instead of reporting zero active connections.
+- Retain the pinned core/runtime, current-only recovery and mandatory two-Ubuntu portable/SSH/live-core-upgrade release gates.
+
 ## [1.4.2] - 2026-10-27
 
 - Render edited policy containers as readable block YAML while preserving types, comments and untouched text.

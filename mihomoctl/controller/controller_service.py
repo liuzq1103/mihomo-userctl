@@ -233,8 +233,8 @@ def _node_target(directory, node, provider=None):
     return choices[0]
 
 
-def latency_target(client, node, provider=None):
-    chosen = _node_target(node_directory(client), node, provider)
+def latency_target(client, node, provider=None, *, directory=None):
+    chosen = _node_target(node_directory(client) if directory is None else directory, node, provider)
     node = chosen['name']
     try:
         return measure_delay(client, node, provider=chosen['provider'])
@@ -264,7 +264,7 @@ def select(client, group, node):
             "affected_groups": affected_groups(rows, group)}
 
 
-def snapshot(client, command, details=False, id_key=None):
+def snapshot(client, command, details=False, id_key=None, *, tui=False):
     if command in ("nodes", "groups"):
         if command == 'nodes':
             return {'nodes': node_directory(client)[1]}
@@ -274,26 +274,54 @@ def snapshot(client, command, details=False, id_key=None):
         raw = client.request("/traffic", stream=True, optional=True)
         return {k: number(raw.get(k, 0)) for k in ("up", "down", "upTotal", "downTotal")}
     raw = client.request("/connections", optional=True)
-    connections = raw.get("connections") or []
+    connections = raw.get("connections")
+    if connections is None:
+        connections = []
     if not isinstance(connections, list):
         raise ControlError("controller-connections-invalid")
     # Deliberately omit hosts, IPs, process paths, argv and rule payloads.
     rows = []
+    occurrences = {}
+    fallback_rows = {}
     for item in connections:
         if not isinstance(item, dict) or not isinstance(item.get("chains", []), list):
             raise ControlError("controller-connections-invalid")
         rows.append({"chains": [label(n) for n in item.get("chains", [])],
                      "rule": label(item.get("rule", "")),
                      "upload": number(item.get("upload", 0)), "download": number(item.get("download", 0))})
+        metadata = item.get("metadata") or {}
         if id_key is not None:
-            identity = item.get("id") or json.dumps(item, sort_keys=True, ensure_ascii=True)
+            if not isinstance(metadata, dict):
+                raise ControlError("controller-connections-invalid")
+            identity = item.get("id")
+            if not identity:
+                stable = [metadata.get(k) for k in ('network', 'sourceIP', 'sourcePort',
+                          'destinationIP', 'destinationPort', 'host')] + [item.get('start')]
+                base = json.dumps(stable, ensure_ascii=True, sort_keys=True)
+                occurrence = occurrences.get(base, 0)
+                occurrences[base] = occurrence + 1
+                identity = json.dumps([base, occurrence])
+                fallback_rows.setdefault(base, []).append(len(rows) - 1)
             rows[-1]["id"] = hmac.new(id_key, str(identity).encode("utf-8"), hashlib.sha256).hexdigest()[:32]
-        if details:
-            metadata = item.get("metadata") or {}
+        if details or tui:
             if not isinstance(metadata, dict):
                 raise ControlError("controller-connections-invalid")
             rows[-1]["host"] = label(metadata.get("host", ""))
-            rows[-1]["rule_payload"] = label(item.get("rulePayload", ""))
+            if details:
+                rows[-1]["rule_payload"] = label(item.get("rulePayload", ""))
+            if tui:
+                # Only the local TUI asks for this allowlisted projection.
+                rows[-1].update(destination_ip=label(metadata.get('destinationIP', '')),
+                                destination_port=label(str(metadata.get('destinationPort', ''))),
+                                protocol=label(metadata.get('network', '')),
+                                start=label(item.get('start', '')))
+    if tui:
+        # An indistinguishable duplicate has no physical identity to correlate
+        # across reordered responses. Keep distinct row keys but say so locally.
+        for indices in fallback_rows.values():
+            if len(indices) > 1:
+                for index in indices:
+                    rows[index]['identity_verified'] = False
     return {"connections": rows, "uploadTotal": number(raw.get("uploadTotal", 0)),
             "downloadTotal": number(raw.get("downloadTotal", 0))}
 
@@ -627,7 +655,7 @@ class ConsoleService:
         return document
 
     @application_context
-    def read(self, page):
+    def read(self, page, *, include_connections=True):
         if page == "overview":
             try:
                 client = self.client()
@@ -640,6 +668,8 @@ class ConsoleService:
             for key, operation in (("groups", lambda: snapshot(client, "groups")["groups"]),
                                    ("connections", lambda: len(snapshot(client, "connections")["connections"])),
                                    ("mode", lambda: label(client.request("/configs", optional=True).get("mode", "unknown")))):
+                if key == 'connections' and not include_connections:
+                    continue
                 try:
                     value[key] = operation()
                 except ControlError as error:
@@ -866,10 +896,17 @@ class ConsoleService:
     def latency(self, node, provider=None):
         return latency_target(self.client(), node, provider)
 
-    def batch_latency(self, nodes, cancelled=None, progress=None):
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+    @application_context
+    def read_tui_connections(self):
+        """Local display only; do not use this projection in CLI/log documents."""
+        return snapshot(self.client(), 'connections', id_key=self._connection_key, tui=True)
+
+    def batch_latency(self, nodes, cancelled=None, progress=None, *, on_result=None):
+        from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
         import threading
         cancelled = cancelled or threading.Event()
+        directory = None
+        directory_error = None
         canonical=[]
         for target in nodes:
             if isinstance(target, dict):
@@ -888,9 +925,15 @@ class ConsoleService:
         # Bare names are queries, not global identities. Resolve overlapping
         # representations without hiding an ambiguous query as a global node.
         overlap = {n for n in canonical if isinstance(n,str)} & {n['name'] for n in canonical if isinstance(n,dict)}
+        if canonical and (overlap or not cancelled.is_set()):
+            try:
+                directory = node_directory(self.client())
+            except ControlError as error:
+                directory_error = error.code
         if overlap:
             try:
-                directory=node_directory(self.client())
+                if directory is None:
+                    raise ControlError(directory_error or 'probe-unverified')
                 for i,target in enumerate(canonical):
                     if isinstance(target,str) and target in overlap:
                         try:
@@ -903,6 +946,7 @@ class ConsoleService:
         if not targets or len(targets) > 1000:
             raise ControlError("invalid-batch-targets")
         results = []
+        callback_errors = {}
         def outcome(node, state, error=None):
             result=dict(node) if isinstance(node,dict) else {'name':node}
             name,provider=result['name'],result.get('provider')
@@ -917,18 +961,51 @@ class ConsoleService:
             if cancelled.is_set():
                 return outcome(node,'cancelled')
             try:
-                return dict(self.latency(node), state="success")
+                if directory_error:
+                    raise ControlError(directory_error)
+                # Preserve the ownership/authentication check before each target.
+                return dict(latency_target(self.client(), node, directory=directory), state="success")
             except ControlError as error:
                 return outcome(node,'failed',error.code)
             except Exception:
                 return outcome(node,'failed','probe-unverified')
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = [executor.submit(test, node) for node in targets]
-            for future in as_completed(futures):
-                results.append(future.result())
-                if progress:
-                    progress(len(results), len(targets))
-        return {"results": results, "target_count": len(targets)}
+        def emit(result):
+            results.append(result)
+            for name, callback, arguments in (
+                    ('on_result', on_result, (dict(result),)),
+                    ('progress', progress, (len(results), len(targets)))):
+                if callback:
+                    try:
+                        callback(*arguments)
+                    except Exception:
+                        # Observers cannot abort probes or leak their exception
+                        # messages into the controller document.
+                        callback_errors[name] = callback_errors.get(name, 0) + 1
+        # Bound both the active work and the queue. Cancellation never starts
+        # another network probe, and completed results remain available.
+        remaining = iter(targets)
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            active = set()
+            exhausted = False
+            while active or not exhausted:
+                while not exhausted and len(active) < 8:
+                    try:
+                        node = next(remaining)
+                    except StopIteration:
+                        exhausted = True
+                        break
+                    if cancelled.is_set():
+                        emit(outcome(node, 'cancelled'))
+                    else:
+                        active.add(executor.submit(test, node))
+                if active:
+                    done, active = wait(active, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        emit(future.result())
+        report = {"results": results, "target_count": len(targets)}
+        if callback_errors:
+            report['callback_errors'] = callback_errors
+        return report
 
     def provider_refresh(self, name):
         label(name)

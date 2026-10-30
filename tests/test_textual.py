@@ -422,19 +422,173 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("escape")
             self.assertEqual(service.calls, [("preview", "/private/provider.yaml", False, "simple")])
 
-    async def test_more_button_blanks_navigation_so_the_current_page_is_repickable(self):
+    async def test_batch_partial_results_reach_table_before_completion_and_do_not_overlap(self):
+        import threading
+        from mihomoctl.controller.controller_textual import delay_key
+        release = threading.Event()
+        class Progressive(Service):
+            def read_tui_connections(self):
+                return {'connections': []}
+            def read(self, page, *, include_connections=True):
+                return super().read(page)
+            def batch_latency(self, targets, cancel, progress=None, *, on_result=None):
+                self.calls.append('batch')
+                first = {'name':'B','state':'success','delay_ms':12}
+                on_result(first)
+                progress(1,2)
+                if not release.wait(10):
+                    raise RuntimeError('test did not release second probe')
+                second = {'name':'q','state':'cancelled'} if cancel.is_set() else {'name':'q','state':'success','delay_ms':34}
+                on_result(second)
+                progress(2,2)
+                return {'results':[first,second]}
+        service = Progressive()
+        app = Console(service)
+        async with app.run_test(size=(100,32)) as pilot:
+            app.change_page('proxies')
+            await self.settle(pilot, app, 'proxies')
+            app.start_batch(('B','q'))
+            try:
+                await self.wait_for(pilot, lambda: app.latencies.get(delay_key('B')) == '12', 'partial result')
+                self.assertIn('operation', app.store.pending)
+                self.assertEqual(app.latencies[delay_key('q')], '测速中')
+                app.start_batch(('B',))
+                self.assertEqual(service.calls, ['batch'])
+                app.batch_cancel.set()
+            finally:
+                release.set()
+            await self.settle(pilot, app, 'operation')
+            await pilot.pause()
+            self.assertEqual(app.latencies[delay_key('B')], '12')
+            self.assertEqual(app.latencies[delay_key('q')], '已取消')
+
+    async def test_mode_sync_does_not_mutate_and_cancel_or_failure_restores_actual(self):
+        from mihomoctl.controller.controller_types import ControlError
+        class Modes(Service):
+            current = 'rule'
+            fail = False
+            def read(self, page):
+                if page == 'overview':
+                    return {'controller':'connected', 'mode':self.current, 'groups':[]}
+                return super().read(page)
+            def mode(self, target):
+                self.calls.append(target)
+                if self.fail:
+                    raise ControlError('controller-unreachable')
+                self.current = target
+                return {'mode': target}
+        service = Modes()
+        app = Console(service)
+        async with app.run_test(size=(80,24)) as pilot:
+            await self.settle(pilot, app, 'overview')
+            mode = app.query_one('#mode-select', Select)
+            self.assertNotEqual(mode.value, Select.NULL)
+            self.assertFalse(mode.disabled)
+            self.assertEqual(service.calls, [])
+            mode.value = 'global'
+            await pilot.pause()
+            await pilot.click('#yes')
+            await self.settle(pilot, app, 'operation')
+            await self.wait_for(pilot, lambda: app.confirmed_mode == 'global', 'confirmed mode')
+            self.assertEqual(service.calls, ['global'])
+            mode.value = 'direct'
+            await pilot.pause()
+            await pilot.press('escape')
+            await pilot.pause()
+            self.assertEqual(mode.value, 'global')
+            self.assertEqual(service.calls, ['global'])
+            service.fail = True
+            mode.value = 'direct'
+            await pilot.pause()
+            await pilot.click('#yes')
+            await self.wait_for(pilot, lambda: len(service.calls) == 2 and 'operation' not in app.store.pending, 'failed mode')
+            await pilot.pause()
+            self.assertEqual(mode.value, 'global')
+
+    async def test_policy_selector_fits_chinese_at_supported_sizes(self):
+        for size in ((60,14),(80,24),(120,32)):
+            app = Console(Service())
+            async with app.run_test(size=size) as pilot:
+                await self.settle(pilot, app, 'overview')
+                app.change_page('subscriptions')
+                await self.settle(pilot, app, 'subscriptions')
+                policy = app.query_one('#source-policy', Select)
+                self.assertGreaterEqual(policy.region.width, 26)
+                self.assertLessEqual(policy.region.right, size[0])
+                self.assertEqual(policy.value, 'simple')
+                self.assertEqual(policy.region.height, 2 if size == (60,14) else 3)
+
+    async def test_escape_from_input_restores_visible_page_focus(self):
         app = Console(Service())
-        async with app.run_test(size=(80, 24)) as pilot:
-            await self.settle(pilot, app, "overview")
-            navigation = app.query_one("#navigation", Select)
-            await pilot.click("#nav-more")
+        async with app.run_test(size=(80,24)) as pilot:
+            await self.settle(pilot, app, 'overview')
+            app.action_command()
             await pilot.pause()
-            self.assertTrue(navigation.display)
-            self.assertEqual(navigation.value, Select.NULL)
-            navigation.value = "overview"
+            await pilot.press('escape')
             await pilot.pause()
-            self.assertEqual(app.page, "overview")
-            self.assertFalse(navigation.display)
+            self.assertEqual(app.focused.id, 'nav-overview')
+            app.change_page('proxies')
+            await self.settle(pilot, app, 'proxies')
+            app.action_search()
+            await pilot.pause()
+            await pilot.press('escape')
+            await pilot.pause()
+            self.assertEqual(app.focused.id, 'nodes')
+
+    async def test_local_connection_projection_is_shared_and_staleness_is_visible(self):
+        import time
+        class Connections(Service):
+            def read_tui_connections(self):
+                return {'connections':[{'id':'fixture','host':'private.example','destination_port':'443',
+                    'protocol':'tcp','chains':['B','Proxy'],'rule':'Match','upload':1,'download':2,
+                    'start':'2026-10-30T10:00:00Z'}]}
+            def read(self, page, *, include_connections=True):
+                if page == 'overview':
+                    assert not include_connections
+                return super().read(page)
+        app = Console(Connections())
+        async with app.run_test(size=(100,32)) as pilot:
+            await self.settle(pilot, app, 'overview')
+            await self.settle(pilot, app, 'connections')
+            self.assertEqual(app.connection_status()[0]['connections'][0]['host'], 'private.example')
+            snap = app.store.state.snapshots['connections']
+            from unittest.mock import patch
+            snap.sampled_at = 100
+            with patch('mihomoctl.controller.controller_textual.time.time', return_value=106):
+                self.assertIn('旧数据', app.connection_status()[1])
+            snap.sampled_at = time.time() - 7
+            self.assertIn('旧数据', app.connection_status()[1])
+            snap.error = 'controller-unreachable'
+            snap.freshness = 'stale'
+            self.assertIn('controller-unreachable', app.connection_status()[1])
+            self.assertIsNotNone(app.connection_status()[0])
+            app.change_page('connections')
+            await self.settle(pilot, app, 'connections')
+            self.assertLessEqual(app.next_refresh['connections'] - time.monotonic(), 2.1)
+            row = app.query_one('#records', DataTable).get_row_at(0)
+            self.assertIn('private.example:443', str(row[0]))
+
+    async def test_all_navigation_buttons_are_direct_and_dispatch_once(self):
+        from unittest.mock import patch
+        from mihomoctl.controller.controller_textual import PAGES
+        for size in ((60,14),(80,24),(120,32)):
+            app = Console(Service())
+            async with app.run_test(size=size) as pilot:
+                await self.settle(pilot, app, 'overview')
+                self.assertFalse(app.query('#nav-more'))
+                self.assertFalse(app.query_one('#navigation').display)
+                for page in PAGES:
+                    button = app.query_one('#nav-' + ('profiles' if page == 'subscriptions' else page))
+                    self.assertLessEqual(button.region.right, size[0])
+                    self.assertLessEqual(button.region.bottom, size[1])
+                with patch.object(app, 'change_page', wraps=app.change_page) as changed:
+                    await pilot.click('#nav-proxies')
+                    await self.settle(pilot, app, 'proxies')
+                    self.assertEqual(changed.call_count, 1)
+                await pilot.click('#nav-overview')
+                await self.settle(pilot, app, 'overview')
+                app.action_connections()
+                await self.settle(pilot, app, 'connections')
 
     async def test_escape_cancels_a_seeded_preview_and_its_result(self):
         preview = {"state": "preview", "id": "a"*32, "sha256": "b"*64,

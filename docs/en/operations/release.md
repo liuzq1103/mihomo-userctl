@@ -18,7 +18,11 @@ The release gate checks both systems' portable reports and the same bundle SHA25
 
 The full bundle has its own `.tar.gz.sha256`; `SHA256SUMS` covers the normal source/wheel assets only. Each legacy offline kit has a separate `.sha256`. The build receipt binds source/wheel hashes to a commit, and `release-gate.json` records the accepted asset names. Colocated metadata and checksums are not independent signatures.
 
-## v1.4.2 delivery and retained size gates
+## v1.4.3 review
+
+The UI, connections and latency groups require independent GLM and MiniMax reviews through the configured Claude connection, followed by exchanged cross-reviews. Re-review substantive corrections. Valid final approvals identify the complete candidate SHA; after CI and draft creation, both reviewers also inspect actual asset hashes. Timeouts, quota errors and malformed protocol text are not approval, and reviewers are not automatically substituted. Keep evidence outside the reviewed commit and publish only the exact assets from the existing two-Ubuntu gates.
+
+## Historical v1.4.2 review and retained size gates
 
 For the 1.4.2 repair, retain the real independent and cross-review records for every task. The original OpenAI GPT, MiniMax and Zhipu GLM review requirement was amended by the user after the MiniMax channel exhausted its quota: both OpenAI GPT and Zhipu GLM must approve, independently and after cross-review. Preserve earlier MiniMax findings and resolve them using code and test evidence; do not represent an unavailable channel as an approval. Both final approvals must identify the exact candidate commit. A substantive change invalidates that approval. After CI and draft verification, both reviewers check the actual run, draft inventory and digests before the operator dispatches `publish=true`. Store the SHA-bound audit evidence separately from the reviewed commit so recording its SHA does not change it. The existing publisher validates CI provenance and artifact identity; it does not attest to model reviews. Review records and the operator's dispatch gate are required in addition to the publisher's machine checks.
 

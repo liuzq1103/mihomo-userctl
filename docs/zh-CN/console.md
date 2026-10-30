@@ -20,7 +20,9 @@ mihomoctl direct -- codex
 mihomoctl --help
 ```
 
-首页、节点、订阅及“使用代理”为主要入口，其他功能在“更多”。方向键和 Tab 移动，Enter 确认，q 退出。界面退出后当前用户的核心继续运行，普通 Shell 环境保持原状。编号菜单支持基本订阅和节点操作；完整界面支持搜索及单点/批量测速。
+十个页面均有直接导航按钮，窄终端使用两行布局。方向键和 Tab 移动，Enter 确认，q 退出。界面退出后当前用户的核心继续运行，普通 Shell 环境保持原状。编号菜单支持基本订阅和节点操作；完整界面支持搜索及单点/批量测速。
+
+首页显示活跃连接总数及最近五条连接的目标、协议、链路、规则和流量；连接页查看全部。目标域名或 IP 仅在本地 Textual 显示，默认 CLI 和日志仍脱敏。两页共用每两秒刷新的快照，失败保留旧数据并显示错误，超过六秒未更新标记旧数据。模式下拉只包含实际模式，取得核心当前模式后才可操作。
 
 订阅请求在后台执行，Esc 可取消，取消可能等待当前有超时限制的网络读结束。窗口过小时使用编号菜单。JSON、管道、帮助不启动交互界面。
 
@@ -37,7 +39,9 @@ mihomoctl --help
 
 快捷键在文本输入框未占用对应按键时生效。延迟测试通过该节点访问探测目标，不是带宽测试，也不代表真实业务请求成功。`unknown-node` 表示全局/provider 合并目录中没有该名称；`node-not-in-core` 表示已解析的全局目标在发起请求时消失。同名来源需消歧，provider 刷新消失和接口不支持分别报告。`node-unreachable` 表示探测失败，`delay-timeout` 表示超时。见 [测速排障](troubleshooting.md)。
 
-“更多”保留连接、提供商、规则、日志、诊断及运行时控制。命令输入支持 `subscribe /absolute/private/subscription.yaml`，探测设置如 `health-check provider "ProviderName" --preset resilient`；Selector 需对其背后的 provider 配置探测。审阅预览后保存，按提示显式重启。终端订阅的“保存并启动”会在同一可恢复操作中完成两步；下面的高级 CLI preview/apply 不会自动启动。
+批量测速在一次操作内复用节点目录，最多八路并发，完成结果即时显示。取消停止未提交的探测并保留结果，进行中的请求按原超时收尾；仍保留逐目标的控制器身份及认证检查。探测五秒、HTTP 八秒的超时不变，测速不代表下载带宽或业务可用性。
+
+连接、提供商、规则、日志、诊断及服务均可直接进入。命令输入支持 `subscribe /absolute/private/subscription.yaml`，探测设置如 `health-check provider "ProviderName" --preset resilient`；Selector 需对其背后的 provider 配置探测。审阅预览后保存，按提示显式重启。终端订阅的“保存并启动”会在同一可恢复操作中完成两步；下面的高级 CLI preview/apply 不会自动启动。
 
 ## 当前状态与失败恢复
 

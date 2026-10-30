@@ -9,7 +9,7 @@ import time
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, HorizontalScroll, Vertical, VerticalScroll
+from textual.containers import Grid, Horizontal, HorizontalScroll, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Footer, Header, Input, RichLog, Select, Static
 
@@ -31,9 +31,8 @@ PAGE_NAMES = dict(zip(PAGES, ("首页", "节点", "订阅", "连接", "规则",
                               "日志", "接入", "提供商", "诊断", "服务")))
 # Retained callers may still address the subscription page by its old name.
 PAGE_ALIASES = {"profiles": "subscriptions"}
-# The primary destinations get their own nav button; the rest live in the
-# secondary selector, which keeps a ten-page console usable at 60x14.
-PRIMARY_PAGES = ("overview", "proxies", "subscriptions", "profile")
+PRIMARY_PAGES = ("overview", "proxies", "subscriptions", "connections", "rules", "logs",
+                 "profile", "providers", "diagnostics", "runtime")
 
 GROUP_TYPES = {"Selector": "手动选择", "URLTest": "自动测速", "Fallback": "故障转移", "LoadBalance": "负载均衡"}
 LABELS = {"state": "状态", "nodes": "节点数", "groups": "分组数", "rules": "规则数",
@@ -180,7 +179,7 @@ HELP = """首页：查看状态、初始化控制器、启动/停止/重启、�
 提供商策略：采用订阅自带的节点、分组和规则；缺少的策略字段会被清空（下方显示移除数量）。
 仅合并节点：只按同名替换 proxies，分组与规则保留；订阅只含顶层 proxies 时使用。
 本机监听、密钥、DNS 和 TUN 在两种策略下都保留。
-更多：连接、规则、日志、提供商、诊断。v 查看上次操作详情。
+导航按钮可直达所有页面。v 查看上次操作详情。
 Tab / Shift+Tab 切换焦点；方向键浏览；Enter 确认；Esc 取消；q 退出。
 / 搜索；r 刷新；t 测速；T 批量测速（先确认）；[ / ] 切换分组。
 p 暂停连接/日志；s 排序；m 手动组转换预览；o 可信脚本预览；y 保存。
@@ -232,20 +231,34 @@ class Console(App):
     TITLE = "mihomo-userctl"
     ENABLE_COMMAND_PALETTE = False
     CSS = """
+    Screen { overflow-y: auto; }
     #status { height: 2; }
     #navigation { height: 3; }
-    #mainnav, #toolbar, #subscription-source { height: 3; }
-    #mainnav Button, #toolbar Button { min-width: 8; width: auto; }
-    #source-kind, #source-policy { width: 16; }
+    #mainnav { height: 6; grid-size: 5 2; grid-rows: 3; }
+    #mainnav Button { min-width: 0; width: 1fr; padding: 0; }
+    .wide #mainnav { height: 3; grid-size: 10 1; }
+    #toolbar, #subscription-source { height: 3; }
+    #toolbar Button { min-width: 8; width: auto; }
+    #source-kind { width: 16; }
+    #source-policy { width: 26; min-width: 26; }
+    .narrow #subscription-source { height: 6; layout: grid; grid-size: 2 2; grid-columns: 16 1fr; grid-rows: 3; }
+    .narrow #source-policy { width: 1fr; }
+    .narrow #source-path { column-span: 2; }
     #source-path { width: 1fr; }
     #mode-select { width: 16; }
     #search, #command { height: 3; }
-    #proxies, #records, #body { height: 1fr; }
+    #proxies, #records, #body { height: 1fr; min-height: 2; }
     #groups { width: 1fr; }
     #nodes { width: 2fr; }
     #hint { height: 1; }
     .compact Header { display: none; }
     .compact #status { height: 1; }
+    .compact #mainnav { height: 2; grid-rows: 1; }
+    .compact #mainnav Button { height: 1; border: none; }
+    .compact #subscription-source { height: 4; grid-rows: 2; }
+    .compact #source-kind, .compact #source-policy { height: 2; }
+    .compact #subscription-source SelectCurrent { height: 2; border: none; }
+    .compact #source-path { height: 2; border: none; }
     .compact #groups { width: 2fr; }
     .compact #nodes { width: 3fr; }
     """
@@ -292,29 +305,27 @@ class Console(App):
         # from a second copy the UI can drift on.
         self.pending_restart = bool(getattr(service, "pending_restart", False))
         self.last_backup = getattr(service, "backup", None) if self.pending_restart else None
+        self.confirmed_mode = None
+        self.connection_stale = False
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static("正在读取状态…", id="status", markup=False)
-        with Horizontal(id="mainnav"):
-            yield Button("首页", id="nav-overview")
-            yield Button("节点", id="nav-proxies")
-            # Widget id stays "nav-profiles" for retained automation; the page it
-            # opens is "subscriptions".
-            yield Button("订阅", id="nav-profiles")
-            yield Button("使用代理", id="nav-profile")
-            yield Button("更多", id="nav-more")
+        with Grid(id="mainnav"):
+            for page in PAGES:
+                yield Button("使用代理" if page == 'profile' else PAGE_NAMES[page],
+                             id='nav-' + ('profiles' if page == 'subscriptions' else page))
         yield Select([(PAGE_NAMES[name], name) for name in PAGES], value=self.page, allow_blank=True, id="navigation")
         with Horizontal(id="subscription-source"):
             yield Select([("订阅 URL", "url"), ("YAML 文件", "file")], value="url", allow_blank=False, id="source-kind")
-            yield Select([("简单节点选择", "simple"), ("订阅完整策略", "provider"), ("仅合并节点", "nodes"), ("仅叠加策略（保留节点和 provider）", "policy"), ("自动判断", "auto")], value=self.source_policy, allow_blank=False, id="source-policy")
+            yield Select([("简单节点选择", "simple"), ("订阅完整策略", "provider"), ("仅合并节点", "nodes"), ("仅叠加策略", "policy"), ("自动判断", "auto")], value=self.source_policy, allow_blank=False, id="source-policy")
             yield Input(placeholder="粘贴 HTTPS 订阅 URL", password=True, id="source-path")
         with HorizontalScroll(id="toolbar"):
             yield Button("初始化", id="setup-controller")
             yield Button("启动", id="service-start")
             yield Button("停止", id="service-stop")
             yield Button("重启生效", id="service-restart")
-            yield Select([("规则模式", "rule"), ("全局模式", "global"), ("直连模式", "direct")], prompt="切换模式", id="mode-select")
+            yield Select([("规则模式", "rule"), ("全局模式", "global"), ("直连模式", "direct")], allow_blank=False, disabled=True, id="mode-select")
             yield Button("搜索", id="node-search")
             yield Button("测速", id="node-latency")
             yield Button("批量测速", id="node-batch")
@@ -349,6 +360,8 @@ class Console(App):
             self.query_one("#hint", Static).update("首次配置：准备本地核心 → 粘贴订阅 → 预览 → 保存并启动 → 选择节点")
 
     def on_resize(self, event):
+        self.set_class(event.size.width >= 110, "wide")
+        self.set_class(event.size.width < 80, "narrow")
         self.set_class(event.size.width < 80 or event.size.height < 24, "compact")
         if event.size.width < 60 or event.size.height < 14:
             self.query_one("#hint", Static).update("终端至少需要 60×14；可用 --engine plain 编号菜单")
@@ -387,11 +400,13 @@ class Console(App):
         if self.page == "logs" and page != "logs":
             self.store.stop_stream("logs")
         self.page = self.store.state.page = page
-        active = page if page in PRIMARY_PAGES else "more"
-        for name in PRIMARY_PAGES + ("more",):
+        self.query_one('#navigation', Select).value = page
+        active = page
+        for name in PAGES:
             button = "profiles" if name == "subscriptions" else name
             self.query_one("#nav-" + button, Button).variant = "primary" if name == active else "default"
-        self.query_one("#navigation").display = page not in PRIMARY_PAGES
+        # Retained hidden selector supports old automation and keybindings.
+        self.query_one("#navigation").display = False
         self.query_one("#subscription-source").display = page == "subscriptions"
         for identifier in ("setup-controller", "service-start", "service-stop", "mode-select"):
             self.query_one("#" + identifier).display = page == "overview"
@@ -408,7 +423,7 @@ class Console(App):
         if page in ("connections", "providers", "rules"):
             table = self.query_one("#records", DataTable)
             table.clear(columns=True)
-            columns = {"connections": ("链路", "规则", "上传", "下载"),
+            columns = {"connections": ("目标 / 协议", "链路 / 规则", "上传", "下载"),
                        "providers": ("提供商", "类型", "节点", "更新时间"),
                        "rules": ("规则 / 提供商", "数量", "状态")}[page]
             table.add_columns(*columns)
@@ -417,10 +432,12 @@ class Console(App):
 
     def on_select_changed(self, event):
         if event.select.id == "navigation" and event.value in PAGES:
-            self.change_page(event.value)
+            if event.value != self.page:
+                self.change_page(event.value)
         elif event.select.id == "mode-select" and event.value in ("rule", "global", "direct"):
-            self.execute_command("mode " + event.value)
-            event.select.clear()
+            if (not event.select.disabled and event.value == event.select.value
+                    and self.confirmed_mode is not None and event.value != self.confirmed_mode):
+                self.execute_command("mode " + event.value)
         elif event.select.id == "source-kind":
             if event.value in ("file", "url") and event.value != self.source_kind:
                 self.source_kind = event.value
@@ -438,16 +455,8 @@ class Console(App):
         identifier = event.button.id
         if identifier and identifier.startswith("nav-"):
             page = identifier[4:]
-            if page == "more":
-                navigation = self.query_one("#navigation", Select)
-                navigation.display = True
-                # Blanking first makes re-picking the current page fire Changed;
-                # a reactive set to its own value would be a silent no-op.
-                navigation.clear()
-                navigation.focus()
-            else:
-                page = PAGE_ALIASES.get(page, page)
-                self.query_one("#navigation", Select).value = page
+            page = PAGE_ALIASES.get(page, page)
+            if page != self.page:
                 self.change_page(page)
         elif identifier == "setup-controller":
             self.push_screen(Confirm("为当前用户创建本机控制器和随机密钥？已有安全配置将保留。保存后需重启。"),
@@ -494,6 +503,7 @@ class Console(App):
         if self.store.submit(key, operation):
             self.mirror_alias(key)
             if key == "operation":
+                self.query_one('#mode-select', Select).disabled = True
                 self.probe_summary = ''
                 self.operation_notice = '正在处理操作…'
                 self.query_one("#hint", Static).update("正在处理操作…")
@@ -513,24 +523,66 @@ class Console(App):
                 self.store.state.snapshots[alias] = self.store.state.snapshots[key]
 
     def action_refresh(self):
-        for key in (self.page, "traffic", "memory"):
+        for key in (self.page, "traffic", "memory", "connections"):
             snapshot = self.store.state.snapshots.get(key)
             if snapshot and snapshot.freshness == "unsupported":
                 snapshot.freshness = "stale"
-        self.next_refresh[self.page] = time.monotonic() + 5
+        self.next_refresh[self.page] = time.monotonic() + (2 if self.page == 'connections' else 5)
         if self.page == "logs" and hasattr(self.service, "logs"):
             self.store.stream("logs", lambda emit, stop: self.service.logs(emit, stop, self.log_level))
         else:
-            self.schedule(self.page, lambda page=self.page: self.service.read(page))
+            self.schedule(self.page, lambda page=self.page: self.read_page(page))
         if self.page == "overview":
+            self.refresh_connections()
             self.schedule("runtime", lambda: self.service.read("runtime"))
             self.schedule("traffic", lambda: self.service.read("traffic"))
             self.schedule("memory", lambda: self.service.read("memory"))
+
+    def read_page(self, page):
+        if hasattr(self.service, 'read_tui_connections'):
+            if page == 'overview':
+                return self.service.read(page, include_connections=False)
+            if page == 'connections':
+                return self.service.read_tui_connections()
+        return self.service.read(page)
+
+    def refresh_connections(self):
+        self.next_refresh['connections'] = time.monotonic() + 2
+        self.schedule('connections', lambda: self.read_page('connections'))
+
+    def connection_status(self):
+        snap = self.store.state.snapshots.get('connections')
+        stale = bool(snap and (snap.freshness != 'fresh' or time.time() - snap.sampled_at >= 6))
+        if not snap or snap.value is None:
+            return None, '连接暂不可用' + (('：' + snap.error_message) if snap and snap.error else '')
+        message = ('旧数据 | ' if stale else '') + '更新于 ' + time.strftime('%H:%M:%S', time.localtime(snap.sampled_at))
+        if snap.error:
+            message += ' | ' + snap.error_message
+        return snap.value, message
+
+    @staticmethod
+    def connection_target(row):
+        target = row.get('host') or row.get('destination_ip') or '目标未知'
+        if ':' in target and row.get('destination_ip') == target:
+            target = '[' + target + ']'
+        if row.get('destination_port'):
+            target += ':' + row['destination_port']
+        target += ' / ' + row['protocol'] if row.get('protocol') else ''
+        return target + (' [身份未确认]' if row.get('identity_verified') is False else '')
+
+    def drain_probe_results(self, finish=False):
+        for row in self.store.take_probe_results(finish=finish):
+            self.latencies[delay_key(row)] = delay_text(row)
 
     def tick(self):
         if self.store.closed or not self.query("#status"):
             return
         for key in self.store.drain():
+            if key == 'probe-results':
+                self.drain_probe_results()
+                if self.page == 'proxies':
+                    self.render_page()
+                continue
             if key == "progress":
                 completed, total = self.store.state.progress
                 self.probe_summary = "批量测速 {}/{} | : cancel 停止排队项".format(completed, total)
@@ -544,11 +596,13 @@ class Console(App):
             else:
                 self.failures[key] = 0
             if key == "operation":
+                self.drain_probe_results(finish=True)
                 was_probe = bool(self._probing_targets)
                 for identifier in ("source-path", "source-kind", "source-policy"):
                     self.query_one("#" + identifier).disabled = False
                 self.sync_state()
                 self.apply_action_visibility()
+                self.next_refresh['overview'] = 0
                 if snap.value is not None and not snap.error:
                     result = snap.value
                     self.store.state.operations.append({key: value for key, value in result.items() if not isinstance(value, (list, dict))})
@@ -569,6 +623,8 @@ class Console(App):
                             failed=sum(row.get('state')=='failed' for row in rows)
                             cancelled=sum(row.get('state')=='cancelled' for row in rows)
                             self.probe_summary='批量测速完成：成功 {}，失败 {}，取消 {}'.format(len(rows)-failed-cancelled,failed,cancelled)
+                            if result.get('callback_errors'):
+                                self.probe_summary += '；结果通知失败 {} 次，完整结果已保留'.format(sum(result['callback_errors'].values()))
                         else: self.probe_summary='测速完成：'+delay_text(result)+' ms'
                         self._probing_targets=()
                     if result.get("state") == "preview":
@@ -590,7 +646,7 @@ class Console(App):
                     self.next_refresh['overview'] = self.next_refresh['runtime'] = 0
             if key == "logs" and not snap.error and not hasattr(self.service, "logs"):
                 self.store.state.logs.append(snap.value)
-            if (key == self.page or key in ("operation", "runtime", "traffic", "memory")) and not (self.paused and self.page in ("logs", "connections")):
+            if (key == self.page or key in ("operation", "runtime", "traffic", "memory") or key == 'connections' and self.page == 'overview') and not (self.paused and self.page in ("logs", "connections")):
                 self.render_page()
         if self.exit_requested:
             if "operation" not in self.store.pending:
@@ -602,6 +658,15 @@ class Console(App):
         if self.paused or self.page in ("subscriptions", "rules", "providers", "diagnostics", "profile"):
             return
         now = time.monotonic()
+        if self.page == 'overview':
+            if now >= self.next_refresh.get('connections', 0):
+                self.refresh_connections()
+        if self.page in ('overview', 'connections'):
+            connections = self.store.state.snapshots.get('connections')
+            stale = bool(connections and (connections.freshness != 'fresh' or time.time() - connections.sampled_at >= 6))
+            if stale != self.connection_stale:
+                self.connection_stale = stale
+                self.render_page()
         if self.page == "logs" and hasattr(self.service, "logs"):
             snapshot = self.store.state.snapshots.get("logs")
             if not snapshot or snapshot.freshness != "unsupported":
@@ -610,7 +675,7 @@ class Console(App):
         if now >= self.next_refresh.get(self.page, 0):
             interval = 2 if self.page == "connections" else 1 if self.page == "logs" else 5
             self.next_refresh[self.page] = now + interval
-            self.schedule(self.page, lambda page=self.page: self.service.read(page))
+            self.schedule(self.page, lambda page=self.page: self.read_page(page))
             if self.page == "overview":
                 self.schedule("runtime", lambda: self.service.read("runtime"))
                 self.schedule("memory", lambda: self.service.read("memory"))
@@ -764,10 +829,11 @@ class Console(App):
             rows = []
             for index, row in enumerate(value["connections"]):
                 route = " > ".join(row["chains"])
-                if self.filter_text.casefold() in (route + row["rule"] + row.get("host", "")).casefold():
-                    rows.append((row.get("id", str(index)), (route + (" | " + row["host"] if self.service.details else ""), row["rule"], row["upload"], row["download"])))
+                if self.filter_text.casefold() in (route + row["rule"] + self.connection_target(row)).casefold():
+                    rows.append((row.get("id", str(index)), (self.connection_target(row), route + ' | ' + row['rule'], row["upload"], row["download"])))
             rows.sort(key=lambda row: row[1][3], reverse=self.reverse)
             self.replace_rows(self.query_one("#records", DataTable), rows)
+            self.query_one('#hint', Static).update(Text(self.connection_status()[1]))
         elif self.page == "providers":
             self.replace_rows(self.query_one("#records", DataTable), [(row["name"], (row["name"], row["type"], row["nodes"], row["updated"])) for row in value["providers"] if self.filter_text.casefold() in row["name"].casefold()])
         elif self.page == "rules":
@@ -797,23 +863,39 @@ class Console(App):
                 listener = value.get("listener", "UNVERIFIED") if snap.freshness == "fresh" else "UNVERIFIED (stale)"
                 authentication = value.get("authentication", "UNVERIFIED") if snap.freshness == "fresh" else "UNVERIFIED (stale)"
                 body.write(Text("本机监听：{} | 身份验证：{}".format(listener, authentication)))
-                body.write(Text("核心：{} | 模式：{} | 连接数：{}".format(value.get("core", "未知"), value.get("mode", "未知"), value.get("connections", "未知"))))
+                connections, connection_status = self.connection_status()
+                body.write(Text("核心：{} | 模式：{} | 连接数：{}".format(value.get("core", "未知"), value.get("mode", "未知"), len(connections['connections']) if connections is not None else '未知')))
+                body.write(Text(connection_status))
+                if connections is not None:
+                    recent = sorted(connections['connections'], key=lambda row: row.get('start', ''), reverse=True)[:5]
+                    for row in recent:
+                        body.write(Text('{} | {} | {} | ↑{} ↓{}'.format(self.connection_target(row),
+                            ' > '.join(row['chains']), row['rule'], human_bytes(row['upload']), human_bytes(row['download']))))
+                    if not recent:
+                        body.write(Text('暂无活跃连接'))
+                    body.write(Text('点击「连接」查看全部连接'))
                 if traffic and traffic.value:
                     body.write(Text("流量：上传 {}/s | 下载 {}/s".format(human_bytes(traffic.value["up"]), human_bytes(traffic.value["down"]))))
                 if memory and memory.value:
                     body.write(Text("内存：{}".format(human_bytes(memory.value["inuse"]))))
                 for feature, error in value.get("capabilities", {}).items():
                     body.write(Text("功能 {} 暂不可用：{}".format(feature, error)))
-                self.query_one("#mode-select").disabled = "mode" in value.get("capabilities", {}) or value.get("controller") == "unavailable"
+                mode = self.query_one('#mode-select', Select)
+                actual = value.get('mode')
+                available = snap.freshness == 'fresh' and actual in ('rule', 'global', 'direct') and 'mode' not in value.get('capabilities', {}) and value.get('controller') != 'unavailable'
+                self.confirmed_mode = actual if available else None
+                mode.disabled = not available or 'operation' in self.store.pending
+                if available:
+                    mode.value = actual
                 body.write(Text("\n当前节点选择", style="bold"))
                 for group in value.get("groups", []):
                     body.write(Text("{} [{}]  →  {}".format(group["name"], GROUP_TYPES.get(group["type"], group["type"]), group.get("selected") or "自动")))
                 body.write(Text("\n最近操作", style="bold"))
                 for operation in list(self.store.state.operations)[-5:]:
                     body.write(Text(" | ".join(report_lines(operation)[:3])))
-                body.write(Text("更多 → 服务/诊断可查看详细状态；v 查看上次操作详情。"))
+                body.write(Text("服务/诊断可查看详细状态；v 查看上次操作详情。"))
             elif self.page == "subscriptions":
-                body.write(Text("订阅：预览 → 保存 → 重启生效；默认自动判断，可显式选择提供商或节点合并", style="bold"))
+                body.write(Text("订阅：预览 → 保存并启动；默认简单节点选择，可选择完整策略、节点合并或策略叠加", style="bold"))
                 if self.pending_restart:
                     body.write(Text("已保存，尚未生效：点击重启生效。", style="bold"))
                 if self.preview:
@@ -827,7 +909,7 @@ class Console(App):
                     body.write(Text("忽略的运行设置：" + ("、".join(ignored) if ignored else "无")))
                     body.write(Text("保存将写入此预览；v 查看完整变化。"))
                 else:
-                    body.write(Text("提供商策略＝订阅自带的节点/分组/规则，缺少的字段会清空；仅合并节点＝只按同名替换 proxies。"))
+                    body.write(Text("提供商策略＝订阅自带的节点/分组/规则；仅合并节点＝只替换 proxies；仅叠加策略＝保留节点和 provider。"))
                     body.write(Text("本机端口、控制器、密钥、DNS、TUN 始终保留；文件权限应为 600。"))
                     body.write(Text("标准输入导入：mihomoctl tui --stdin < 私有订阅.yaml"))
                     body.write(Text("当前配置：{}｜节点 {}｜分组 {}｜提供商 {}".format(
@@ -880,22 +962,34 @@ class Console(App):
     def action_batch(self):
         targets = tuple(getattr(self, '_node_targets', {}).get(n, n) for n in self.visible_nodes) if self.page == "proxies" else ()
         if targets:
-            self.push_screen(Confirm("对当前可见的 {} 个节点测速？目标为公共 HTTPS 地址，最多 4 个并发；: cancel 停止排队项。".format(len(targets))),
+            self.push_screen(Confirm("对当前可见的 {} 个节点测速？目标为公共 HTTPS 地址，最多 8 个并发；: cancel 停止排队项。".format(len(targets))),
                              lambda yes: self.start_batch(targets) if yes else None)
 
     def start_batch(self, targets):
         if "operation" not in self.store.pending:
             self.batch_cancel = threading.Event()
             cancelled = self.batch_cancel
-            if self.schedule("operation", lambda: self.service.batch_latency(targets, cancelled, self.store.progress)):
+            generation = self.store.begin_probe()
+            def run_batch():
+                if hasattr(self.service, 'read_tui_connections'):
+                    return self.service.batch_latency(targets, cancelled, self.store.progress,
+                        on_result=lambda row: self.store.probe_result(generation, row))
+                return self.service.batch_latency(targets, cancelled, self.store.progress)
+            if self.schedule("operation", run_batch):
                 self._probing_targets=tuple(targets)
                 for target in targets: self.latencies[delay_key(target)]='测速中'
                 self.probe_summary='批量测速中 | : cancel 停止排队项'
                 self.operation_notice=self.probe_summary
                 self.render_page()
+            else:
+                self.store.take_probe_results(finish=True)
 
     def action_connections(self):
         self.query_one("#navigation", Select).value = "connections"
+
+    def focus_page(self):
+        page = 'profiles' if self.page == 'subscriptions' else self.page
+        self.query_one('#nodes' if self.page == 'proxies' else '#nav-' + page).focus()
 
     def action_traffic(self):
         self.schedule("operation", lambda: self.service.read("traffic"))
@@ -950,7 +1044,7 @@ class Console(App):
     def on_input_submitted(self, event):
         if event.input.id == "search":
             event.input.display = False
-            self.query_one("#nodes" if self.page == "proxies" else "#navigation").focus()
+            self.focus_page()
         elif event.input.id == "command":
             command = event.value.strip()
             event.input.value = ""
@@ -984,8 +1078,13 @@ class Console(App):
             self.push_screen(Confirm("确认{}当前用户的代理服务？".format({"start": "启动", "stop": "停止", "restart": "重启"}[verb])),
                              lambda yes: self.schedule("operation", lambda: self.service.shell(verb)) if yes else None)
         elif verb == "mode" and rest in ("rule", "global", "direct"):
+            def change_mode(yes):
+                if yes:
+                    self.schedule("operation", lambda: self.service.mode(rest))
+                if self.page == 'overview':
+                    self.render_page()
             self.push_screen(Confirm("切换核心运行模式为 {}？此操作不保存到配置文件。".format(rest)),
-                             lambda yes: self.schedule("operation", lambda: self.service.mode(rest)) if yes else None)
+                             change_mode)
         elif verb == "provider" and rest:
             self.push_screen(Confirm("下载/刷新提供商 {}？".format(rest)),
                              lambda yes: self.schedule("operation", lambda: self.service.provider_refresh(rest)) if yes else None)
@@ -1067,7 +1166,7 @@ class Console(App):
             widget = self.query_one("#" + identifier, Input)
             if widget.display:
                 widget.display = False
-                self.query_one("#navigation").focus()
+                self.focus_page()
                 return
         if self.preview is not None:
             self.clear_preview("已取消当前预览；重新预览后才能保存。")

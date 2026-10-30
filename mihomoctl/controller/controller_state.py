@@ -93,6 +93,35 @@ class Store:
         self.events = deque(maxlen=100)
         self.closed = False
         self.streams = {}
+        self.probe_generation = 0
+        self.probe_results = {}
+        self.probe_open = False
+
+    def begin_probe(self):
+        with self.lock:
+            self.probe_generation += 1
+            self.probe_results = {}
+            self.probe_open = True
+            return self.probe_generation
+
+    def probe_result(self, generation, row):
+        with self.lock:
+            if self.closed or not self.probe_open or generation != self.probe_generation:
+                return
+            from .controller_types import node_identity
+            key = row.get('target_id') or node_identity(row['name'], row.get('provider'))
+            self.probe_results[key] = dict(row)
+            # Results live in the bounded target map, not the event deque which
+            # can coalesce/drop notifications during a large fast batch.
+            self.events.append('probe-results')
+
+    def take_probe_results(self, finish=False):
+        with self.lock:
+            rows = list(self.probe_results.values())
+            self.probe_results.clear()
+            if finish:
+                self.probe_open = False
+            return rows
 
     def submit(self, key, operation):
         with self.lock:

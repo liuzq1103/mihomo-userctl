@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "1.4.2",
+  "version": "1.4.3",
   "update_protocol": 2,
   "validation_profile": "installation-v2",
   "requires_python": ">=3.10",
@@ -145,6 +145,7 @@
       "docs/release-1.4.0.md",
       "docs/release-1.4.1.md",
       "docs/release-1.4.2.md",
+      "docs/release-1.4.3.md",
       "docs/release-review.md",
       "docs/review-1.4.1.md",
       "docs/zh-CN/README.md",
@@ -341,6 +342,7 @@
       "tests/test_v1_save_recovery.py",
       "tests/test_v1_ssh.py",
       "tests/test_v1_tooling.py",
+      "tests/test_v1_tui_update.py",
       "tests/test_v1_ux.py",
       "tests/test_v1_validation.py",
       "tests/test_v1_yaml_patch.py",

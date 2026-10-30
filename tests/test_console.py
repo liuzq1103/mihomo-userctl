@@ -526,14 +526,21 @@ class BatchTests(unittest.TestCase):
         service = ConsoleService("/not/read/by/this/test")
         cancelled, started, release = threading.Event(), [], threading.Event()
         lock = threading.Lock()
-        def latency(node):
+        class Client:
+            def request(self, path, **kwargs):
+                if path == '/proxies':
+                    return {'proxies': {str(n): {'type': 'Direct'} for n in range(20)}}
+                if path == '/providers/proxies':
+                    return {'providers': {}}
+                return probe(path)
+        def probe(path):
             with lock:
-                started.append(node)
-                if len(started) == 4:
+                started.append(path)
+                if len(started) == 8:
                     cancelled.set(); release.set()
-            release.wait(2)
-            return {"name": node, "delay_ms": 1}
-        with patch.object(service, "latency", side_effect=latency):
+            release.wait(10)
+            return {"delay": 1}
+        with patch.object(service, "client", return_value=Client()):
             result = service.batch_latency([str(n) for n in range(20)], cancelled)
-        self.assertEqual(len(started), 4)
-        self.assertEqual(sum(row["state"] == "cancelled" for row in result["results"]), 16)
+        self.assertEqual(len(started), 8)
+        self.assertEqual(sum(row["state"] == "cancelled" for row in result["results"]), 12)
