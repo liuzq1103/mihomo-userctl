@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT))
 from scripts.release.portable_policy import BASELINE, file_digest
 from scripts.release.verify_release import verify
 
-from mihomoctl.release_identity import source_stem, wheel_name, asset_names, distribution
+from mihomoctl.release_identity import source_stem, wheel_name, asset_names, distribution, release_distribution
 
 
 def command(*args):
@@ -234,11 +234,18 @@ def smoke_published(output, version):
             raise ValueError('public-acquisition-mismatch')
         run(old / 'install.sh')
         launcher = home / '.local/bin/mihomoctl'
+        migration_method = 'legacy-update-latest'
+        if release_distribution(version) == 'mihomo-userctl':
+            # The pinned old updater cannot discover renamed release assets.
+            # Migrate with the new installer, then test the new public updater.
+            run(bundle / 'install.sh')
+            migration_method = 'new-bundle-installer'
         run(launcher, 'update', '--latest', '--json')
         if json.loads(run(launcher, 'version', '--json'))['data']['mihomoctl'] != version:
             raise ValueError('public-latest-upgrade-failed')
         result = {'success': True, 'version': version, 'discovery': discovery,
                   'previous_version': BASELINE['version'], 'public_fetch_verified': True,
+                  'migration_method': migration_method,
                   'public_update_latest_verified': True, 'host_python_absent_from_path': True}
         (output / 'delivered-smoke.json').write_text(json.dumps(result, indent=2) + '\n')
 

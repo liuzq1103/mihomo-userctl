@@ -1,6 +1,6 @@
 # Standard Python installation
 
-Source version 1.5.0.dev0 is unreleased. Index commands below are for after formal publication.
+These instructions target version 1.5.0. Index commands require the corresponding PyPI publication; release wheels and local source remain available independently.
 
 ```bash
 uv tool install mihomo-userctl

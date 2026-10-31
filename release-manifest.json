@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "1.5.0.dev0",
+  "version": "1.5.0",
   "update_protocol": 2,
   "validation_profile": "installation-v2",
   "requires_python": ">=3.10",

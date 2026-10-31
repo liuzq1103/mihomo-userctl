@@ -1,24 +1,24 @@
-# Install mihomoctl 1.5.0.dev0
+# Install mihomoctl 1.5.0
 
-<!-- stable-version: 1.5.0.dev0 -->
+<!-- stable-version: 1.5.0 -->
 
-These instructions target source version 1.5.0.dev0. Its download links become available only after the required reviews, CI gates and formal publication; check GitHub Releases before downloading. A candidate build is not a published release.
+These instructions target source version 1.5.0. Its download links become available only after the required reviews, CI gates and formal publication; check GitHub Releases before downloading. A candidate build is not a published release.
 
 The complete SSH bundle supports Ubuntu 22.04/24.04 x86_64 and includes Python, Textual, all dependencies and the pinned Mihomo core. No system Python, virtual environment, pip, sudo or port forwarding is required. Each Linux account owns a separate proxy instance.
 
-Use the complete bundle from the [v1.5.0.dev0 release](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.5.0.dev0). Source archives and legacy wheelhouse kits do not include an interpreter. Development builds marked `publishable: false` are not release artifacts.
+Use the complete bundle from the [v1.5.0 release](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.5.0). Source archives and legacy wheelhouse kits do not include an interpreter. Development builds marked `publishable: false` are not release artifacts.
 
 ## Complete offline bundle: verify and run
 
-Obtain `mihomo-userctl-1.5.0.dev0-portable-linux-x86_64.tar.gz` and its `.sha256` sidecar through a trusted release channel. Verify the digest against an independently trusted release record before running code. A colocated checksum alone does not authenticate a publisher. Transfer the whole archive to the server if it cannot access GitHub.
+Obtain `mihomo-userctl-1.5.0-portable-linux-x86_64.tar.gz` and its `.sha256` sidecar through a trusted release channel. Verify the digest against an independently trusted release record before running code. A colocated checksum alone does not authenticate a publisher. Transfer the whole archive to the server if it cannot access GitHub.
 
 ```bash
 umask 077
-curl --fail --location --remote-name https://github.com/liuzq1103/mihomo-userctl/releases/download/v1.5.0.dev0/mihomo-userctl-1.5.0.dev0-portable-linux-x86_64.tar.gz
-curl --fail --location --remote-name https://github.com/liuzq1103/mihomo-userctl/releases/download/v1.5.0.dev0/mihomo-userctl-1.5.0.dev0-portable-linux-x86_64.tar.gz.sha256
-sha256sum --check --strict mihomo-userctl-1.5.0.dev0-portable-linux-x86_64.tar.gz.sha256
-tar -xzf mihomo-userctl-1.5.0.dev0-portable-linux-x86_64.tar.gz
-cd mihomo-userctl-1.5.0.dev0-portable-linux-x86_64
+curl --fail --location --remote-name https://github.com/liuzq1103/mihomo-userctl/releases/download/v1.5.0/mihomo-userctl-1.5.0-portable-linux-x86_64.tar.gz
+curl --fail --location --remote-name https://github.com/liuzq1103/mihomo-userctl/releases/download/v1.5.0/mihomo-userctl-1.5.0-portable-linux-x86_64.tar.gz.sha256
+sha256sum --check --strict mihomo-userctl-1.5.0-portable-linux-x86_64.tar.gz.sha256
+tar -xzf mihomo-userctl-1.5.0-portable-linux-x86_64.tar.gz
+cd mihomo-userctl-1.5.0-portable-linux-x86_64
 ./mihomoctl
 ```
 

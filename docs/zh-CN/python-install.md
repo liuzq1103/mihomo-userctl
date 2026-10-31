@@ -1,6 +1,6 @@
 # 标准 Python 安装
 
-源码 1.5.0.dev0 尚未发布。公共索引命令须等正式发布后使用。
+本文面向 1.5.0。公共索引命令需要对应的 PyPI 发布；发行页 wheel 和本地源码是独立的安装路径。
 
 ```bash
 uv tool install mihomo-userctl

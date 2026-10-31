@@ -1,10 +1,10 @@
 # Changelog
 
-## [1.5.0.dev0] - Unreleased
+## [1.5.0] - 2026-10-31
 
 - Add Agent-first help, explicit layered selection authorization and digest-bound reset previews; preserve current selection persistence and existing JSON/exit semantics.
 - Rename Python distribution and new release assets to mihomo-userctl; retain mihomoctl CLI/import/XDG and legacy complete-install migration.
-- Repair standard sdist round trips, add standard Python installation acceptance and manual gated PyPI Trusted Publishing preparation. No formal release or PyPI upload is performed.
+- Repair standard sdist round trips, add standard Python installation acceptance and manual gated PyPI Trusted Publishing preparation.
 - Keep complete offline bundles, pinned Python/core, exact inventories, user isolation and transaction recovery; add incremental static checks and bilingual installation documentation.
 - Reject malformed reset proofs before reading inputs, preserve recovery journals with safe rollback errors, and keep the plain TUI interactive after refused selections. Apply the same scope guard to all node-selection frontends and retain supported system core-config permissions during preview.
 

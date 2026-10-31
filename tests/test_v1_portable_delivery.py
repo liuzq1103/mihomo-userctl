@@ -4,6 +4,8 @@ import shutil
 from pathlib import Path
 import tempfile
 import unittest
+from contextlib import nullcontext
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from scripts.release import trim_portable_runtime as pruning
@@ -71,6 +73,45 @@ class RuntimePruningTests(unittest.TestCase):
 
 
 class PublicationIdentityTests(unittest.TestCase):
+    def test_public_smoke_migrates_renamed_assets_before_testing_latest_update(self):
+        for version in ('1.4.3', '1.5.0'):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                bundle, old = root / 'bundle', root / 'old'
+                calls = []
+                def run(arguments, **kwargs):
+                    arguments = list(map(str, arguments))
+                    calls.append(arguments)
+                    if arguments[1:3] == ['release', 'check']:
+                        output = '{}'
+                    elif arguments[1:3] == ['release', 'fetch']:
+                        acquired = Path(arguments[arguments.index('--output-dir') + 1])
+                        acquired.mkdir()
+                        (acquired / 'acquisition.json').write_text(json.dumps({
+                            'version': version, 'source': 'bundle.tar.gz'}))
+                        output = '{}'
+                    elif arguments[1:2] == ['version']:
+                        output = json.dumps({'data': {'mihomoctl': version}})
+                    else:
+                        output = '{}'
+                    return SimpleNamespace(stdout=output)
+                with patch('mihomoctl.portable.source_tree', side_effect=[nullcontext(bundle), nullcontext(old)]), \
+                        patch.object(publication, 'file_digest', return_value=publication.BASELINE['sha256']), \
+                        patch.object(publication.subprocess, 'run', side_effect=run):
+                    publication.smoke_published(root, version)
+                old_install = calls.index([str(old / 'install.sh')])
+                update = next(index for index, call in enumerate(calls) if call[1:3] == ['update', '--latest'])
+                report = json.loads((root / 'delivered-smoke.json').read_text())
+                self.assertTrue(report['public_update_latest_verified'])
+                if version == '1.5.0':
+                    new_install = calls.index([str(bundle / 'install.sh')])
+                    self.assertLess(old_install, new_install)
+                    self.assertLess(new_install, update)
+                    self.assertEqual(report['migration_method'], 'new-bundle-installer')
+                else:
+                    self.assertNotIn([str(bundle / 'install.sh')], calls)
+                    self.assertEqual(report['migration_method'], 'legacy-update-latest')
+
     def test_creation_response_survives_stale_release_listing(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

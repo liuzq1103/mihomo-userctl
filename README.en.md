@@ -4,8 +4,8 @@ An Agent-first, user-level Mihomo manager for shared Linux servers, implemented 
 
 [中文](README.md) · [Installation](INSTALL.md) · [Documentation](docs/en/README.md)
 
-<!-- stable-version: 1.5.0.dev0 -->
-Source version: **1.5.0.dev0**, unreleased. The PyPI commands below describe the installation entry points after formal publication. Until then, use local source or reviewed candidate artifacts; no development Release is promised.
+<!-- stable-version: 1.5.0 -->
+Source version: **1.5.0**. Complete bundles are delivered through GitHub Releases. Public-index commands require a published PyPI project; until that channel is enabled, install the release wheel or local source.
 
 ## Two installation paths
 
