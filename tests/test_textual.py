@@ -482,26 +482,35 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
         app = Console(service)
         async with app.run_test(size=(80,24)) as pilot:
             await self.settle(pilot, app, 'overview')
+            main_screen = app.screen
             mode = app.query_one('#mode-select', Select)
             self.assertNotEqual(mode.value, Select.NULL)
             self.assertFalse(mode.disabled)
             self.assertEqual(service.calls, [])
             mode.value = 'global'
-            await pilot.pause()
-            await pilot.click('#yes')
+            await self.wait_for(pilot, lambda: len(app.screen.query('#yes')) == 1 and
+                                app.screen.query_one('#yes').region.area > 0, 'global mode confirmation')
+            self.assertTrue(await pilot.click('#yes'))
             await self.settle(pilot, app, 'operation')
             await self.wait_for(pilot, lambda: app.confirmed_mode == 'global', 'confirmed mode')
             self.assertEqual(service.calls, ['global'])
+            await self.wait_for(pilot, lambda: not mode.disabled and 'overview' not in app.store.pending,
+                                'mode selector ready after success')
             mode.value = 'direct'
-            await pilot.pause()
+            await self.wait_for(pilot, lambda: len(app.screen.query('#yes')) == 1 and
+                                app.screen.query_one('#yes').region.area > 0, 'cancel mode confirmation')
             await pilot.press('escape')
+            await self.wait_for(pilot, lambda: app.screen is main_screen and
+                                mode.value == 'global' and not mode.disabled,
+                                'mode selector restored after cancellation')
             await pilot.pause()
             self.assertEqual(mode.value, 'global')
             self.assertEqual(service.calls, ['global'])
             service.fail = True
             mode.value = 'direct'
-            await pilot.pause()
-            await pilot.click('#yes')
+            await self.wait_for(pilot, lambda: len(app.screen.query('#yes')) == 1 and
+                                app.screen.query_one('#yes').region.area > 0, 'failed mode confirmation')
+            self.assertTrue(await pilot.click('#yes'))
             await self.wait_for(pilot, lambda: len(service.calls) == 2 and 'operation' not in app.store.pending, 'failed mode')
             await pilot.pause()
             self.assertEqual(mode.value, 'global')
