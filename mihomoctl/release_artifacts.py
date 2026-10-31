@@ -9,6 +9,15 @@ import re
 import stat
 import tarfile
 import zipfile
+import runpy
+
+# CI also loads this pure validator with runpy before normalizing a source tree.
+_identity = runpy.run_path(str(Path(__file__).with_name('release_identity.py')))
+distribution = _identity['distribution']
+source_stem = _identity['source_stem']
+wheel_name = _identity['wheel_name']
+asset_names = _identity['asset_names']
+sdist_name = _identity['sdist_name']
 
 
 MAX_BYTES = 512 * 1024 * 1024
@@ -62,16 +71,15 @@ def load_artifacts(folder, worktree):
     version = receipt.get("version")
     if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise VerificationError("full-build-commit-required")
-    if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
-        raise VerificationError("stable-build-version-required")
+    if not isinstance(version, str) or not re.fullmatch(_identity['VERSION_PATTERN'], version):
+        raise VerificationError("build-version-invalid")
     source = receipt.get("source")
     publishable = receipt.get("publishable")
     if (source, publishable) not in (("git-commit", True), ("worktree", False)):
         raise VerificationError("inconsistent-build-source")
     if source == "worktree" and not worktree:
         raise VerificationError("worktree-build-requires-explicit-worktree-flag")
-    names = {"mihomoctl-" + version + suffix for suffix in
-             (".tar.gz", ".zip", "-py3-none-any.whl")}
+    names = asset_names(version, distribution(receipt))
     hashes = receipt.get("sha256")
     if not isinstance(hashes, dict) or set(hashes) != names:
         raise VerificationError("artifact-inventory-mismatch")
@@ -107,7 +115,7 @@ def reviewed_files(manifest):
 
 
 def verify_wheel_inventory(wheel, manifest):
-    prefix = "mihomoctl-" + manifest['version'] + ".dist-info/"
+    prefix = distribution(manifest).replace('-', '_') + '-' + manifest['version'] + '.dist-info/'
     with zipfile.ZipFile(wheel) as package:
         entries = package.infolist()
         for entry in entries:
@@ -132,7 +140,7 @@ def verify_wheel_inventory(wheel, manifest):
         if prefix + 'METADATA' not in names:
             raise ValueError('wheel-metadata-missing')
         metadata = BytesParser().parsebytes(package.read(prefix + 'METADATA'))
-        if metadata.get_all('Version') != [manifest['version']] or metadata.get_all('Name') != ['mihomoctl']:
+        if metadata.get_all('Version') != [manifest['version']] or metadata.get_all('Name') != [distribution(manifest)]:
             raise ValueError('wheel-release-identity-mismatch')
         reject_bytecode(names)
 
@@ -142,8 +150,42 @@ def reject_bytecode(names):
         raise ValueError("release-bytecode-refused")
 
 
+def verify_sdist_inventory(archive, manifest):
+    """Standard sdist has an exact source inventory and bounded build metadata."""
+    from email.parser import BytesParser
+    name = distribution(manifest)
+    root = name.replace('-', '_') + '-' + manifest['version'] + '/'
+    metadata = {root + 'PKG-INFO', root + 'setup.cfg'}
+    metadata.update(root + name.replace('-', '_') + '.egg-info/' + entry
+                    for entry in ('PKG-INFO', 'SOURCES.txt', 'dependency_links.txt',
+                                  'entry_points.txt', 'requires.txt', 'top_level.txt'))
+    expected = {root + entry for entry in reviewed_files(manifest)}
+    names = set()
+    used = 0
+    with tarfile.open(archive, 'r:gz') as package:
+        for index, entry in enumerate(package):
+            safe_member(entry.name)
+            used += max(0, entry.size)
+            if index >= MAX_MEMBERS or used > MAX_BYTES or not (entry.isfile() or entry.isdir()):
+                raise VerificationError('unsafe-sdist-member')
+            if entry.isdir():
+                continue
+            if entry.name in names or entry.name not in expected | metadata:
+                raise VerificationError('sdist-differs-from-reviewed-inventory')
+            names.add(entry.name)
+        if not expected <= names or root + 'PKG-INFO' not in names:
+            raise VerificationError('sdist-missing-reviewed-source')
+        stream = package.extractfile(root + 'PKG-INFO')
+        if stream is None:
+            raise VerificationError('sdist-metadata-missing')
+        headers = BytesParser().parsebytes(stream.read())
+        if headers.get_all('Name') != [name] or headers.get_all('Version') != [manifest['version']]:
+            raise VerificationError('sdist-release-identity-mismatch')
+    reject_bytecode(names)
+
+
 def verify_source_inventory(archive, manifest):
-    root = "mihomoctl-" + manifest["version"] + "/"
+    root = source_stem(manifest['version'], distribution(manifest)) + '/'
     if archive.suffix == ".zip":
         with zipfile.ZipFile(archive) as package:
             entries = package.infolist()
@@ -213,7 +255,7 @@ def checked_payload(artifacts, wheelhouse, target, worktree=False):
     from mihomoctl import installation
     receipt, _ = load_artifacts(artifacts, worktree)
     version = receipt["version"]
-    source_name = "mihomoctl-" + version
+    source_name = source_stem(version, distribution(receipt))
     with zipfile.ZipFile(artifacts / (source_name + ".zip")) as archive:
         manifest = json.loads(archive.read(source_name + "/release-manifest.json"), object_pairs_hook=unique_object)
         lock = locked_dependencies(archive.read(source_name + "/requirements-lock.txt").decode("utf-8"))
@@ -221,7 +263,7 @@ def checked_payload(artifacts, wheelhouse, target, worktree=False):
         raise ValueError("bundle-source-version-mismatch")
     for suffix in (".zip", ".tar.gz"):
         verify_source_inventory(artifacts / (source_name + suffix), manifest)
-    project_wheel = artifacts / (source_name + "-py3-none-any.whl")
+    project_wheel = artifacts / wheel_name(version, distribution(receipt))
     verify_wheel_inventory(project_wheel, manifest)
     environment = target_environment(target)
     selected = installation.resolve_dependency_wheels(manifest["dependencies"], wheelhouse, environment)
@@ -277,9 +319,9 @@ def load_bundle(path, target, worktree=False, *, max_bytes=MAX_BYTES):
         manifest = json.loads(payload["bundle-manifest.json"], object_pairs_hook=unique_object)
         version, commit = manifest["version"], manifest["commit"]
         if (manifest["format"] != 1 or manifest["target"] != target
-                or not re.fullmatch(r"\d+\.\d+\.\d+", version)
+                or not re.fullmatch(_identity['VERSION_PATTERN'], version)
                 or not re.fullmatch(r"[a-f0-9]{40}", commit)
-                or root != "mihomoctl-" + version + "-offline-" + target
+                or root != source_stem(version, distribution(manifest)) + "-offline-" + target
                 or path.name != root + ".tar.gz"):
             raise ValueError()
         if (manifest["source"], manifest["publishable"]) not in (

@@ -1,116 +1,75 @@
-# mihomoctl
+# mihomo-userctl · CLI `mihomoctl`
 
-mihomoctl 为 Linux 上的 Mihomo 提供用户级运行管理、认证代理环境注入及声明式应用接入。
+面向多人共享 Linux 服务器的 Agent-first、用户级 Mihomo 管理器，使用 Python 实现。
 
-[English](README.en.md)
+[English](README.en.md) · [安装与升级](INSTALL.md) · [双语文档](docs/README.md)
 
-## 适用场景和不适用场景
+<!-- stable-version: 1.5.0 -->
+本源码版本：**1.5.0**。完整安装包由 GitHub Releases 提供。下列公共索引命令需要 PyPI 项目正式发布；该通道启用前，可安装发行页的 wheel 或本地源码。
 
-适合在服务器、开发机和 CI 中，让指定命令或应用显式使用已配置的 Mihomo 代理。支持无 systemd 的用户进程，以及可选的 systemd 管理。
+## 两种安装方式
 
-它不提供订阅服务，也不保证客户端遵守代理变量；不管理 Codex/Paseo 等第三方应用的生命周期。需要全机透明代理时，须由管理员明确配置 system 作用域及 TUN。
-
-## 系统要求和本源码版本
-
-<!-- stable-version: 1.4.3 -->
-本源码版本：**1.4.3**。面向多人共享服务器，每人使用独立 Linux 账号。新增完整发行包内置 Python、Textual、依赖与固定核心，面向 Ubuntu 22.04/24.04 x86_64；无需创建虚拟环境、单独安装界面或使用端口转发。仅在[发布流程](docs/zh-CN/operations/release.md)要求的审核、CI 门禁及正式发布完成后，从 [v1.4.3 发布页](https://github.com/liuzq1103/mihomo-userctl/releases/tag/v1.4.3) 下载完整包及摘要；公开最新版本以 GitHub Releases 为准。源码和旧式 wheelhouse 套件仍需自行准备运行环境。
-
-## 最短 Quick Start
-
-按 [INSTALL.md](INSTALL.md) 核验并解压完整包，然后运行：
+已安装 uv 或 pipx 的程序员，可在正式发布后使用：
 
 ```bash
-./mihomoctl
+uv tool install mihomo-userctl
+pipx install mihomo-userctl
 ```
 
-在终端向导中粘贴订阅 URL，预览后确认保存并启动，再搜索、测速并选择节点。已有配置不会自动重置。可执行 `./install.sh --user` 安装，之后直接运行 `mihomoctl`；无需 Python、venv 或 pip。
-
-完整界面不依赖 Web；终端能力有限时使用 `mihomoctl tui --engine plain`。使用所选代理启动命令：
+需要 Textual 人机界面时，改装 `"mihomo-userctl[tui]"`。最小 CLI 只依赖必要的 PyYAML，不包含 Python 解释器或 Mihomo 核心。
 
 ```bash
-mihomoctl exec -- codex
+python3 -m pip install --user mihomo-userctl
+python3 -m pip install --no-index --find-links /absolute/wheelhouse mihomo-userctl
 ```
 
-软件准备可离线完成，订阅及其引用资源仍需网络可达。成功操作后不保留旧版本或配置备份，历史回滚已停用。
+`pip --user` 仅适用于允许用户安装的解释器。Ubuntu 的 PEP 668 保护可能同时拒绝 `--user`；推荐 uv、pipx 或虚拟环境，不要绕过系统保护。离线 wheelhouse 必须同时准备匹配的依赖 wheel。[标准 Python 安装教程](docs/zh-CN/python-install.md) 包含源码、开发、升级和卸载命令。
 
-## 如何初始化并启动 Mihomo
+完整离线包是并列的安装方式：包含固定 Python、Textual、所有依赖与固定 Mihomo 核心，继续支持 Ubuntu 22.04/24.04 x86_64。按 [INSTALL](INSTALL.md) 核验来源和摘要后，运行包内 `./mihomoctl`，或显式运行 `./install.sh --user`。安装器不下载 uv、不初始化 manager、不启动核心、不写 Shell 启动文件。
 
-高级 CLI 的 `init` 创建私有配置和带认证的 loopback listener，不下载核心、不启动服务。已有配置可通过 `init --config` 导入。随后显式 `start`；改配置后显式 `restart`。想推回出厂状态就用显式的 `mihomoctl reset --dry-run` 预览、再 `--apply` 执行，它保留核心二进制和订阅缓存，只重置配置与凭据。固定版本核心的安装和 XDG 路径见 [安装与初始化教程](docs/zh-CN/setup.md)。
-
-## 如何配置订阅
-
-普通用户直接在终端界面粘贴订阅 URL，由程序私有保存。脚本调用仍使用私有文件或标准输入，通过 preview/apply 审阅候选；订阅凭据不能放在命令参数里。
+## Agent 使用入口
 
 ```bash
-mihomoctl subscription preview --source-file "$HOME/private/subscription.yaml" --policy nodes
+mihomoctl --help
+mihomoctl status --json
+mihomoctl doctor --json
+mihomoctl groups --json
+mihomoctl nodes --json
 ```
 
-继续阅读 [订阅教程](docs/zh-CN/subscriptions.md)，了解 auto/nodes/provider 及摘要校验。
+顶层帮助包含工作流、安全边界、退出码；子命令帮助说明参数和副作用。公开 JSON 始终为 `mihomoctl/v1`：PASS=0、FAIL=1、UNVERIFIED=2。`exec`/`direct` 启动子进程后保留子进程退出语义。
 
-## 如何配置自定义规则
+先记录受影响组的原选择，再按“地区组 → 入口组”调整，使用实际请求验证，最后显式切回并再次读取分组复核。`select` 已检查成员和 provider 同名歧义，并读回实际选择；聚合组默认拒绝直接选叶子，只有明确授权才可用 `--allow-cross-level`。选择与探测成功不证明某应用的请求经过了远端节点。保留 `store-selected` 当前选择，不增加选择历史或删缓存的复原方式。
 
-先导入订阅，再建立三个私有规则文件，在活动配置中引用对应 provider，并把规则放在 fallback 前。当前检查契约需要名为 `Proxy` 的组。
+## 初始化与通用接入
+
+Python 安装需先准备可信核心。新 x86_64 环境需要下载时，显式选择已维护摘要的固定版本；已有 manager 不要重复初始化或替换核心：
 
 ```bash
-mihomoctl rules check --json
+mihomoctl core install --version v1.19.32
+mihomoctl init --core /absolute/path/to/mihomo
+mihomoctl config validate
+mihomoctl start
+mihomoctl exec -- curl --head https://example.com
+mihomoctl direct -- curl --head https://example.com
 ```
 
-[完整规则实例](docs/zh-CN/rules.md) 包含目录、权限及可复制配置；检查器只读，保存和 restart 都是显式操作。
+订阅通过私有文件、私有 URL 文件或标准输入导入，先 preview 再携摘要 apply；URL 和密钥不得放入命令参数。持久接入通过声明式 binding 和通用 `integration` 接口实现，不管理第三方应用生命周期。详见[初始化](docs/zh-CN/setup.md)、[订阅](docs/zh-CN/subscriptions.md)、[接入](docs/zh-CN/operations/integrations.md)。
 
-## 如何通过代理启动 Codex
+TUI 是供人类使用的交互界面。Agent 不应启动 TUI，也不得自行执行 reset。重置必须先 `mihomoctl reset --dry-run --json`，经明确的人类授权后，携该预览的摘要执行 `--apply --plan-sha256 HASH`；状态变化会使摘要失效。摘要用于绑定审阅内容，不能替代授权。
 
-先独立安装 Codex，确认 `codex` 在 PATH 中。以下命令只为新子进程注入代理环境：
+## 隔离、维护和升级
 
-```bash
-mihomoctl exec -- codex
-mihomoctl exec -- codex --help
-mihomoctl exec -- codex "检查当前项目"
-mihomoctl direct -- codex
-```
+每个 Linux 用户拥有独立私有 manager、凭据、核心进程和认证端口。默认 user/process、仅监听 127.0.0.1，无需 root；systemd --user 可选。不自行提权，不接管全局代理，不操作其他用户文件或进程。system 作用域和非本地监听必须明确授权。
 
-安装第三方 CLI 时，整个安装 Shell 及其后续下载都需要继承代理，见 [代理安装教程](docs/zh-CN/first-run.md#通过代理安装第三方-cli)。
+安装、更新和卸载均不编辑 `.bashrc`、`.zshrc`、`.profile` 等 Shell 启动文件。
 
-`exec` 的本地健康检查失败时拒绝启动；`direct` 清除八个代理变量。Codex 是否走远端节点还取决于客户端行为、NO_PROXY 和目标路由，见 [首次运行与验证](docs/zh-CN/first-run.md)。
+uv/pipx/pip 安装由原工具升级、卸载；内置 `update` 不接管外部 Python 安装。同一环境若曾安装旧 distribution `mihomoctl`，先用原工具卸载旧包再装新包，避免同名 CLI 冲突。完整安装继续使用事务式更新。旧版自动更新器不认识新资产名；1.4.x 用户核验新完整包后运行新版安装器完成一次迁移，保留配置、凭据和活动核心。
 
-## 如何配置 systemd、容器和 CI 接入
+成功操作只保留当前受管版本。未完成操作仍有私有事务日志用于失败/中断恢复，成功后清理；不提供历史回滚。包管理器自身缓存不由 mihomoctl 擅自清理。[安全说明](docs/zh-CN/security.md) · [升级](docs/zh-CN/update.md) · [发行验收](docs/zh-CN/operations/release.md)
 
-在 manager.yaml 中声明 binding，再使用 `integration check/export/install`。systemd 使用私有环境文件；容器必须指定可达地址；CI 只导出配置。[接入教程](docs/zh-CN/operations/integrations.md) 提供完整实例。第三方服务的重启由操作者完成。
+## 相关项目与许可
 
-## 如何查看状态和排查问题
+可参考 [mihomo-ctrl](https://github.com/wonder-missing/mihomo-ctrl) 的 Agent CLI 工作流，或 [mihoro](https://github.com/spencerwooo/mihoro) 的 Linux 用户实例管理。本项目重点是多人服务器隔离、通用 CLI/integration、配置事务和完整离线交付；这些推荐不表示依赖或隶属关系。
 
-```bash
-mihomoctl status
-mihomoctl health check
-mihomoctl doctor
-mihomoctl logs --lines 50
-```
-
-Listener 可达、选中节点、外部探测成功都不能单独证明 Codex 使用了远端节点。先看运行态，再检查认证代理、目标规则和真实请求；见 [验证与排错](docs/zh-CN/first-run.md)。
-
-## 安全边界
-
-默认 user/process；不自行提权、不运行 sudo、不写 `.bashrc`、`.zshrc`、`profile` 等 Shell 启动文件、不自动操作第三方服务。凭据保存在私有文件，默认输出脱敏；不要把 `--reveal` 输出或导出的环境文件上传。TUN 仅允许明确的 `--system` 操作。更新和卸载保留用户配置、凭据、订阅、缓存与 Mihomo 核心。详见 [安全说明](docs/zh-CN/security.md)。
-
-## 文档导航
-
-- [本地安装 Agent prompt](docs/zh-CN/agent-local-install-prompt.md) · [离线安装](docs/zh-CN/offline-install.md)
-- [安装与升级](INSTALL.md) · [教程目录](docs/zh-CN/README.md)
-- [命令参考](docs/zh-CN/reference/cli.md) · [配置契约](docs/zh-CN/reference/configuration.md)
-- [接入运维](docs/zh-CN/operations/integrations.md) · [发布验收](docs/zh-CN/operations/release.md)
-- [仓库结构](docs/architecture-v1.md) · [变更记录](CHANGELOG.md) · [历史归档](docs/archive/README.md)
-
-## 许可证和非官方声明
-
-管理器采用 [MIT License](LICENSE)。完整包还包含按各自许可证分发的 Python、依赖与 Mihomo（GPL-3.0）。包内 `licenses.json` 列出组件及许可文件，核心许可和源码链接见 `core/LICENSE`、`core/SOURCE.txt`。这是独立、非官方的 Mihomo 管理工具，与 Mihomo、OpenAI/Codex 或 Paseo 项目无隶属关系。
-
-## 发现和获取新版本
-
-```bash
-mihomoctl release check
-mihomoctl release fetch --output-dir "$HOME/releases/mihomoctl-kit" --target linux-x86_64
-mihomoctl update --latest
-```
-
-从 1.2.0 开始，交互式 status、version、doctor 和 TUI 会限频后台查询，后续入口对同一版本只提示一次；失败不影响原命令。JSON、管道和 exec 不触发查询。设置 `MIHOMOCTL_NO_UPDATE_CHECK=1` 可关闭自动检查。通知不会证明当前版本是最新。
-
-v1.0.0–v1.1.1 用户请继续按 [INSTALL.md](INSTALL.md) 使用核验后的新版安装器升级；旧二进制不会自行获得通知功能。获取、跨机器离线安装和失败恢复见 [升级教程](docs/zh-CN/update.md)。
+管理器采用 [MIT](LICENSE)。完整包包含按各自许可分发的 Python、依赖和 Mihomo（GPL-3.0）；组件许可及核心源码链接见包内 `licenses.json`、`core/LICENSE` 和 `core/SOURCE.txt`。[CHANGELOG](CHANGELOG.md) · [仓库架构](docs/architecture-v1.md)

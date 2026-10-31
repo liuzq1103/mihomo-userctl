@@ -253,7 +253,18 @@ def plain_tui(client):
         if answer.isdigit() and 1 <= int(answer) <= len(group["members"]):
             node = group["members"][int(answer) - 1]
             if input("确认将 {} 切换为 {}？共享入口影响见上方 [y/N]: ".format(group["name"], node)).strip().lower() == "y":
-                select(client, group["name"], node)
+                try:
+                    try:
+                        select(client, group["name"], node)
+                    except ControlError as error:
+                        if error.code != 'cross-level-selection-refused':
+                            raise
+                        if input("此选择将跳过子组层级。明确授权跨层切换？[y/N]: ").strip().lower() != 'y':
+                            continue
+                        select(client, group['name'], node, allow_cross_level=True)
+                except ControlError as error:
+                    print(error_text(error.code))
+                    continue
                 print("已确认切换；已有连接不强制断开。 / Selection confirmed; existing connections unchanged.")
 
 
@@ -277,6 +288,7 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
         groups, group_index, node_index, focus = [], 0, 0, 0
         note, detail = "", []
         query, pending = "", None
+        pending_cross = None
         delays = {}
         last_refresh = 0
         def put(y, x, value, width, attr=0):
@@ -357,6 +369,18 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
             if key != -1:
                 release_notice = None
             if key in (ord('q'), 27): return
+            if pending_cross is not None and key != -1:
+                target, pending_cross = pending_cross, None
+                if key == ord('y'):
+                    try:
+                        select(client, *target, allow_cross_level=True)
+                        last_refresh = 0
+                        note = '已确认跨层切换 / Cross-level selection confirmed'
+                    except ControlError as error:
+                        note = 'FAIL: ' + error.code
+                else:
+                    note = '跨层切换已取消 / Cross-level selection cancelled'
+                continue
             if key == ord('/'):
                 put(height-5, 1, "Search (empty clears): ", width-2); window.refresh()
                 window.timeout(-1); curses.echo(); curses.curs_set(1)
@@ -436,6 +460,9 @@ def tui(client, plain=False, config=None, script=None, home_dir=None, details=Fa
                 except ControlError as error:
                     detail = wrap_cells(error_text(error.code, error.detail), width-3)[:2]
                     note = "FAIL: " + error.code
+                    if error.code == 'cross-level-selection-refused':
+                        pending_cross = (group['name'], members[node_index])
+                        note = '跳过子组层级？y 明确授权，其它键取消 / Skip subgroup? y: authorize'
     try:
         curses.wrapper(screen)
     except curses.error:

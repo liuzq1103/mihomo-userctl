@@ -96,7 +96,7 @@ def verify_bundle(root, *, check_platform=True):
         raise InstallationError('portable-manifest-invalid')
     document = json.loads(manifest.read_text(encoding='utf-8'), object_pairs_hook=unique_object)
     if (not isinstance(document, dict) or document.get('format') != 1 or document.get('kind') != 'portable'
-            or not re.fullmatch(r'\d+\.\d+\.\d+', document.get('version', ''))
+            or not re.fullmatch(r'\d+\.\d+\.\d+(?:\.dev\d+)?', document.get('version', ''))
             or document.get('target') != 'linux-x86_64'
             or not isinstance(document.get('files'), dict) or not document['files']):
         raise InstallationError('portable-manifest-invalid')

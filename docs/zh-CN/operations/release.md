@@ -28,8 +28,14 @@ release gate 必须同时检查两个系统的完整包报告及一致的完整�
 
 两个 Ubuntu 任务继续独立构建与完整验收。22.04 上传完整候选；24.04 上传其离线套件、收据及 portable 校验文件，完整报告单独上传。比较收据身份、各环境实装摘要、两份 portable 校验文件和验收摘要。通用 wheel 的 ZIP 字节可因构建环境不同而变化；每个公开资产必须对应实际安装过的产物。
 
-`portable_policy.py` 固定真实 v1.4.0 完整包摘要与提交。网络隔离前使用 `fetch_portable_inputs.py --previous-bundle` 获取。独立升级场景由已安装的 v1.4.0 CLI 执行，关闭控制台但保持核心运行；门禁验证核心 PID、启动时间、路径与摘要、认证、节点选择及受保护文件不变。保留现有 v1.0.x 源码迁移、同版本更新与失败恢复场景。
+`portable_policy.py` 固定真实 v1.4.0 完整包摘要与提交。网络隔离前使用 `fetch_portable_inputs.py --previous-bundle` 获取。1.5 的独立升级场景由新版完整包安装器完成改名迁移，关闭控制台但保持旧核心运行；旧更新器不能识别新资产名。门禁验证核心 PID、启动时间、路径与摘要、认证、节点选择及受保护文件不变。保留现有 v1.0.x 源码迁移、同版本更新与失败恢复场景。
 
 十进制门槛为下载 65,000,000 字节、解压普通文件 160,000,000 字节、初始化核心后的首次安装逻辑占用 225,000,000 字节。`installed_bytes` 继续表示逻辑大小，目录及 generation 另记录分配块数。安装、初始化和跨版本升级峰值为 home 内每 50ms 采样观测；home 外输入包及验收器临时解压源单独记录。升级峰值不受首次安装门槛约束。
 
-先以成功的 main push 测试 run ID 调度 `publish.yml`，设置 `publish=false`。发布器核验该既有 CI run，重新验证其发布门禁与证据、精确提交/版本及资产名称、大小、摘要，再恢复或创建草稿并下载全部资产逐字节核验；它不重新执行完整 CI 测试矩阵。两方审查实际草稿证据后，以同一 run ID 和 `publish=true` 再次调度。已有 tag 必须对应验收提交，正式资产与说明不得覆盖。发布后在隔离 home 验证公开下载、获取及从 v1.4.0 执行 `update --latest`。公开烟测失败时保留证据并通过后续修复版本处理，不替换已发布文件。
+先以成功的 main push 测试 run ID 调度 `publish.yml`，设置 `publish=false`。发布器核验该既有 CI run，重新验证其发布门禁与证据、精确提交/版本及资产名称、大小、摘要，再恢复或创建草稿并下载全部资产逐字节核验；它不重新执行完整 CI 测试矩阵。两方审查实际草稿证据后，以同一 run ID 和 `publish=true` 再次调度。已有 tag 必须对应验收提交，正式资产与说明不得覆盖。公开烟测在隔离 home 验证下载与获取；对于改名资产，先用新版安装器从 v1.4.0 迁移，再验证新版 CLI 的 `update --latest`。公开烟测失败时保留证据并通过后续修复版本处理，不替换已发布文件。
+
+## Python distribution and development candidates
+
+Distribution/new assets use `mihomo-userctl`; import, CLI and XDG paths stay `mihomoctl`. Wheel/sdist names use normalized `mihomo_userctl`. The old pinned upgrade baseline keeps its old name. Standard sdist must rebuild a reviewed wheel outside the checkout. Python installation evidence is required for both Ubuntu targets.
+
+Development version `1.5.0.dev0` may build and pass candidate acceptance but must never be formally published. PyPI uses only manual Trusted Publishing from the exact successful main CI artifacts, with protected `pypi` environment approval and minimal OIDC permissions. No tag automatically uploads. The PyPI project/pending publisher and GitHub environment must be configured by the authorized maintainer before a separately authorized formal release. A PyPI 404 does not reserve the name. Public-index install verification occurs only after publication.

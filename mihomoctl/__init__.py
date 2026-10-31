@@ -4,7 +4,7 @@ from pathlib import Path
 import stat
 import sys
 
-__version__ = '1.4.3'
+__version__ = '1.5.0'
 SCHEMA = 'mihomoctl/v1'
 
 

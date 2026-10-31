@@ -293,7 +293,7 @@ class ReleaseInventoryTests(unittest.TestCase):
                 completed = subprocess.run(command, text=True, capture_output=True, timeout=180,
                                            env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
                 self.assertEqual(completed.returncode, 0, completed.stderr[-3000:])
-                wheels = list(output.glob("mihomoctl-*.whl"))
+                wheels = list(output.glob("mihomo*-*.whl"))
                 self.assertEqual(len(wheels), 1)
                 build_release.verify_wheel_inventory(wheels[0], manifest)
                 receipt = json.loads((output / "build-receipt.json").read_text())

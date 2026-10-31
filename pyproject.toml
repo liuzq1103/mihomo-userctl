@@ -1,16 +1,22 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mihomoctl"
-version = "1.4.3"
-description = "User-level Mihomo runtime manager: proxy profiles, environment injection, runtime integration, health checks"
+name = "mihomo-userctl"
+version = "1.5.0"
+description = "Agent-first user-level Mihomo manager for shared Linux servers"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = ["PyYAML>=6.0.1"]
 authors = [{ name = "mihomo-userctl maintainers" }]
+
+[project.urls]
+Homepage = "https://github.com/liuzq1103/mihomo-userctl"
+Repository = "https://github.com/liuzq1103/mihomo-userctl"
+Issues = "https://github.com/liuzq1103/mihomo-userctl/issues"
 
 [project.optional-dependencies]
 tui = ["textual==8.2.8"]
@@ -27,6 +33,22 @@ mihomoctl = ["mihomo-digests.json"]
 
 [tool.setuptools.cmdclass]
 build_py = "scripts.release.build_backend.ReviewedBuildPy"
+sdist = "scripts.release.build_backend.ReviewedSdist"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = ["build==1.6.1", "pytest==9.2.0", "ruff==0.17.3", "pyright==1.1.414"]
+
+[tool.ruff]
+target-version = "py310"
+include = ["mihomoctl/**/*.py", "scripts/**/*.py", "tests/**/*.py", "pyproject.toml"]
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.pyright]
+pythonVersion = "3.10"
+typeCheckingMode = "basic"
+include = ["mihomoctl/errors.py", "mihomoctl/envelope.py", "mihomoctl/release_identity.py"]

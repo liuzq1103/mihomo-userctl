@@ -366,9 +366,12 @@ def restore_failed_operation(tx):
         tx.rollback()
         return
     if tx.runtime is not None and tx.runtime.get('phase') != 'prepared':
-        _app, backend = _runtime_backend(tx)
-        if backend.status().get('running'):
-            backend.stop()
+        try:
+            _app, backend = _runtime_backend(tx)
+            if backend.status().get('running'):
+                backend.stop()
+        except Exception:
+            raise RollbackFailedError('rollback-failed', 'runtime cessation is unverified; recovery journal retained') from None
     tx.rollback(finish=tx.runtime is None)
     if tx.runtime is not None:
         _restore_runtime(tx)
@@ -445,7 +448,7 @@ def recover_transactions(scope):
         tx.scope, tx.id, tx.name = scope, directory.name, document.get('name')
         tx.backup_root, tx.finished = directory, False
         tx.runtime = document.get('runtime')
-        if tx.runtime is not None and (tx.name not in ('policy-activate', 'core-install', 'core-activate', 'port-retry','service-install','service-uninstall')
+        if tx.runtime is not None and (tx.name not in ('policy-activate', 'core-install', 'core-activate', 'port-retry','service-install','service-uninstall','reset')
                 or not isinstance(tx.runtime, dict) or type(tx.runtime.get('was_running')) is not bool
                 or set(tx.runtime) - {'was_running','phase','unit_reload'}
                 or 'unit_reload' in tx.runtime and (type(tx.runtime['unit_reload']) is not bool or tx.name not in ('core-install','core-activate','service-install','service-uninstall'))

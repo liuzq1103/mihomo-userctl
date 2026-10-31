@@ -34,6 +34,20 @@ class ProviderNodeTests(unittest.TestCase):
         self.service = service.ConsoleService.__new__(service.ConsoleService)
         self.service.client = lambda: self.client
 
+    def test_select_scope_denial_precedes_http_even_with_cross_level_authorization(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from mihomoctl.errors import StateError
+        scope = Mock()
+        scope.require_mutation.side_effect = StateError('root-requires-system')
+        self.client.app = SimpleNamespace(scope=scope)
+        with patch.object(self.client, 'verify') as verify:
+            for allow in (False, True):
+                with self.subTest(allow=allow), self.assertRaisesRegex(ControlError, 'root-requires-system'):
+                    service.select(self.client, 'Ai+', '美国 / +?%', allow_cross_level=allow)
+        verify.assert_not_called()
+        self.assertEqual(self.client.calls, [])
+
     def test_provider_only_node_visible_chain_complete_and_safe(self):
         rows = service.proxies(self.client)
         self.assertEqual(rows['Ai+']['chain_state'], 'complete')

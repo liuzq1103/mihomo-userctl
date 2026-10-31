@@ -46,6 +46,8 @@ exec "$root/bin/mihomoctl" "$@"
 '''
 INSTALLER = ROOT_LAUNCHER.replace('"$@"', '_bundle-install "$@"')
 
+from mihomoctl.release_identity import source_stem, wheel_name, asset_names, distribution
+
 
 def digest(path):
     value = hashlib.sha256()
@@ -106,7 +108,7 @@ def build(artifacts, runtime, core, wheelhouse, output, *, worktree=False):
     if digest(runtime) != runtime_pin['sha256'] or digest(core) != core_pin['sha256']:
         raise ValueError('portable-input-digest-mismatch')
     version, epoch = receipt['version'], receipt['source_epoch']
-    name = 'mihomoctl-' + version + '-portable-linux-x86_64'
+    name = source_stem(version) + '-portable-linux-x86_64'
     output.mkdir(parents=True, exist_ok=True)
     archive = output / (name + '.tar.gz')
     if archive.exists() or archive.with_name(archive.name + '.sha256').exists():
@@ -122,9 +124,9 @@ def build(artifacts, runtime, core, wheelhouse, output, *, worktree=False):
         subprocess.run([python, '-I', '-B', '-m', 'pip', 'install', '--no-index', '--no-compile',
                         '--only-binary=:all:', '--require-hashes', '--find-links', wheelhouse.absolute(),
                         '--target', root / 'lib', '-r', ROOT / 'scripts/textual-requirements.txt'], check=True)
-        with tarfile.open(artifacts / ('mihomoctl-' + version + '.tar.gz'), 'r:gz') as package:
-            manifest = json.load(package.extractfile('mihomoctl-' + version + '/release-manifest.json'))
-        wheel = artifacts / ('mihomoctl-' + version + '-py3-none-any.whl')
+        with tarfile.open(artifacts / (source_stem(version) + '.tar.gz'), 'r:gz') as package:
+            manifest = json.load(package.extractfile(source_stem(version) + '/release-manifest.json'))
+        wheel = artifacts / (wheel_name(version))
         verify_wheel_inventory(wheel, manifest)
         with zipfile.ZipFile(wheel) as package:
             for entry in package.infolist():

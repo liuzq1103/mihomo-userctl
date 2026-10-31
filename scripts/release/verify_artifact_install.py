@@ -41,6 +41,8 @@ def private_creation_mask():
     finally:
         os.umask(previous)
 
+from mihomoctl.release_identity import source_stem, wheel_name, asset_names, distribution
+
 
 def digest(path):
     result = hashlib.sha256()
@@ -173,7 +175,7 @@ def verify_case(kind, artifacts, wheelhouse, python, version):
             path = home / dirname
             path.mkdir(mode=0o700, exist_ok=True)
             env[variable] = str(path)
-        root_name = "mihomoctl-" + version
+        root_name = source_stem(version)
         archive = artifacts / (root_name + (".zip" if kind == "zip" else ".tar.gz"))
         source = unpack(archive, base / "unpacked", root_name)
         bootstrap = source / "scripts" / "bootstrap.py"
@@ -181,7 +183,7 @@ def verify_case(kind, artifacts, wheelhouse, python, version):
         if kind == "wheel":
             payload = base / "wheel-source"
             payload.mkdir(mode=0o700)
-            wheel = artifacts / (root_name + "-py3-none-any.whl")
+            wheel = artifacts / (wheel_name(version))
             shutil.copyfile(wheel, payload / wheel.name)
             shutil.copyfile(source / "release-manifest.json", payload / "release-manifest.json")
         first = invoke([python, "-I", bootstrap, "install", "--source", payload,
@@ -237,11 +239,22 @@ def verify_previous_upgrade(previous, artifacts, wheelhouse, python, version):
             path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             path.write_bytes(('preserve existing user data: ' + name + '\n').encode())
             protected[path] = path.read_bytes()
+        # The real old installer parses every wheel version before dependency
+        # selection and cannot parse the new main wheel's .devN version. Its
+        # bootstrap needs dependencies only, not the new project's wheel.
+        previous_wheelhouse = base / 'previous-dependencies'
+        previous_wheelhouse.mkdir(mode=0o700)
+        for candidate in Path(wheelhouse).glob('*.whl'):
+            if candidate.name == wheel_name(version):
+                continue
+            if candidate.is_symlink() or not candidate.is_file():
+                raise VerificationError('unsafe-previous-dependency-wheel')
+            shutil.copyfile(candidate, previous_wheelhouse / candidate.name)
         old = invoke([python, '-I', previous / 'scripts/bootstrap.py', 'install', '--source', previous,
-                      '--wheelhouse', wheelhouse, '--python', python], env, 'previous-install')
+                      '--wheelhouse', previous_wheelhouse, '--python', python], env, 'previous-install')
         launcher = Path(old['bin_link'])
         version_check(launcher, env, previous_version)
-        source = unpack(artifacts / ('mihomoctl-' + version + '.tar.gz'), base / 'new', 'mihomoctl-' + version)
+        source = unpack(artifacts / (source_stem(version) + '.tar.gz'), base / 'new', source_stem(version))
         new = invoke([python, '-I', source / 'scripts/bootstrap.py', 'install', '--source', source,
                       '--wheelhouse', wheelhouse, '--python', python], env, 'new-installer-upgrade')
         version_check(launcher, env, version)

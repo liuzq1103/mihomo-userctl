@@ -428,19 +428,53 @@ class Application:
             dropped.append(scope.tun_receipt)
         return sorted({str(path) for path in dropped})
 
-    def reset_preview(self):
+    def reset_preview(self, core=None):
         """What ``reset --apply`` would remove and replace. Writes nothing."""
+        import hashlib
+        import os
+        from .trust import require_executable_file, require_private_file
         manager = self._require_manager()
-        return {"state": "preview", "scope": self.scope.name,
-                "core": manager.core.binary,
+        selected_binary = core or manager.core.binary
+        if not selected_binary:
+            raise ConfigError('core-required', 'supply a trusted replacement using --core')
+        binary = str(Path(selected_binary).absolute())
+        require_executable_file(binary, as_root=self.scope.system)
+        preview = {"state": "preview", "scope": self.scope.name,
+                "core": binary,
                 "removed": self._reset_targets(manager),
                 "replaced": [str(self.scope.manager_path),
                               str(self.scope.config_root / "mihomo" / "config.yaml"),
                               str(self.scope.credentials_dir / (manager.default_profile + ".yaml"))],
                 "preserved": [str(self.scope.cores_root), str(self.scope.backups_root),
                               str(self.scope.logs_dir)]}
+        paths = sorted({name for name in preview['removed'] + preview['replaced'] +
+                        [str(self.scope.runtime_state), manager.core.config, binary] if name is not None})
+        fingerprints = []
+        for name in paths:
+            path = Path(name)
+            if not path.exists() and not path.is_symlink():
+                fingerprints.append([name, None])
+                continue
+            if name == binary:
+                info = require_executable_file(path, as_root=self.scope.system)
+                info = path.stat() if info is None else info
+            elif path == self.scope.config_root / 'mihomo' / 'config.yaml' or (
+                    manager.core.config is not None and path == Path(manager.core.config)):
+                require_readable_core_config(path, system_scope=self.scope.system)
+                info = path.stat()
+            else:
+                info = require_private_file(path)
+            fingerprints.append([name, info.st_uid, info.st_gid, info.st_mode,
+                                 info.st_ino, hashlib.sha256(path.read_bytes()).hexdigest()])
+        proof = {'uid': os.geteuid(), 'config_root': str(self.scope.config_root),
+                 'plan': preview, 'inputs': fingerprints}
+        # Only the composite proof is public; never expose credential content or
+        # individual secret-file hashes as diagnostic output.
+        preview['plan_sha256'] = hashlib.sha256(json.dumps(proof, sort_keys=True,
+                                                separators=(',', ':')).encode()).hexdigest()
+        return preview
 
-    def reset(self, core=None):
+    def reset(self, core=None, *, plan_sha256=None):
         """Restore the managed runtime to the shape ``init`` produces.
 
         The manager configuration, the active core configuration, every
@@ -448,44 +482,53 @@ class Application:
         and the default configuration is published again.  The Mihomo
         core binary, the subscription previews and the logs are kept.
 
-        A running runtime is stopped first — and a runtime that cannot be
-        resolved at all is only reported, because recovering from an
-        unreadable configuration is exactly what reset is for.
+        A running runtime must stop successfully. Invalid configuration can
+        be repaired when the owned runtime is confirmed inactive; an active
+        runtime with unresolvable configuration requires an explicit stop.
         """
         scope = self.scope
         scope.require_mutation()
-        manager = self._require_manager()
-        binary = core or manager.core.binary
-        if not binary:
-            raise ConfigError("core-required", "no core binary recorded; pass --core")
-        # Plan first: it validates the freshly composed default configuration
-        # with the core, so a reset never publishes something unstartable.
-        plan = self._plan_runtime(core=binary, allow_non_loopback=(),
-                                  profile_name=manager.default_profile)
-        result = {"state": "restart-required", "service": "unchanged", "scope": scope.name,
-                  "removed": self._reset_targets(manager),
-                  "port": plan['result']['port'],
-                  "controller_port": plan['result']['controller_port'],
-                  "manager": str(scope.manager_path), "config": plan['result']['config'],
-                  "credentials": plan['result']['credentials'], "core": {"binary": str(binary)}}
-        warnings = []
-        try:
-            self.lifecycle('stop')
-        except MihomoctlError as exc:
-            warnings.append(exc.render())
+        import hmac
+        import re
+        if not isinstance(plan_sha256, str) or not re.fullmatch('[0-9a-f]{64}', plan_sha256):
+            raise UsageError('reset-preview-required', 'review reset --dry-run and supply --plan-sha256 after explicit authorization')
+        preview = self.reset_preview(core)
+        if not hmac.compare_digest(preview['plan_sha256'], plan_sha256):
+            raise StateError('reset-preview-stale', 'state changed; review a new reset --dry-run')
         from .transaction import run_transaction
-        dropped = [Path(path) for path in result["removed"]]
 
         def action(tx):
-            for path in dropped:
-                tx.delete(path)
+            # Recheck under the same lock that protects lifecycle and publish.
+            if not hmac.compare_digest(self.reset_preview(core)['plan_sha256'], plan_sha256):
+                raise StateError('reset-preview-stale', 'state changed; review a new reset --dry-run')
+            manager = self._require_manager()
+            binary = preview['core']
+            plan = self._plan_runtime(core=binary, allow_non_loopback=(),
+                                      profile_name=manager.default_profile)
+            try:
+                manager, endpoints, controller, _profile, _cfg = self.resolve()
+            except ConfigError:
+                # Repair malformed/missing configuration without bypassing PID
+                # ownership or attempting to stop an unresolvable live core.
+                if self._backend(manager, [], None).status().get('running'):
+                    raise StateError('reset-runtime-unverified', 'stop the owned runtime explicitly before repairing invalid configuration') from None
+            else:
+                tx.runtime = {'was_running': bool(self._backend(manager, endpoints, controller).status().get('running')),
+                              'phase': 'prepared'}
+                tx._persist()
+                tx.runtime['phase'] = 'stopping'
+                tx._persist()
+                self.lifecycle('stop', _locked=True)
+            for path in preview['removed']:
+                tx.delete(Path(path))
             _publish_runtime(tx, scope, plan)
-            return result
+            return {"state": "restart-required", "service": "unchanged", "scope": scope.name,
+                    "removed": preview['removed'], "port": plan['result']['port'],
+                    "controller_port": plan['result']['controller_port'],
+                    "manager": str(scope.manager_path), "config": plan['result']['config'],
+                    "credentials": plan['result']['credentials'], "core": {"binary": binary}}
 
-        published = run_transaction(scope, "reset", action)
-        if warnings:
-            published['warning'] = "; ".join(warnings)
-        return published
+        return run_transaction(scope, "reset", action)
 
     def _require_manager(self):
         if not self.scope.manager_path.exists():

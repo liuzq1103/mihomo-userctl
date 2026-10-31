@@ -1,0 +1,109 @@
+"""Agent help, guarded layered choices and reset authorization contracts."""
+import contextlib
+import io
+import json
+import unittest
+from unittest.mock import patch
+from unittest.mock import Mock
+
+from mihomoctl.command_spec import command_parser, grouped_help
+from mihomoctl.controller.controller_service import select
+from mihomoctl.controller.controller_types import ControlError
+
+
+class SelectionClient:
+    def __init__(self):
+        self.rows = {'Entry': {'type': 'Selector', 'all': ['Region', 'leaf', 'DIRECT'], 'now': 'Region'},
+                     'Region': {'type': 'Selector', 'all': ['leaf'], 'now': 'leaf'},
+                     'leaf': {'type': 'Http'}, 'DIRECT': {'type': 'Direct'}}
+        self.puts = []
+        self.stick = True
+
+    def verify(self):
+        pass
+
+    def request(self, path, method='GET', body=None, **kwargs):
+        if path == '/proxies':
+            return {'proxies': self.rows}
+        if path == '/providers/proxies':
+            return {'providers': {}}
+        if method == 'PUT':
+            self.puts.append((path, body))
+            if self.stick:
+                self.rows[path.rsplit('/', 1)[-1]]['now'] = body['name']
+            return {}
+        raise AssertionError(path)
+
+
+class AgentContractTests(unittest.TestCase):
+    def test_ui_authorization_never_bypasses_scope_before_controller_access(self):
+        from types import SimpleNamespace
+        from mihomoctl.controller.controller_service import ConsoleService
+        from mihomoctl.errors import PermissionScopeError
+        service = ConsoleService.__new__(ConsoleService)
+        service.app = SimpleNamespace(scope=SimpleNamespace(
+            require_mutation=Mock(side_effect=PermissionScopeError('scope-violation'))))
+        service.client = Mock(side_effect=AssertionError('unauthorized controller access'))
+        for action in (lambda: service.choose('Entry', 'leaf', allow_cross_level=True),
+                       lambda: service.provider_refresh('nodes'), lambda: service.mode('direct')):
+            with self.assertRaises(PermissionScopeError):
+                action()
+        service.client.assert_not_called()
+
+    def test_aggregate_leaf_requires_authorization_and_can_be_restored(self):
+        client = SelectionClient()
+        with self.assertRaisesRegex(ControlError, 'cross-level-selection-refused'):
+            select(client, 'Entry', 'leaf')
+        self.assertEqual(client.puts, [])
+        select(client, 'Entry', 'leaf', allow_cross_level=True)
+        select(client, 'Entry', 'Region')
+        self.assertEqual(client.rows['Entry']['now'], 'Region')
+
+    def test_direct_and_flat_groups_do_not_require_cross_level_authorization(self):
+        client = SelectionClient()
+        select(client, 'Entry', 'DIRECT')
+        select(client, 'Region', 'leaf')
+
+    def test_controller_cli_forwards_explicit_layer_authorization(self):
+        from mihomoctl.controller import controller
+        client = SelectionClient()
+        with patch.object(controller, 'read_config', return_value=('', {}, None)), \
+                patch.object(controller, 'endpoint', return_value=(1234, 'fixture-token')), \
+                patch.object(controller, 'Client', return_value=client), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(controller.main(['select', 'Entry', 'leaf', '--allow-cross-level', '--json']), 0)
+        self.assertEqual(json.loads(output.getvalue())['selected'], 'leaf')
+
+    def test_authorization_does_not_bypass_membership_or_readback(self):
+        client = SelectionClient()
+        with self.assertRaisesRegex(ControlError, 'node-not-in-group'):
+            select(client, 'Entry', 'missing', allow_cross_level=True)
+        self.assertEqual(client.puts, [])
+        client.stick = False
+        with self.assertRaisesRegex(ControlError, 'selection-not-confirmed'):
+            select(client, 'Entry', 'leaf', allow_cross_level=True)
+
+    def test_agent_guide_and_command_effects_are_configuration_free(self):
+        with patch('pathlib.Path.read_text', side_effect=AssertionError('help read a file')):
+            guide = grouped_help()
+            for word in ('observe', 'restore', 'PASS=0', 'UNVERIFIED=2', '--system', '--plan-sha256'):
+                self.assertIn(word, guide)
+            for name in ('reset', 'select', 'subscription', 'update', 'tui', 'integration', 'core'):
+                self.assertIn('Effects:', command_parser(name).format_help())
+
+    def test_invalid_private_argument_never_leaks(self):
+        from mihomoctl.cli import main
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            code = main(['select', 'entry', 'PRIVATE-PASSWORD', '--bad', '--json'])
+        payload = json.loads(output.getvalue())
+        self.assertEqual(code, 2)
+        self.assertNotIn('PRIVATE-PASSWORD', json.dumps(payload))
+        self.assertIn('mihomoctl select', payload['errors'][0]['detail'])
+
+    def test_private_unknown_command_is_not_reflected_in_envelope(self):
+        from mihomoctl.cli import main
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            code = main(['https://private.invalid/PRIVATE-PASSWORD', '--json'])
+        self.assertEqual(code, 2)
+        self.assertNotIn('PRIVATE-PASSWORD', output.getvalue())
+        self.assertEqual(json.loads(output.getvalue())['command'], 'mihomoctl')

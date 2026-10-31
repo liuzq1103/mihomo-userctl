@@ -14,3 +14,5 @@ SSH 新用户先阅读 [完整包安装](../../INSTALL.md) 和 [终端界面](co
 - [Agent 安装指引](agent-install-prompt.md) · [发布验收](operations/release.md)
 
 [脚本与服务器策略](overrides.md)
+
+[Standard Python installation / 标准 Python 安装](python-install.md)

@@ -7,3 +7,5 @@
 默认用户级进程，无需 sudo/systemd，不修改 Shell 启动文件，不管理第三方服务。只保留当前软件、核心和配置，不保留历史备份或提供历史回滚。未完成事务先恢复，恢复失败保留临时材料并报告。安装完成后运行 version/帮助检查；实际节点连通性须有真实请求证据。
 
 参考 [安装说明](../../INSTALL.md) 和 [终端教程](console.md)。
+
+[Standard Python installation / 标准 Python 安装](python-install.md)

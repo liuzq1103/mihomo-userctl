@@ -494,6 +494,39 @@ class SaveRecoveryTests(unittest.TestCase):
         self.assertEqual(self.config.read_bytes(),b'old config\n')
         self.assertTrue(list(self.scope.backups_root.glob('*/journal.json')))
 
+    def test_recovery_preflight_failure_is_safe_and_retains_recoverable_journal(self):
+        for failure in ('resolve', 'status', 'stop'):
+            self.config.write_bytes(b'old config\n')
+            backend = Mock()
+            backend.status.return_value = {'running': True}
+            private_error = ValidationError('config-invalid', 'PRIVATE-CREDENTIAL')
+            if failure == 'status':
+                backend.status.side_effect = private_error
+            elif failure == 'stop':
+                backend.stop.side_effect = private_error
+            def action(tx):
+                tx.runtime = {'was_running': False, 'phase': 'stopping'}
+                tx._persist()
+                tx.write_text(self.config, 'new config\n')
+                raise ValidationError('activation-failed')
+            with self.subTest(failure=failure), patch.object(transaction, '_runtime_backend',
+                    side_effect=private_error if failure == 'resolve' else None,
+                    return_value=(Mock(), backend)) as resolve:
+                with self.assertRaisesRegex(RollbackFailedError, 'rollback-failed') as caught:
+                    transaction.run_transaction(self.scope, 'reset', action)
+                self.assertNotIn('PRIVATE-CREDENTIAL', str(caught.exception))
+                self.assertEqual(self.config.read_bytes(), b'new config\n')
+                self.assertTrue(list(self.scope.backups_root.glob('*/journal.json')))
+                with self.assertRaisesRegex(RollbackFailedError, 'rollback-failed'):
+                    transaction.recover_transactions(self.scope)
+                resolve.side_effect = None
+                backend.status.side_effect = None
+                backend.status.return_value = {'running': False}
+                backend.stop.side_effect = None
+                transaction.recover_transactions(self.scope)
+            self.assertEqual(self.config.read_bytes(), b'old config\n')
+            self.assertFalse(list(self.scope.backups_root.glob('*/journal.json')))
+
     def test_running_recovery_requires_fresh_auth_and_never_signals_old_core(self):
         for health in ('FAIL','UNVERIFIED','PASS',RuntimeError('PRIVATE-CREDENTIAL')):
             tx=transaction.Transaction(self.scope,'policy-activate')

@@ -1249,7 +1249,7 @@ class RealProjectPackagingTests(InstallationTestBase):
                                 "--no-isolation", "--outdir", str(built), str(project)],
                                capture_output=True, text=True, timeout=120)
         self.assertEqual(probe.returncode, 0, probe.stderr[-2000:])
-        wheel = next(built.glob("mihomoctl-*.whl"))
+        wheel = next(built.glob("mihomo*-*.whl"))
         with zipfile.ZipFile(wheel) as zf:
             payload = {n for n in zf.namelist() if not n.endswith("/") and ".dist-info/" not in n}
             self.assertEqual(payload, set(manifest["inventory"]["runtime_files"]))

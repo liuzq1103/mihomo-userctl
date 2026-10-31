@@ -14,3 +14,5 @@ For advanced CLI setup, follow [setup](setup.md) → [subscriptions](subscriptio
 - [Agent instructions](agent-install-prompt.md) · [Release acceptance](operations/release.md)
 
 [Scripts and server policy](overrides.md)
+
+[Standard Python installation / 标准 Python 安装](python-install.md)

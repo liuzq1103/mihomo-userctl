@@ -16,6 +16,8 @@ sys.path.insert(0, str(ROOT))
 from scripts.release.portable_policy import BASELINE, file_digest
 from scripts.release.verify_release import verify
 
+from mihomoctl.release_identity import source_stem, wheel_name, asset_names, distribution, release_distribution
+
 
 def command(*args):
     result = subprocess.run(list(map(str, args)), capture_output=True, text=True,
@@ -99,7 +101,7 @@ def assemble(download, output, commit, run_id, repo):
     second = json.loads((download / 'validation-ubuntu-24.04/artifact-install.json').read_text())
     if receipts[1]['sha256'] != second.get('artifact_sha256'):
         raise ValueError('secondary-build-report-mismatch')
-    portable_sum = 'mihomoctl-' + version + '-portable-linux-x86_64.tar.gz.sha256'
+    portable_sum = source_stem(version) + '-portable-linux-x86_64.tar.gz.sha256'
     if (c22 / portable_sum).read_bytes() != (c24 / portable_sum).read_bytes():
         raise ValueError('secondary-portable-checksum-mismatch')
     assets = output / 'assets'
@@ -120,6 +122,8 @@ def assemble(download, output, commit, run_id, repo):
                for ubuntu in ('22.04', '24.04')}
     expected = {'unit', 'real-core', 'privileged', 'artifact-install', 'offline-bundle-install',
                 'release-acquisition', 'portable-acceptance'}
+    if receipts[0].get('distribution') == 'mihomo-userctl':
+        expected.add('python-install')
     for rows in reports.values():
         if set(rows) != expected or any(row.get('commit') != commit or row.get('success') is not True for row in rows.values()):
             raise ValueError('evidence-inventory-or-identity-mismatch')
@@ -205,7 +209,7 @@ def deliver(repo, commit, version, output, inventory, publish):
 
 def smoke_published(output, version):
     from mihomoctl.portable import source_tree
-    archive = output / 'published-download' / ('mihomoctl-' + version + '-portable-linux-x86_64.tar.gz')
+    archive = output / 'published-download' / (source_stem(version) + '-portable-linux-x86_64.tar.gz')
     previous = output / 'previous' / BASELINE['name']
     if file_digest(previous) != BASELINE['sha256']:
         raise ValueError('public-upgrade-baseline-mismatch')
@@ -230,11 +234,18 @@ def smoke_published(output, version):
             raise ValueError('public-acquisition-mismatch')
         run(old / 'install.sh')
         launcher = home / '.local/bin/mihomoctl'
+        migration_method = 'legacy-update-latest'
+        if release_distribution(version) == 'mihomo-userctl':
+            # The pinned old updater cannot discover renamed release assets.
+            # Migrate with the new installer, then test the new public updater.
+            run(bundle / 'install.sh')
+            migration_method = 'new-bundle-installer'
         run(launcher, 'update', '--latest', '--json')
         if json.loads(run(launcher, 'version', '--json'))['data']['mihomoctl'] != version:
             raise ValueError('public-latest-upgrade-failed')
         result = {'success': True, 'version': version, 'discovery': discovery,
                   'previous_version': BASELINE['version'], 'public_fetch_verified': True,
+                  'migration_method': migration_method,
                   'public_update_latest_verified': True, 'host_python_absent_from_path': True}
         (output / 'delivered-smoke.json').write_text(json.dumps(result, indent=2) + '\n')
 

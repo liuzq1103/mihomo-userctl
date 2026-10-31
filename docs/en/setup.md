@@ -1,6 +1,6 @@
 # Install and initialize
 
-For the complete bundle, run `mihomoctl` and use the [terminal guide](console.md): the bundled core and dependencies need no system Python or virtual environment. Preview the subscription, then confirm saving and starting. The following explicit CLI steps are the advanced compatibility path for a prepared Linux/Python 3.10+ installation. Installation and init alone leave the runtime stopped. See [verified installation](../../INSTALL.md). For the current shell:
+For the complete bundle, run `mihomoctl` and use the [terminal guide](console.md): the bundled core and dependencies need no system Python or virtual environment. Preview the subscription, then confirm saving and starting. The following explicit CLI steps are a standard Python installation path for a prepared Linux/Python 3.10+ installation. Installation and init alone leave the runtime stopped. See [verified installation](../../INSTALL.md). For the current shell:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
@@ -31,12 +31,14 @@ Subscriptions, rules and probe settings are layered one key at a time onto the c
 
 ```bash
 mihomoctl reset --dry-run
-mihomoctl reset --apply
+mihomoctl reset --apply --plan-sha256 REVIEWED_PLAN_SHA256
 mihomoctl config validate
 mihomoctl restart
 ```
 
-Preview and apply share one removal list. `reset --apply` stops the runtime, then transactionally removes the manager configuration, the active core configuration, every `profiles/*.yaml` credential file and the leftover `.before-policy-*` backups and `.userctl-state.json` receipt, and republishes exactly the default shape `init` produces (random ports, random secrets, `MATCH,DIRECT`). Recovery material exists only during the operation and is removed after success; `mihomoctl reset --core PATH` re-initializes from a different core instead.
+Preview and apply share one removal list. `reset --apply` stops the runtime, then transactionally removes the manager configuration, the active core configuration, every `profiles/*.yaml` credential file and the leftover `.before-policy-*` backups and `.userctl-state.json` receipt, and republishes exactly the default shape `init` produces (random ports, random secrets, `MATCH,DIRECT`). Recovery material exists only during the operation and is removed after success. To use a different trusted core, pass the same `--core PATH` to both preview and apply.
+
+Runtime state changes, including starting or stopping the core, invalidate the preview digest. Review a new preview before applying. Reset preserves ownership, permission and symlink checks; it does not repair untrusted paths. A missing or damaged core requires a trusted replacement for preview. Invalid configuration can be repaired only when the owned runtime is confirmed inactive; otherwise stop it explicitly first.
 
 Configuration is what resets, not the installation: the Mihomo core binary, the subscription previews and the logs are all kept. Credentials and the controller secret are regenerated, so the old ones stop authenticating and any previously exported environment file must be exported again. `reset` does not touch subscriptions; run the [subscription](subscriptions.md) preview/apply yourself afterwards.
 
@@ -79,3 +81,5 @@ The default backend is a user process; root and systemd are unnecessary. `init` 
 | Runtime | `$XDG_RUNTIME_DIR/mihomoctl/`, or private state/runtime fallback |
 
 New configuration defaults to `MATCH,DIRECT`. Proceed to [subscriptions](subscriptions.md), [custom rules](rules.md), then [verification](first-run.md).
+
+[Python installation / 标准 Python 安装](python-install.md)

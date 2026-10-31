@@ -15,7 +15,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-EXCLUDED = {".git", ".aws", ".codex", ".agents", "__pycache__", ".pytest_cache", "dist", "build", ".venv", "outputs", "paseo.json", ".rel-stage-path", "rel-staging", "启动速查-codex-paseo.md"}
+EXCLUDED = {".git", ".aws", ".codex", ".agents", "__pycache__", ".pytest_cache", "dist", "build", ".venv", "outputs", "paseo.json", ".rel-stage-path", "rel-staging", "rewrite", "启动速查-codex-paseo.md"}
 
 
 def snapshot(destination, public=False):
@@ -112,7 +112,7 @@ def main():
                     parser.error("unsafe-wheelhouse-entry")
                 shutil.copyfile(candidate, wheelhouse / candidate.name)
                 (wheelhouse / candidate.name).chmod(0o600)
-            wheels = sorted(wheelhouse.glob("mihomoctl-*.whl"))
+            wheels = sorted(wheelhouse.glob("mihomo*-*.whl"))
             if len(wheels) != 1:
                 parser.error("wheelhouse must contain exactly one release wheel")
             run([python, "-m", "pip", "install", "--no-index", "--find-links",

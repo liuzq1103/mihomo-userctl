@@ -7,3 +7,5 @@ Preserve existing managers and active cores. For a new user, run `mihomoctl` and
 Default to user/process without sudo/systemd, shell startup edits or third-party service actions. Keep only current code, core and configuration. No historical backups or rollback. Recover unfinished transactions; preserve necessary temporary material on recovery failure. Verify version/help after installation; actual node connectivity requires an observed request.
 
 See [installation](../../INSTALL.md) and the [console guide](console.md).
+
+[Standard Python installation / 标准 Python 安装](python-install.md)

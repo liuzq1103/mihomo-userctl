@@ -45,6 +45,6 @@ Connections, providers, rules, logs, diagnostics and runtime controls are direct
 
 Only current code, core and configuration remain. There is no historical rollback or restore-backup button. Temporary recovery material exists only for unfinished transactions and is deleted after success or successful recovery. Failed recovery preserves necessary material and reports an error.
 
-Scripted `subscription preview --url-file` / `--source-file` and `subscription apply` remain available; explicitly start or restart after those commands. Advanced routing, health, integration and systemd commands are retained. Source extras/wheelhouse installation remains an advanced compatibility path.
+Scripted `subscription preview --url-file` / `--source-file` and `subscription apply` remain available; explicitly start or restart after those commands. Advanced routing, health, integration and systemd commands are retained. Standard Python extras/wheelhouse installation is also supported; see [Python installation](python-install.md).
 
 Close other mihomoctl interfaces for this account before updating. The update checks this before switching, keeping open interfaces usable; closing the UI leaves the core running. Cancelled previews are removed, and previews older than 24 hours are removed on the next UI launch or subscription operation. Raw subscriptions are parsed in memory.

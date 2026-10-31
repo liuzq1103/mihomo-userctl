@@ -31,12 +31,14 @@ mihomoctl init --core /absolute/path/to/mihomo --config /absolute/path/to/config
 
 ```bash
 mihomoctl reset --dry-run
-mihomoctl reset --apply
+mihomoctl reset --apply --plan-sha256 REVIEWED_PLAN_SHA256
 mihomoctl config validate
 mihomoctl restart
 ```
 
-预览和执行使用同一份待移除清单。`reset --apply` 会停止运行时，通过事务删除 manager 配置、活动核心配置、全部 `profiles/*.yaml` 凭据以及遗留的 `.before-policy-*` 备份和 `.userctl-state.json` 回执，然后用与 `init` 完全相同的默认形态重新发布（随机端口、随机密钥、`MATCH,DIRECT`）。恢复材料仅在操作未完成时临时存在，成功后删除；`mihomoctl reset --core PATH` 可以改用另一个核心重新初始化。
+预览和执行使用同一份待移除清单。`reset --apply` 会停止运行时，通过事务删除 manager 配置、活动核心配置、全部 `profiles/*.yaml` 凭据以及遗留的 `.before-policy-*` 备份和 `.userctl-state.json` 回执，然后用与 `init` 完全相同的默认形态重新发布（随机端口、随机密钥、`MATCH,DIRECT`）。恢复材料仅在操作未完成时临时存在，成功后删除。改用另一个可信核心时，在预览和执行时传入相同的 `--core PATH`。
+
+运行时状态变化（包括核心启动或停止）会使预览摘要失效，执行前必须重新预览并审阅。reset 保留所有权、权限和符号链接检查，不负责修复不可信路径；核心缺失或损坏时，预览需要可信的替代核心。配置损坏时，只有确认所属运行时未运行才能修复，否则应先显式停止运行时。
 
 被重置的是配置，不是安装：Mihomo 核心二进制、订阅 preview 缓存和日志都会保留。凭据与 controller secret 会重新生成，旧凭据立即失效，之前导出的环境文件需要重新导出。`reset` 不触碰订阅，导入完成后自行重新执行 [订阅](subscriptions.md) 的 preview/apply。
 
@@ -79,3 +81,5 @@ mihomoctl health check
 | 运行态 | `$XDG_RUNTIME_DIR/mihomoctl/`；未设置时回退私有 state/runtime |
 
 默认新配置为 `MATCH,DIRECT`。接下来依次阅读 [订阅](subscriptions.md)、[规则](rules.md)、[实际验证](first-run.md)。
+
+[Python installation / 标准 Python 安装](python-install.md)
