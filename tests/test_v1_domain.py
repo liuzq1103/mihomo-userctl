@@ -268,6 +268,33 @@ class DomainFiles(unittest.TestCase):
             with self.assertRaisesRegex(StateError, 'reset-preview-stale'):
                 app.reset(plan_sha256=preview['plan_sha256'])
 
+    def test_reset_rejects_missing_or_malformed_proof_before_reading_inputs(self):
+        from mihomoctl.app import Application
+        from mihomoctl.errors import UsageError
+        app = Application()
+        with patch.object(app, 'reset_preview', side_effect=AssertionError('read reset inputs')) as preview:
+            for proof in (None, '', 'short', 'g' * 64):
+                with self.subTest(proof=proof), self.assertRaisesRegex(UsageError, 'reset-preview-required'):
+                    app.reset(plan_sha256=proof)
+        preview.assert_not_called()
+        self.assertFalse(self.scope.manager_path.exists())
+
+    def test_reset_config_path_spelling_uses_core_config_trust_rules(self):
+        from mihomoctl.app import Application, require_readable_core_config
+        app = Application()
+        app.initialize(self._fake_core())
+        config = Path(app.load_manager().core.config)
+        spelling = str(config.parent) + '/./' + config.name
+        manager_text = self.scope.manager_path.read_text()
+        self.scope.manager_path.write_text(manager_text.replace(str(config), spelling))
+        with patch('mihomoctl.app.require_readable_core_config', wraps=require_readable_core_config) as trust:
+            preview = app.reset_preview()
+        self.assertEqual(len(preview['plan_sha256']), 64)
+        # Both the canonical replacement and the configured spelling must use
+        # core-config permissions (including system scope's supported 0640).
+        self.assertEqual(trust.call_count, 2)
+        self.assertTrue(all(call.args[0] == config for call in trust.call_args_list))
+
     def test_reset_proof_binds_credentials_and_effective_core(self):
         from mihomoctl.app import Application
         app = Application()
@@ -293,13 +320,16 @@ class DomainFiles(unittest.TestCase):
         self.assertIn('MATCH,DIRECT', path.read_text())
 
     def test_reset_preview_handles_manager_without_config_path(self):
-        from mihomoctl.app import Application
+        from mihomoctl.app import Application, require_readable_core_config
         app = Application()
         app.initialize(self._fake_core())
         body = self.scope.manager_path.read_text()
         body = '\n'.join(line for line in body.splitlines() if not line.strip().startswith('config:')) + '\n'
         self.scope.manager_path.write_text(body)
-        preview = app.reset_preview()
+        with patch('mihomoctl.app.require_readable_core_config', wraps=require_readable_core_config) as trust:
+            preview = app.reset_preview()
+        trust.assert_called_once_with(self.scope.config_root / 'mihomo' / 'config.yaml',
+                                      system_scope=self.scope.system)
         self.assertEqual(len(preview['plan_sha256']), 64)
         result = app.reset(plan_sha256=preview['plan_sha256'])
         self.assertEqual(result['state'], 'restart-required')
@@ -367,7 +397,7 @@ class DomainFiles(unittest.TestCase):
         from mihomoctl.app import Application
         from mihomoctl.errors import StateError
         with self.assertRaisesRegex(StateError, 'nothing to reset'):
-            Application().reset()
+            Application().reset(plan_sha256='0' * 64)
         app = Application()
         app.initialize(self._fake_core())
         self._imported_subscription_state()
@@ -383,7 +413,7 @@ class DomainFiles(unittest.TestCase):
         before = {str(path): path.read_bytes()
                   for path in sorted(self.home.rglob('*')) if path.is_file()}
         with self.assertRaisesRegex(ConfigError, 'missing binary'):
-            app.reset(core=str(self.home / 'absent' / 'mihomo'))
+            app.reset(core=str(self.home / 'absent' / 'mihomo'), plan_sha256='0' * 64)
         self.assertEqual(before, {str(path): path.read_bytes()
                                   for path in sorted(self.home.rglob('*')) if path.is_file()})
 

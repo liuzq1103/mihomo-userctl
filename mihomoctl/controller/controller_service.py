@@ -260,6 +260,12 @@ def cross_level_selection(rows, group, node):
 
 
 def select(client, group, node, *, allow_cross_level=False):
+    app = getattr(client, 'app', None)
+    if app is not None:
+        try:
+            app.scope.require_mutation()
+        except MihomoctlError as error:
+            raise ControlError(error.code, error.exit_code) from None
     client.verify()
     rows = proxies(client)
     if group not in rows or not rows[group].get("selectable"):

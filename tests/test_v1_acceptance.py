@@ -550,6 +550,23 @@ class PrivilegedAcceptance(unittest.TestCase):
         self.wait_cli(None, "status")
         self.cli(None, "service", "stop")
 
+        # Legacy managers may omit core.config. The canonical system core YAML
+        # still has its supported 0640 permissions, including during reset.
+        from mihomoctl.config import load_manager, render_manager
+        from mihomoctl.scope import Scope
+        scope = Scope(system=True)
+        manager = load_manager(scope)
+        self.assertEqual(Path(manager.core.config).stat().st_mode & 0o777, 0o640)
+        original = scope.manager_path.read_bytes()
+        manager.core.config = None
+        try:
+            scope.manager_path.write_text(render_manager(manager))
+            preview = self.cli(None, 'reset', '--dry-run')
+            self.assertEqual(preview['data']['state'], 'preview')
+            self.assertEqual(len(preview['data']['plan_sha256']), 64)
+        finally:
+            scope.manager_path.write_bytes(original)
+
     def test_35_unit_reload_recovery_restores_real_cached_definition(self):
         from mihomoctl import config
         from mihomoctl.scope import Scope

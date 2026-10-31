@@ -134,6 +134,39 @@ class ControllerTests(unittest.TestCase):
         with self.assertRaisesRegex(c.ControlError, "conflicting-tui-engines"):
             c.main(["tui", "--plain", "--engine", "textual"])
 
+    def test_plain_selection_failure_stays_interactive_and_hides_private_details(self):
+        for cross_level in (False, True):
+            errors = ([c.ControlError('cross-level-selection-refused')] if cross_level else [])
+            errors.append(c.ControlError('selection-target-unverified', detail='PRIVATE-CREDENTIAL'))
+            answers = ['1', '2', 'y'] + (['y'] if cross_level else []) + ['q']
+            with self.subTest(cross_level=cross_level), contextlib.redirect_stdout(io.StringIO()) as output, \
+                    patch.object(sys.stdin, 'isatty', return_value=True), \
+                    patch.object(sys.stdout, 'isatty', return_value=True), \
+                    patch('builtins.input', side_effect=answers), \
+                    patch('mihomoctl.controller.controller_console.select', side_effect=errors) as choose:
+                self.assertEqual(c.plain_tui(self.client)['state'], 'closed')
+            self.assertIn('selection-target-unverified', output.getvalue())
+            self.assertNotIn('PRIVATE-CREDENTIAL', output.getvalue())
+            self.assertNotIn('Selection confirmed', output.getvalue())
+            self.assertEqual(choose.call_count, 2 if cross_level else 1)
+            if cross_level:
+                self.assertTrue(choose.call_args.kwargs['allow_cross_level'])
+
+    def test_curses_entry_keeps_the_injected_application_client(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        app = SimpleNamespace()
+        managed_client = Mock()
+        with patch.object(c, 'read_config', return_value=(None, {}, None)), \
+                patch.object(c, 'endpoint', return_value=(self.server.server_port, TOKEN)), \
+                patch('mihomoctl.controller.controller_service.ConsoleService') as service, \
+                patch.object(c, 'tui', return_value={'state': 'closed'}) as tui, \
+                contextlib.redirect_stdout(io.StringIO()):
+            service.return_value.client.return_value = managed_client
+            self.assertEqual(c.main(['tui', '--engine', 'curses'], app=app), 0)
+        self.assertIs(service.call_args.kwargs['app'], app)
+        self.assertIs(tui.call_args.args[0], managed_client)
+
     @unittest.skipUnless(importlib.util.find_spec("yaml"), "optional Controller YAML dependency")
     def test_log_stream_private_projection_and_detail_credential_redaction(self):
         for details in (False, True):

@@ -40,7 +40,7 @@ python3 -m pip install --user --upgrade mihomo-userctl
 python3 -m pip uninstall mihomo-userctl
 ```
 
-Run pip in the same interpreter/environment used for installation. Remove legacy distribution `mihomoctl` with its original manager before installing the renamed package; both provide the same CLI. Do not install different methods over each other's launcher. `mihomoctl update` refuses external installs, even if this user still has an old complete-install receipt. Uninstall removes package code; it does not remove manager data or stop a core. Stop the owned runtime explicitly before removing the tool if required.
+Run pip in the same interpreter/environment used for installation. Remove legacy distribution `mihomoctl` with its original manager before installing the renamed package; both provide the same CLI. Do not install different methods over each other's launcher. `mihomoctl update` refuses external installs, including `--dry-run`, even if this user still has an old complete-install receipt. Uninstall removes package code; it does not remove manager data or stop a core. Stop the owned runtime explicitly before removing the tool if required.
 
 Offline wheelhouse installation requires all compatible dependency wheels. Installing an sdist offline additionally requires trusted build dependencies. No package post-install hook initializes a manager or downloads a core.
 

@@ -92,7 +92,8 @@ class PublicGrammarTests(unittest.TestCase):
             with patch.dict(os.environ, environment, clear=True):
                 # Neither action, both actions, or a value flag with no action.
                 for words in (['reset'], ['reset', '--dry-run', '--apply'],
-                              ['reset', '--core', '/missing/core']):
+                              ['reset', '--core', '/missing/core'],
+                              ['reset', '--plan-sha256', 'a' * 64]):
                     with self.subTest(words=words), contextlib.redirect_stdout(io.StringIO()) as output:
                         self.assertEqual(main([*words, '--json']), 2)
                         self.assertEqual(json.loads(output.getvalue())['errors'][0]['code'], 'usage-error')

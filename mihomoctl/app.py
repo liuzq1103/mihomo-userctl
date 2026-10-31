@@ -458,7 +458,8 @@ class Application:
             if name == binary:
                 info = require_executable_file(path, as_root=self.scope.system)
                 info = path.stat() if info is None else info
-            elif name == manager.core.config:
+            elif path == self.scope.config_root / 'mihomo' / 'config.yaml' or (
+                    manager.core.config is not None and path == Path(manager.core.config)):
                 require_readable_core_config(path, system_scope=self.scope.system)
                 info = path.stat()
             else:
@@ -489,9 +490,9 @@ class Application:
         scope.require_mutation()
         import hmac
         import re
-        preview = self.reset_preview(core)
         if not isinstance(plan_sha256, str) or not re.fullmatch('[0-9a-f]{64}', plan_sha256):
             raise UsageError('reset-preview-required', 'review reset --dry-run and supply --plan-sha256 after explicit authorization')
+        preview = self.reset_preview(core)
         if not hmac.compare_digest(preview['plan_sha256'], plan_sha256):
             raise StateError('reset-preview-stale', 'state changed; review a new reset --dry-run')
         from .transaction import run_transaction

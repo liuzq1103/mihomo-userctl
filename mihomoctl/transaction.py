@@ -366,9 +366,12 @@ def restore_failed_operation(tx):
         tx.rollback()
         return
     if tx.runtime is not None and tx.runtime.get('phase') != 'prepared':
-        _app, backend = _runtime_backend(tx)
-        if backend.status().get('running'):
-            backend.stop()
+        try:
+            _app, backend = _runtime_backend(tx)
+            if backend.status().get('running'):
+                backend.stop()
+        except Exception:
+            raise RollbackFailedError('rollback-failed', 'runtime cessation is unverified; recovery journal retained') from None
     tx.rollback(finish=tx.runtime is None)
     if tx.runtime is not None:
         _restore_runtime(tx)

@@ -251,7 +251,11 @@ def main(argv=None, app=None):
                 raise ControlError("token-display-requires-terminal-without-json")
             print(token)
             return 0
-        client = Client(port, token)
+        if args.command == 'tui' and app is not None:
+            from .controller_service import ConsoleService
+            client = ConsoleService(config, args.home_dir, args.details, app=app).client()
+        else:
+            client = Client(port, token)
         client.verify()
         if args.command in ("nodes", "groups", "connections", "traffic"):
             payload = snapshot(client, args.command, args.details)

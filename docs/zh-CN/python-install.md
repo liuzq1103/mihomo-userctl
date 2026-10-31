@@ -40,7 +40,7 @@ python3 -m pip install --user --upgrade mihomo-userctl
 python3 -m pip uninstall mihomo-userctl
 ```
 
-pip 必须使用原安装解释器/环境。旧 distribution `mihomoctl` 与新包提供同名 CLI，应先用原工具卸载旧包。不同安装方式不得覆盖彼此入口。即使用户目录有旧完整包回执，外部 Python 安装也不能使用内置 update 接管它。卸载删除程序包，不删除 manager 数据、不停止核心；需要停止时先显式停止自己的运行时。
+pip 必须使用原安装解释器/环境。旧 distribution `mihomoctl` 与新包提供同名 CLI，应先用原工具卸载旧包。不同安装方式不得覆盖彼此入口。即使用户目录有旧完整包回执，外部 Python 安装也不能使用内置 update 接管它，`--dry-run` 同样会被拒绝。卸载删除程序包，不删除 manager 数据、不停止核心；需要停止时先显式停止自己的运行时。
 
 离线 wheelhouse 必须包含所有匹配的依赖 wheel；离线安装 sdist 还需可信构建依赖。安装包没有自动初始化 manager 或下载核心的后置钩子。
 

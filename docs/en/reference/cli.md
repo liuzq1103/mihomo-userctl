@@ -746,7 +746,7 @@ usage: mihomoctl reset [-h] (--dry-run | --apply) [--core CORE]
 
 Restore the managed runtime to its initial defaults.
 
-Effects: DESTRUCTIVE: replaces configuration and credentials and stops the owned runtime. First use --dry-run; only after explicit human authorization use --apply --plan-sha256 HASH. No historical rollback.
+Effects: DESTRUCTIVE: replaces configuration and credentials and stops the owned runtime. First use --dry-run; only after explicit human authorization use --apply --plan-sha256 HASH. Runtime state changes invalidate the preview. No historical rollback.
 
 options:
   -h, --help            show this help message and exit
@@ -841,7 +841,7 @@ usage: mihomoctl update [-h] [--dry-run] [--latest] [--allow-same-version]
 
 Preview or install a reviewed release.
 
-Effects: Complete installations only: atomically replaces managed program code. Does not replace the active core. --latest downloads reviewed assets; local-source updates are offline. External Python installs must use their package manager.
+Effects: Complete installations only: atomically replaces managed program code. Does not replace the active core. --latest downloads reviewed assets; local-source updates are offline. External Python installs must use their package manager; this command also refuses --dry-run for those installs.
 
 positional arguments:
   source                reviewed local release archive or directory

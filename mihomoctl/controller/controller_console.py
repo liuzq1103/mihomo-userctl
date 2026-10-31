@@ -254,13 +254,17 @@ def plain_tui(client):
             node = group["members"][int(answer) - 1]
             if input("确认将 {} 切换为 {}？共享入口影响见上方 [y/N]: ".format(group["name"], node)).strip().lower() == "y":
                 try:
-                    select(client, group["name"], node)
+                    try:
+                        select(client, group["name"], node)
+                    except ControlError as error:
+                        if error.code != 'cross-level-selection-refused':
+                            raise
+                        if input("此选择将跳过子组层级。明确授权跨层切换？[y/N]: ").strip().lower() != 'y':
+                            continue
+                        select(client, group['name'], node, allow_cross_level=True)
                 except ControlError as error:
-                    if error.code != 'cross-level-selection-refused':
-                        raise
-                    if input("此选择将跳过子组层级。明确授权跨层切换？[y/N]: ").strip().lower() != 'y':
-                        continue
-                    select(client, group['name'], node, allow_cross_level=True)
+                    print(error_text(error.code))
+                    continue
                 print("已确认切换；已有连接不强制断开。 / Selection confirmed; existing connections unchanged.")
 
 
