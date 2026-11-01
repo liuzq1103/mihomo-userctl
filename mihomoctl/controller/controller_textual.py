@@ -241,6 +241,9 @@ class Console(App):
     #toolbar Button { min-width: 8; width: auto; }
     #source-kind { width: 16; }
     #source-policy { width: 26; min-width: 26; }
+    /* Align wide glyphs with the underlying toolbar's compositor cuts.
+       Textual 8.2.8 can erase CJK glyphs split by covered widget boundaries. */
+    #source-policy SelectOverlay > .option-list--option { padding: 0 2; }
     .narrow #subscription-source { height: 6; layout: grid; grid-size: 2 2; grid-columns: 16 1fr; grid-rows: 3; }
     .narrow #source-policy { width: 1fr; }
     .narrow #source-path { column-span: 2; }
@@ -400,7 +403,9 @@ class Console(App):
         if self.page == "logs" and page != "logs":
             self.store.stop_stream("logs")
         self.page = self.store.state.page = page
-        self.query_one('#navigation', Select).value = page
+        # Mirroring the page must not queue a second navigation request.
+        with self.prevent(Select.Changed):
+            self.query_one('#navigation', Select).value = page
         active = page
         for name in PAGES:
             button = "profiles" if name == "subscriptions" else name
@@ -432,7 +437,7 @@ class Console(App):
 
     def on_select_changed(self, event):
         if event.select.id == "navigation" and event.value in PAGES:
-            if event.value != self.page:
+            if event.value == event.select.value and event.value != self.page:
                 self.change_page(event.value)
         elif event.select.id == "mode-select" and event.value in ("rule", "global", "direct"):
             if (not event.select.disabled and event.value == event.select.value

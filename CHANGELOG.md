@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased / 未发布
+
+- Keep all five Chinese subscription-policy labels visible in the expanded Textual menu, including compact and odd-width terminals, without changing the pinned UI dependencies.
+- Prevent page changes from feeding back through queued navigation events; retain navigation buttons, shortcuts and legacy page aliases.
+- 修复 Textual 展开策略列表时中文首字被叠层裁切的问题，覆盖紧凑及奇数列宽终端，保持界面依赖版本不变。
+- 修复过期导航事件导致页面反复跳转的问题，保留导航按钮、快捷键及历史页面别名兼容。
+
 ## [1.5.0] - 2026-10-31
 
 - Add Agent-first help, explicit layered selection authorization and digest-bound reset previews; preserve current selection persistence and existing JSON/exit semantics.

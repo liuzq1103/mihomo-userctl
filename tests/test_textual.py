@@ -9,6 +9,7 @@ if sys.platform != "linux" or importlib.util.find_spec("textual") is None:
 
 from mihomoctl.controller.controller_textual import clearing_warnings, preview_summary, report_lines, Console
 from textual.widgets import DataTable, Input, Select, RichLog
+from unittest.mock import patch
 
 
 class Service:
@@ -50,6 +51,27 @@ class Service:
         self.subscription_apply(identifier, digest)
         self.shell('restart')
         return {'state': 'ready', 'action': 'restart', 'overall': 'PASS'}
+
+
+class ObservedNavigationConsole(Console):
+    """Bound a feedback loop so a regression fails instead of wedging the suite."""
+    def __init__(self, *args, **kwargs):
+        self.page_changes = []
+        self.navigation_events = []
+        self.navigation_loop = False
+        super().__init__(*args, **kwargs)
+
+    def change_page(self, page):
+        self.page_changes.append(page)
+        if len(self.page_changes) > 20:
+            self.navigation_loop = True
+            return
+        return super().change_page(page)
+
+    def on_select_changed(self, event):
+        if event.select.id == 'navigation':
+            self.navigation_events.append(event.value)
+        return super().on_select_changed(event)
 
 
 class TextualTests(unittest.IsolatedAsyncioTestCase):
@@ -657,6 +679,130 @@ class TextualTests(unittest.IsolatedAsyncioTestCase):
                 return
             await pilot.pause(.02)
         self.fail("condition not reached: " + description)
+
+    def assert_policy_overlay_labels(self, app, selector):
+        overlay = selector.query_one('SelectOverlay')
+        region = overlay.region
+        self.assertGreater(region.area, 0)
+        # The option's own render contains the character even when compositor
+        # cuts from a covered widget erase it. Inspect the final screen cells.
+        strips = app.screen._compositor.render_strips()
+        visible = [strip.crop(region.x, region.right).text
+                   for strip in strips[region.y:region.bottom]]
+        for label in ('简单节点选择', '订阅完整策略', '仅合并节点', '仅叠加策略', '自动判断'):
+            self.assertTrue(any(label in row for row in visible), (label, visible))
+
+    async def test_policy_overlay_keeps_chinese_labels_in_composited_screen(self):
+        sizes = ((60, 14), (61, 14), (79, 23), (80, 14), (80, 24), (81, 24),
+                 (100, 32), (109, 24), (110, 24), (111, 36), (120, 14), (141, 36))
+        for size in sizes:
+            with self.subTest(size=size):
+                app = Console(Service())
+                async with app.run_test(size=size) as pilot:
+                    app.change_page('subscriptions')
+                    await self.settle(pilot, app, 'subscriptions')
+                    selector = app.query_one('#source-policy', Select)
+                    for value in ('simple', 'provider', 'nodes', 'policy', 'auto'):
+                        selector.value = value
+                        selector.expanded = True
+                        await pilot.pause(.05)
+                        self.assert_policy_overlay_labels(app, selector)
+                        selector.expanded = False
+                        await pilot.pause(.02)
+
+    async def test_policy_overlay_keyboard_mouse_cancel_and_resize(self):
+        service = Service()
+        app = Console(service)
+        async with app.run_test(size=(80, 24)) as pilot:
+            app.change_page('subscriptions')
+            await self.settle(pilot, app, 'subscriptions')
+            selector = app.query_one('#source-policy', Select)
+            selector.focus()
+            await pilot.press('enter')
+            self.assertTrue(selector.expanded)
+            self.assert_policy_overlay_labels(app, selector)
+            await pilot.press('down', 'enter')
+            await pilot.pause()
+            self.assertEqual(selector.value, 'provider')
+            self.assertEqual(app.source_policy, 'provider')
+            self.assertFalse(selector.expanded)
+
+            await pilot.click(selector.query_one('SelectCurrent'))
+            await pilot.pause()
+            self.assertTrue(selector.expanded)
+            overlay = selector.query_one('SelectOverlay')
+            await pilot.click(overlay, offset=(4, 1))
+            await pilot.pause()
+            self.assertEqual(selector.value, 'simple')
+            self.assertEqual(app.source_policy, 'simple')
+            self.assertFalse(selector.expanded)
+
+            selector.focus()
+            await pilot.press('enter')
+            await pilot.resize_terminal(61, 14)
+            await pilot.pause()
+            self.assertTrue(selector.expanded)
+            self.assert_policy_overlay_labels(app, selector)
+            await pilot.press('down', 'escape')
+            self.assertFalse(selector.expanded)
+            self.assertEqual(selector.value, 'simple')
+            self.assertEqual(app.source_policy, 'simple')
+            self.assertEqual(service.calls, [])
+
+    async def test_page_changes_ignore_stale_events_and_do_not_feed_back(self):
+        app = ObservedNavigationConsole(Service())
+        async with app.run_test(size=(80, 24)) as pilot:
+            await self.settle(pilot, app, 'overview')
+            app.page_changes.clear()
+            app.navigation_events.clear()
+            app.change_page('subscriptions')
+            app.change_page('proxies')
+            await pilot.pause(.2)
+            self.assertFalse(app.navigation_loop)
+            self.assertEqual(app.page_changes, ['subscriptions', 'proxies'])
+            self.assertEqual(app.navigation_events, [])
+            self.assertEqual(app.page, 'proxies')
+
+            navigation = app.query_one('#navigation', Select)
+            navigation.value = 'rules'
+            navigation.value = 'profile'
+            await pilot.pause(.2)
+            self.assertEqual(app.page_changes, ['subscriptions', 'proxies', 'profile'])
+            self.assertEqual(app.page, 'profile')
+            self.assertEqual(app.store.state.page, 'profile')
+            self.assertEqual(navigation.value, 'profile')
+
+            app.action_connections()
+            await self.settle(pilot, app, 'connections')
+            self.assertEqual(app.page, 'connections')
+            await pilot.click('#nav-profiles')
+            await self.settle(pilot, app, 'subscriptions')
+            self.assertEqual(app.page, 'subscriptions')
+            self.assertEqual(navigation.value, 'subscriptions')
+            self.assertFalse(app.navigation_loop)
+
+    async def test_first_setup_page_and_seeded_preview_remain_stable(self):
+        class Preparing(Service):
+            def prepare(self):
+                self.calls.append('prepare')
+                return {'state': 'ready'}
+        for seeded in (False, True):
+            with self.subTest(seeded=seeded):
+                preview = ({'state': 'preview', 'id': 'a' * 32, 'sha256': 'b' * 64,
+                            'policy': 'nodes', 'nodes': 1} if seeded else None)
+                service = Preparing()
+                app = ObservedNavigationConsole(service, initial_preview=preview)
+                with patch('mihomoctl.onboarding.needs_setup', return_value=True):
+                    async with app.run_test(size=(80, 24)) as pilot:
+                        await self.settle(pilot, app, 'subscriptions')
+                        await self.wait_for(pilot, lambda: 'operation' not in app.store.pending,
+                                            'first setup completes')
+                        await pilot.pause(.2)
+                        self.assertFalse(app.navigation_loop)
+                        self.assertEqual(app.page, 'subscriptions')
+                        self.assertEqual(app.query_one('#navigation', Select).value, 'subscriptions')
+                        self.assertIs(app.preview, preview)
+                        self.assertEqual(service.calls, ['prepare'])
 
     async def test_search_markup_safe_select_requires_confirmation_and_keeps_focus(self):
         service = Service(); app = Console(service)
