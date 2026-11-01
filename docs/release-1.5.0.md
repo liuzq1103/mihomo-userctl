@@ -24,6 +24,6 @@ Complete offline bundles retain the pinned Python, Textual, dependencies and Mih
 
 完整离线包继续包含固定版本的 Python、Textual、依赖及 Mihomo 核心。1.4.x 更新器不能发现改名后的资产，须核验新版完整包并运行其安装器，完成一次性迁移。已验收的迁移保留配置、凭据、运行中的核心和当前节点选择；程序代码继续只保留当前版本。详见上述双语离线安装指南。
 
-Publication requires exact-commit two-Ubuntu acceptance, reviewed asset inventories and actual draft digest checks, with valid Codex, GLM and MiniMax reviews. PyPI uses manual Trusted Publishing with protected environment approval and the same accepted wheel/sdist, without rebuilding them. Development versions cannot be formally published. Quota failures and interrupted reviews are not approval; public-index installation is verified only after publication.
+Publication requires exact-commit two-Ubuntu acceptance, reviewed asset inventories and valid independent reviews of the exact candidate SHA and actual draft asset hashes. PyPI uses manual Trusted Publishing with protected environment approval and the same accepted wheel/sdist, without rebuilding them. Development versions cannot be formally published. Quota failures and interrupted reviews are not approval; public-index installation is verified only after publication.
 
-正式发布要求同提交的双 Ubuntu 验收、发行清单及实际草稿摘要核验，并通过 Codex、GLM 和 MiniMax 有效审核。PyPI 使用手动 Trusted Publishing 和受保护环境审批，上传同批验收通过的 wheel/sdist，不重新构建。开发版不得正式发布；配额失败或中断的审核不算批准，公共索引安装仅在发布后验证。
+正式发布要求同提交的双 Ubuntu 验收、发行清单，以及对完整候选 SHA 和实际草稿资产摘要的有效独立审核。PyPI 使用手动 Trusted Publishing 和受保护环境审批，上传同批验收通过的 wheel/sdist，不重新构建。开发版不得正式发布；配额失败或中断的审核不算批准，公共索引安装仅在发布后验证。
