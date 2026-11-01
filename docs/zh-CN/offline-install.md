@@ -50,4 +50,4 @@ bash install.sh --user --python /usr/bin/python3 --wheelhouse "$kit_root/wheelho
 bash install.sh --user --python /usr/bin/python3 --wheelhouse "$kit_root/wheelhouse"
 ```
 
-The hyphenated source archive is the reviewed install.sh source tree; the underscored archive is the standard Python sdist for pip/build tools. They have separate inventories and are not interchangeable.
+名称使用连字符的源码归档是经过审核、供 install.sh 使用的源码树；名称使用下划线的归档是供 pip/build 等工具使用的标准 Python sdist。两者分别使用独立的文件清单校验，不可互换。

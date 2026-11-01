@@ -34,8 +34,8 @@ release gate 必须同时检查两个系统的完整包报告及一致的完整�
 
 先以成功的 main push 测试 run ID 调度 `publish.yml`，设置 `publish=false`。发布器核验该既有 CI run，重新验证其发布门禁与证据、精确提交/版本及资产名称、大小、摘要，再恢复或创建草稿并下载全部资产逐字节核验；它不重新执行完整 CI 测试矩阵。两方审查实际草稿证据后，以同一 run ID 和 `publish=true` 再次调度。已有 tag 必须对应验收提交，正式资产与说明不得覆盖。公开烟测在隔离 home 验证下载与获取；对于改名资产，先用新版安装器从 v1.4.0 迁移，再验证新版 CLI 的 `update --latest`。公开烟测失败时保留证据并通过后续修复版本处理，不替换已发布文件。
 
-## Python distribution and development candidates
+## Python 分发与开发候选版本
 
-Distribution/new assets use `mihomo-userctl`; import, CLI and XDG paths stay `mihomoctl`. Wheel/sdist names use normalized `mihomo_userctl`. The old pinned upgrade baseline keeps its old name. Standard sdist must rebuild a reviewed wheel outside the checkout. Python installation evidence is required for both Ubuntu targets.
+Python 分发包与新发行资产使用 `mihomo-userctl`；import 包、CLI 和 XDG 路径继续使用 `mihomoctl`。wheel/sdist 文件名使用规范化的 `mihomo_userctl`。固定的旧版升级基线保留原名称。标准 sdist 必须能在仓库检出目录之外重建通过清单审核的 wheel。两个 Ubuntu 目标环境都必须提供 Python 安装验收证据。
 
-Development version `1.5.0.dev0` may build and pass candidate acceptance but must never be formally published. PyPI uses only manual Trusted Publishing from the exact successful main CI artifacts, with protected `pypi` environment approval and minimal OIDC permissions. No tag automatically uploads. The PyPI project/pending publisher and GitHub environment must be configured by the authorized maintainer before a separately authorized formal release. A PyPI 404 does not reserve the name. Public-index install verification occurs only after publication.
+开发版本 `1.5.0.dev0` 可以构建并通过候选版本验收，但不得正式发布。PyPI 仅通过手动 Trusted Publishing 发布成功的 main CI 所验收的同一批产物，并要求受保护的 `pypi` 环境审批及最小 OIDC 权限。任何 tag 都不会自动触发上传。正式发布须另行获得授权；发布前，由获授权的维护者配置 PyPI 项目或待创建项目的发布者（pending publisher），以及 GitHub 环境。PyPI 返回 404 不代表名称已被预留。公共索引安装验证仅在发布后执行。
