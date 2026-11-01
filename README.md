@@ -4,8 +4,8 @@
 
 [English](README.en.md) · [安装与升级](INSTALL.md) · [双语文档](docs/README.md)
 
-<!-- stable-version: 1.5.0 -->
-本源码版本：**1.5.0**。完整安装包由 GitHub Releases 提供。下列公共索引命令需要 PyPI 项目正式发布；该通道启用前，可安装发行页的 wheel 或本地源码。
+<!-- stable-version: 1.5.1 -->
+本源码版本：**1.5.1**。完整安装包由 GitHub Releases 提供。下列公共索引命令需要 PyPI 项目正式发布；该通道启用前，可安装发行页的 wheel 或本地源码。
 
 ## 两种安装方式
 
@@ -46,7 +46,7 @@ mihomoctl nodes --json
 Python 安装需先准备可信核心。新 x86_64 环境需要下载时，显式选择已维护摘要的固定版本；已有 manager 不要重复初始化或替换核心：
 
 ```bash
-mihomoctl core install --version v1.19.32
+mihomoctl core install --version v1.19.33
 mihomoctl init --core /absolute/path/to/mihomo
 mihomoctl config validate
 mihomoctl start

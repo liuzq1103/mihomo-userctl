@@ -4,8 +4,8 @@ An Agent-first, user-level Mihomo manager for shared Linux servers, implemented 
 
 [中文](README.md) · [Installation](INSTALL.md) · [Documentation](docs/en/README.md)
 
-<!-- stable-version: 1.5.0 -->
-Source version: **1.5.0**. Complete bundles are delivered through GitHub Releases. Public-index commands require a published PyPI project; until that channel is enabled, install the release wheel or local source.
+<!-- stable-version: 1.5.1 -->
+Source version: **1.5.1**. Complete bundles are delivered through GitHub Releases. Public-index commands require a published PyPI project; until that channel is enabled, install the release wheel or local source.
 
 ## Two installation paths
 
@@ -46,7 +46,7 @@ Record every affected group's original choice. Adjust the regional group first, 
 Python installations need a trusted core. On a new x86_64 setup, explicitly install the maintained fixed version if needed. Preserve existing managers and active cores:
 
 ```bash
-mihomoctl core install --version v1.19.32
+mihomoctl core install --version v1.19.33
 mihomoctl init --core /absolute/path/to/mihomo
 mihomoctl config validate
 mihomoctl start

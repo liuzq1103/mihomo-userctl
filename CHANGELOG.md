@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.1] - 2026-11-01
+
+- Update the fixed Linux amd64-compatible bundle and acceptance core to Mihomo v1.19.33 using the official asset digest; retain the reviewed v1.19.32 digest for explicit installs. Existing user cores are not upgraded automatically.
+- 完整包与验收固定核心升级至 Mihomo v1.19.33（Linux amd64-compatible），核对官方资产摘要，保留 v1.19.32 的已审核摘要供显式安装；不自动升级用户现有核心。
+- Keep all five Chinese subscription-policy labels visible in the expanded Textual menu, including compact and odd-width terminals, without changing the pinned UI dependencies.
+- Prevent page changes from feeding back through queued navigation events; retain navigation buttons, shortcuts and legacy page aliases.
+- 修复 Textual 展开策略列表时中文首字被叠层裁切的问题，覆盖紧凑及奇数列宽终端，保持界面依赖版本不变。
+- 修复过期导航事件导致页面反复跳转的问题，保留导航按钮、快捷键及历史页面别名兼容。
+
 ## [1.5.0] - 2026-10-31
 
 - Add Agent-first help, explicit layered selection authorization and digest-bound reset previews; preserve current selection persistence and existing JSON/exit semantics.

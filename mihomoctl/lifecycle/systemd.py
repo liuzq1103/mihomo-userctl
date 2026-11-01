@@ -155,7 +155,7 @@ def unit_text(manager: Manager, scope):
         "Restart=on-failure",
         "RestartSec=3",
         "UMask=0077",
-        # Complete CLASH flag vocabulary in the pinned v1.19.32 main.go.
+        # Complete CLASH flag vocabulary in the pinned v1.19.33 main.go.
         # systemd does not support prefix wildcards in UnsetEnvironment.
         CORE_ENVIRONMENT,
     ]

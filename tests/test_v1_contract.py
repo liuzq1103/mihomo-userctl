@@ -308,7 +308,7 @@ else:
             result = self.run_shell(self.recipe('setup.md', 'core install --version', lang))
             self.assertEqual(result.returncode, 0, result.stderr)
             commands = (self.home / 'core-commands').read_text().splitlines()
-            self.assertEqual(commands[0], 'core install --version v1.19.32')
+            self.assertEqual(commands[0], 'core install --version v1.19.33')
             self.assertEqual(commands[-1], 'config validate')
             self.assertEqual(sum(line.startswith('init --core ') for line in commands), 1)
             self.assertFalse(any(line.split()[0] in ('start', 'restart', 'service') for line in commands))

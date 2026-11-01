@@ -93,8 +93,8 @@ jobs:
           if [ "$rc" -ne 0 ]; then exit "$rc"; fi
       - name: Prepare pinned real Mihomo binary
         run: |
-          curl --fail --location --retry 3 --output "$RUNNER_TEMP/mihomo.gz" https://github.com/MetaCubeX/mihomo/releases/download/v1.19.32/mihomo-linux-amd64-compatible-v1.19.32.gz
-          printf '%s  %s\n' ba3ce607747a07f948fc35780e108a4a7c7f552a38b9bd4d115f313ebcb89c20 "$RUNNER_TEMP/mihomo.gz" | sha256sum --check --strict
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/mihomo.gz" https://github.com/MetaCubeX/mihomo/releases/download/v1.19.33/mihomo-linux-amd64-compatible-v1.19.33.gz
+          printf '%s  %s\n' 386508bfb1c72c43b6a0eda73708ecdce82546581b0ebcb16366c53757c622b6 "$RUNNER_TEMP/mihomo.gz" | sha256sum --check --strict
           gzip --decompress --stdout "$RUNNER_TEMP/mihomo.gz" > "$RUNNER_TEMP/mihomo"
           chmod 755 "$RUNNER_TEMP/mihomo"
           "$RUNNER_TEMP/mihomo" -v

@@ -1,6 +1,6 @@
 # Standard Python installation
 
-These instructions target version 1.5.0. Index commands require the corresponding PyPI publication; release wheels and local source remain available independently.
+These instructions target version 1.5.1. Index commands require the corresponding PyPI publication; release wheels and local source remain available independently.
 
 ```bash
 uv tool install mihomo-userctl

@@ -89,14 +89,19 @@ class SupplyChainTests(unittest.TestCase):
         self.assertFalse(coreinstall._version_matches('Mihomo Meta v1.19.320 linux amd64','v1.19.32'))
 
     def test_pinned_table_has_reviewed_digest_and_rejects_duplicate_entry(self):
-        pin = digests.lookup("v1.19.32", "mihomo-linux-amd64-compatible-v1.19.32.gz")
-        self.assertEqual(pin["sha256"], "ba3ce607747a07f948fc35780e108a4a7c7f552a38b9bd4d115f313ebcb89c20")
+        pin = digests.lookup("v1.19.33", "mihomo-linux-amd64-compatible-v1.19.33.gz")
+        self.assertEqual(pin["sha256"], "386508bfb1c72c43b6a0eda73708ecdce82546581b0ebcb16366c53757c622b6")
+        self.assertEqual(next(iter(digests.load_pins())), (pin['version'], pin['asset']))
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "pins.json"
             path.write_text(json.dumps({"format": 1, "pins": [pin, pin]}), encoding="utf-8")
             path.chmod(0o600)
             with patch.object(digests, "DIGESTS_FILE", path), self.assertRaisesRegex(SupplyChainError, "digest-table-duplicate"):
                 digests.load_pins()
+
+    def test_previous_reviewed_core_remains_explicitly_installable(self):
+        pin = digests.lookup('v1.19.32', 'mihomo-linux-amd64-compatible-v1.19.32.gz')
+        self.assertEqual(pin['sha256'], 'ba3ce607747a07f948fc35780e108a4a7c7f552a38b9bd4d115f313ebcb89c20')
 
 
 if __name__ == "__main__":
