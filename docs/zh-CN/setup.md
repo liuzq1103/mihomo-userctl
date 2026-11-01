@@ -44,12 +44,12 @@ mihomoctl restart
 
 ## 显式安装固定版本核心
 
-没有可信现有核心且允许联网的新装，默认使用 **v1.19.32**，不要求用户另选版本；这是项目固定测试版本，不表示上游最新版。仓库摘要目前只覆盖 Linux **x86_64 / amd64-compatible**。在该架构执行：
+没有可信现有核心且允许联网的新装，默认使用 **v1.19.33**，不要求用户另选版本；这是项目固定测试版本，不表示上游最新版。仓库摘要目前只覆盖 Linux **x86_64 / amd64-compatible**。在该架构执行：
 
 ```bash
-mihomoctl core install --version v1.19.32
+mihomoctl core install --version v1.19.33
 mihomoctl core list
-mihomoctl init --core "${XDG_DATA_HOME:-$HOME/.local/share}/mihomoctl/cores/v1.19.32/mihomo"
+mihomoctl init --core "${XDG_DATA_HOME:-$HOME/.local/share}/mihomoctl/cores/v1.19.33/mihomo"
 mihomoctl config validate
 ```
 

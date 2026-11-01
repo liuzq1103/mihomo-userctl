@@ -46,7 +46,7 @@ Record every affected group's original choice. Adjust the regional group first, 
 Python installations need a trusted core. On a new x86_64 setup, explicitly install the maintained fixed version if needed. Preserve existing managers and active cores:
 
 ```bash
-mihomoctl core install --version v1.19.32
+mihomoctl core install --version v1.19.33
 mihomoctl init --core /absolute/path/to/mihomo
 mihomoctl config validate
 mihomoctl start

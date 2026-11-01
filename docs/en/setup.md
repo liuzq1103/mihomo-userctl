@@ -44,12 +44,12 @@ Configuration is what resets, not the installation: the Mihomo core binary, the 
 
 ## Explicitly install a fixed core
 
-For a new installation with no trusted existing core and network access allowed, default to **v1.19.32** without asking the user to choose a version. This is the project's fixed tested version, not a claim about the latest upstream release. The included digest currently covers only Linux **x86_64 / amd64-compatible**:
+For a new installation with no trusted existing core and network access allowed, default to **v1.19.33** without asking the user to choose a version. This is the project's fixed tested version, not a claim about the latest upstream release. The included digest currently covers only Linux **x86_64 / amd64-compatible**:
 
 ```bash
-mihomoctl core install --version v1.19.32
+mihomoctl core install --version v1.19.33
 mihomoctl core list
-mihomoctl init --core "${XDG_DATA_HOME:-$HOME/.local/share}/mihomoctl/cores/v1.19.32/mihomo"
+mihomoctl init --core "${XDG_DATA_HOME:-$HOME/.local/share}/mihomoctl/cores/v1.19.33/mihomo"
 mihomoctl config validate
 ```
 

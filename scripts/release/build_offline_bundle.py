@@ -85,7 +85,7 @@ def build(artifacts, wheelhouse, target, output, worktree=False):
         "Read docs/en/agent-local-install-prompt.md (or docs/zh-CN/agent-local-install-prompt.md).\n"
         "Strict offline: prepare a verified compatible core BEFORE installation; report missing inputs early.\n"
         "Local source does not imply strict offline: when networking is allowed, new x86_64 setups\n"
-        "without a trusted core explicitly install fixed v1.19.32, then init and config validate.\n"
+        "without a trusted core explicitly install fixed v1.19.33, then init and config validate.\n"
         "The built-in core digest covers amd64-compatible only; other architectures need a checked digest.\n"
         "Preserve existing managers; do not repeat init or proactively core install (it may restart the runtime).\n"
         "The enclosed receipt/checksums alone do not independently authenticate the source.\n" % source_stem(version)

@@ -87,7 +87,7 @@ class RealCoreTests(unittest.TestCase):
                     except ControlError:
                         if time.monotonic()>deadline: raise
                         time.sleep(.05)
-                self.assertEqual(client.request('/version')['version'].lstrip('v'),'1.19.32')
+                self.assertEqual(client.request('/version')['version'].lstrip('v'),'1.19.33')
                 service=ConsoleService(path,str(root))
                 with patch.object(service,'client',return_value=client), patch.object(svc,'TEST_URL','http://127.0.0.1:'+str(target.server_port)+'/'):
                     nodes=svc.snapshot(client,'nodes')['nodes']
@@ -108,9 +108,8 @@ class RealCoreTests(unittest.TestCase):
         """Two controllable CONNECT proxies, a local target, and a real core."""
         class Target(BaseHTTPRequestHandler):
             def do_HEAD(self):
-                # v1.19.32 rounds down to milliseconds and treats a zero
-                # LastDelayForTestUrl as 0xffff even when the probe is alive.
-                # A real positive baseline is required for fastest selection.
+                # Keep a positive delay floor so scheduling jitter cannot
+                # obscure the deliberate difference between the two proxies.
                 time.sleep(.02)
                 self.send_response(204)
                 self.end_headers()

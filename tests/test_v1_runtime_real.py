@@ -393,24 +393,24 @@ class ProcessAcceptance(unittest.TestCase):
             scope = Scope()
             with patch.object(ProcessBackend, "start", fail_new_backend):
                 with self.assertRaises(ObservedStateError):
-                    coreinstall.install(scope, "v1.19.32")
+                    coreinstall.install(scope, "v1.19.33")
             self.assertTrue(self.manager_path.read_bytes() == original_manager,
                             "failed activation did not restore original binding")
-            self.assertFalse((scope.cores_root / "v1.19.32/mihomo").exists(),
+            self.assertFalse((scope.cores_root / "v1.19.33/mihomo").exists(),
                              "failed activation left a published candidate")
             self.assertEqual(coreinstall._application(scope).status()["overall"], "PASS",
                              "failed update did not restore the running old core")
             # Receipt durability can fail after activation; recover the old runtime too.
             with patch("mihomoctl.transaction.Transaction.commit", side_effect=OSError("injected-journal-failure")):
                 with self.assertRaises(OSError):
-                    coreinstall.install(scope, "v1.19.32")
+                    coreinstall.install(scope, "v1.19.33")
             self.assertTrue(self.manager_path.read_bytes() == original_manager,
                             "failed commit did not restore original binding")
-            self.assertFalse((scope.cores_root / "v1.19.32/mihomo").exists(),
+            self.assertFalse((scope.cores_root / "v1.19.33/mihomo").exists(),
                              "failed commit left a published candidate")
             self.assertEqual(coreinstall._application(scope).status()["overall"], "PASS",
                              "failed commit did not restore the running old core")
-            installed = coreinstall.install(scope, "v1.19.32")
+            installed = coreinstall.install(scope, "v1.19.33")
             self.assertTrue(installed["activated"])
             self.assertNotEqual(installed["binary"], CORE)
             self.assertEqual(coreinstall._application(scope).status()["overall"], "PASS")

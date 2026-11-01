@@ -48,7 +48,7 @@ mihomoctl nodes --json
 Python 安装需先准备可信核心。新 x86_64 环境需要下载时，显式选择已维护摘要的固定版本；已有 manager 不要重复初始化或替换核心：
 
 ```bash
-mihomoctl core install --version v1.19.32
+mihomoctl core install --version v1.19.33
 mihomoctl init --core /absolute/path/to/mihomo
 mihomoctl config validate
 mihomoctl start
