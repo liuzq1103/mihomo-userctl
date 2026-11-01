@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased / 未发布
+## [1.5.1] - 2026-11-01
 
 - Update the fixed Linux amd64-compatible bundle and acceptance core to Mihomo v1.19.33 using the official asset digest; retain the reviewed v1.19.32 digest for explicit installs. Existing user cores are not upgraded automatically.
 - 完整包与验收固定核心升级至 Mihomo v1.19.33（Linux amd64-compatible），核对官方资产摘要，保留 v1.19.32 的已审核摘要供显式安装；不自动升级用户现有核心。

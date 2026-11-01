@@ -4,8 +4,8 @@
 
 [English](README.en.md) · [安装与升级](INSTALL.md) · [双语文档](docs/README.md)
 
-<!-- stable-version: 1.5.0 -->
-本源码版本：**1.5.0**。完整安装包由 GitHub Releases 提供。下列公共索引命令需要 PyPI 项目正式发布；该通道启用前，可安装发行页的 wheel 或本地源码。
+<!-- stable-version: 1.5.1 -->
+本源码版本：**1.5.1**。完整安装包由 GitHub Releases 提供。下列公共索引命令需要 PyPI 项目正式发布；该通道启用前，可安装发行页的 wheel 或本地源码。
 
 ## 两种安装方式
 
